@@ -133,7 +133,7 @@ def write_full_report(out_dir: Path, user_id: str | None = None) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate BMO feedback analytics from Supabase.")
+    parser = argparse.ArgumentParser(description="Generate Bmo feedback analytics from Supabase.")
     parser.add_argument("--out", default="analytics_output")
     parser.add_argument("--user", default=None, help="Limit to a single user id")
     args = parser.parse_args()

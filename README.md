@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src=".github/assets/logo.svg" alt="BMO" width="120" align="absmiddle" /></h1>
+<h1><img src=".github/assets/logo.svg" alt="Bmo" width="120" align="absmiddle" /></h1>
 
 A streaming AI chat workspace and agent built on a plain JavaScript frontend and a Flask backend proxying NVIDIA inference and Supabase storage. Chat on the web or over WhatsApp.
 
@@ -18,9 +18,9 @@ A streaming AI chat workspace and agent built on a plain JavaScript frontend and
 
 ---
 
-## What is BMO
+## What is Bmo
 
-BMO is a proprietary AI chat app and agent workspace. It streams responses token by token over Server-Sent Events, renders Markdown, code blocks, and math formulas as they arrive, and supports image generation, document parsing, and voice interaction.
+Bmo is a proprietary AI chat app and agent workspace. It streams responses token by token over Server-Sent Events, renders Markdown, code blocks, and math formulas as they arrive, and supports image generation, document parsing, and voice interaction.
 
 The browser client uses HTML, CSS, and plain ES modules without build tools, frameworks, or bundlers. The backend is a Flask gateway that authenticates Supabase user tokens, enforces rate limits, and routes inference to NVIDIA endpoints.
 
@@ -37,7 +37,7 @@ The browser client uses HTML, CSS, and plain ES modules without build tools, fra
 - **Model routing**: Switch between all-round help (Stanza 2.5 powered by Mistral AI), deep reasoning (Nexos 3.0), and image generation (Iris 1.0).
 - **Document parsing**: Drop in PDF, DOCX, XLSX, PPTX, or ZIP files to extract text and analyze contents.
 - **Vision processing**: Attach images to route prompts to a vision model.
-- **Autonomous web search**: BMO decides on its own when a question needs live results and searches via TinyFish. A search card above the answer shows the query it ran, the pages it read with their freshness, and how long the search took. Full page scraping for pasted URLs.
+- **Autonomous web search**: Bmo decides on its own when a question needs live results and searches via TinyFish. A search card above the answer shows the query it ran, the pages it read with their freshness, and how long the search took. Full page scraping for pasted URLs.
 - **Voice assistant**: Speech to text and text to speech powered by NVIDIA Riva.
 - **Server cancellation**: Stopping a response halts generation on the server immediately using an internal stream registry.
 
@@ -97,7 +97,7 @@ Open `http://localhost:5500` in your browser. Configure your Supabase URL and ba
 ## Project structure
 
 ```text
-BMO/
+Bmo/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                Flask gateway, streaming routes, model map

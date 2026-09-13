@@ -305,7 +305,7 @@ def _process_and_reply_async(sender_phone: str, user_prompt: str) -> None:
         logger.exception("Error processing WhatsApp message for %s: %s", sender_phone, exc)
         send_whatsapp_message(
             sender_phone,
-            "Sorry, BMO encountered an issue while generating a response. Please try again in a moment."
+            "Sorry, Bmo encountered an issue while generating a response. Please try again in a moment."
         )
 
 

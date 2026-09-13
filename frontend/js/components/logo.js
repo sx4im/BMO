@@ -20,7 +20,7 @@ export function logo({ size = "md", withLabel = false, withMark = true } = {}) {
     {
       href: "#/",
       class: `logo ${size === "sm" ? "sm" : ""}`,
-      "aria-label": "BMO",
+      "aria-label": "Bmo",
     },
     [
       withMark ? el("span", { class: "mark", html: MARK_SVG }) : null,

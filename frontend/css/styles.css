@@ -7408,6 +7408,32 @@ body:has(.chat-page.is-empty) .tools-menu,
 }
 
 @media (max-width: 380px) {
+  /* Really small devices (iPhone SE, etc.) — move GitHub button down */
+  .hero-actions {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+
+  .hero-actions .btn {
+    width: 100% !important;
+    flex: none !important;
+    height: 44px !important;
+    padding: 0 16px !important;
+    font-size: 14px !important;
+    gap: 10px !important;
+    justify-content: center !important;
+    white-space: nowrap !important;
+    box-sizing: border-box !important;
+  }
+
+  .hero-actions .btn svg {
+    width: 18px !important;
+    height: 18px !important;
+    flex-shrink: 0 !important;
+  }
+
   .landing-nav-bar .logo .name {
     font-size: 15px;
   }

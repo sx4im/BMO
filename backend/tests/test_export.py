@@ -163,7 +163,7 @@ def test_valid_markdown_export(client):
     text = res.data.decode("utf-8")
     assert "Quantum Computing Overview" in text
     assert "Generated on" in text
-    assert "Created with BMO" in text
+    assert "Created with Bmo" in text
 
 
 def test_valid_pdf_export(client):

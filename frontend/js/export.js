@@ -105,7 +105,7 @@ export function detectExportIntent(rawPrompt) {
  * Builds the standardized canonical Markdown document from message content and metadata.
  */
 export function buildCanonicalMarkdown({ title, content, date } = {}) {
-  const cleanTitle = (title || "").trim() || "BMO AI response";
+  const cleanTitle = (title || "").trim() || "Bmo AI response";
   const d = date instanceof Date ? date : new Date();
   const dateStr = d.toLocaleDateString("en-US", {
     year: "numeric",
@@ -123,7 +123,7 @@ export function buildCanonicalMarkdown({ title, content, date } = {}) {
   if (!startsWithH1) {
     headerParts.push(`# ${cleanTitle}\n`);
   }
-  headerParts.push(`*Generated on ${dateStr} · Created with BMO*\n`);
+  headerParts.push(`*Generated on ${dateStr} · Created with Bmo*\n`);
   headerParts.push("---\n");
 
   return `${headerParts.join("\n")}\n${body}\n`;
@@ -173,7 +173,7 @@ export function downloadBlob(blob, filename) {
  * Builds a clean Word-compatible document blob from HTML markup.
  */
 export function buildClientDocxBlob({ title, htmlContent } = {}) {
-  const cleanTitle = (title || "BMO AI Document").trim();
+  const cleanTitle = (title || "Bmo AI Document").trim();
   const docHtml = `<!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
 <head>
@@ -206,7 +206,7 @@ export function buildClientDocxBlob({ title, htmlContent } = {}) {
  * Opens a print dialog formatted for clean saving to PDF.
  */
 export function printDocumentToPdf({ title, htmlContent } = {}) {
-  const cleanTitle = (title || "BMO AI Document").trim();
+  const cleanTitle = (title || "Bmo AI Document").trim();
   const printWindow = window.open("", "_blank", "width=850,height=900");
   if (!printWindow) {
     window.print();

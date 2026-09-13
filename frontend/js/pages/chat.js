@@ -117,7 +117,7 @@ export async function renderChat({ id, incognito }) {
 
   async function handleDirectDownload({ title, content, format }) {
     if (!content || !format) return;
-    const docTitle = (title || conversation?.title || "BMO AI Document").trim();
+    const docTitle = (title || conversation?.title || "Bmo AI Document").trim();
     const filename = formatExportFilename(docTitle, format);
 
     if (format === "md") {

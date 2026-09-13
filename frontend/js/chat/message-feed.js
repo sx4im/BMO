@@ -42,7 +42,7 @@ export function imageGeneratingNode() {
   return el("article", { class: "message assistant searching" }, [
     el("div", { class: "body" }, [
       el("div", { class: "meta" }, [
-        el("span", { class: "author", text: "BMO" }),
+        el("span", { class: "author", text: "Bmo" }),
         el("span", { text: "·" }),
         el("span", { class: "status-text", text: label }),
       ]),

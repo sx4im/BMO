@@ -113,7 +113,7 @@ def test_codestral_extended_thinking_injection(monkeypatch):
 
     # 1. Extended thinking ON (high) with existing system message
     messages = [
-        {"role": "system", "content": "You are BMO."},
+        {"role": "system", "content": "You are Bmo."},
         {"role": "user", "content": "solve a hard algorithm"},
     ]
     list(mistral_client.iter_response(messages, model="codestral-2508", reasoning_effort="high"))
@@ -125,7 +125,7 @@ def test_codestral_extended_thinking_injection(monkeypatch):
     # 2. Extended thinking OFF (low)
     mock_client.reset_mock()
     messages_low = [
-        {"role": "system", "content": "You are BMO."},
+        {"role": "system", "content": "You are Bmo."},
         {"role": "user", "content": "write hello world"},
     ]
     list(mistral_client.iter_response(messages_low, model="codestral-2508", reasoning_effort="low"))

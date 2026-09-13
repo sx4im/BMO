@@ -71,7 +71,7 @@ export async function renderLanding() {
               type: "button",
               class: "btn sm nav-action-btn",
               onclick: startSignIn,
-              text: "Try BMO",
+              text: "Try Bmo",
             }),
           ]),
         ]),
@@ -89,7 +89,7 @@ export async function renderLanding() {
               `<span class="line">Your private</span><span class="line"><span class="accent">AI</span> conversation lab.</span>`
             }),
             el("p", { class: "hero-desc",
-              text: "BMO is a streaming AI chat workspace. Sign in with Google, pick a mode per chat, attach images, and talk to it by voice."
+              text: "Bmo is a streaming AI chat workspace. Sign in with Google, pick a mode per chat, attach images, and talk to it by voice."
             }),
             el("div", { class: "hero-actions" }, [
               el("button", {

@@ -276,7 +276,7 @@ export function renderSidebar(container, props) {
       el("a", {
         href: "#/",
         class: "sidebar-brand",
-        "aria-label": "BMO home",
+        "aria-label": "Bmo home",
         text: "Bmo.",
       }),
       el("button", {

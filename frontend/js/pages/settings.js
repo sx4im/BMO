@@ -176,7 +176,7 @@ export async function renderSettings() {
       el("div", { class: "settings-field" }, [
         el("label", { class: "field-label", text: "What should we call you?" }),
         nameInput,
-        el("p", { class: "field-hint", text: "Shown across BMO. Leave empty to use your account name." }),
+        el("p", { class: "field-hint", text: "Shown across Bmo. Leave empty to use your account name." }),
       ])
     );
     profileChildren.push(
@@ -260,9 +260,9 @@ export async function renderSettings() {
     el("div", { class: "settings-card glass" }, [
       el("div", { class: "section-title" }, [
         el("div", { class: "icon-box", html: icon("about", { width: 16, height: 16 }) }),
-        el("h2", { text: "About BMO" }),
+        el("h2", { text: "About Bmo" }),
       ]),
-      el("p", { class: "footnote", text: "BMO is a streaming AI chat workspace. Pick from multiple AI modes, attach images and documents, and talk by voice, all in one place." }),
+      el("p", { class: "footnote", text: "Bmo is a streaming AI chat workspace. Pick from multiple AI modes, attach images and documents, and talk by voice, all in one place." }),
     ])
   );
 

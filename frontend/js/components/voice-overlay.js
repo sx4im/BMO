@@ -176,10 +176,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   });
 
   const overlay = el("div", {
-    class: "voice-overlay", role: "dialog", "aria-modal": "true", "aria-label": "BMO Voice",
+    class: "voice-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Bmo Voice",
   }, [
     el("header", { class: "voice-header" }, [
-      el("span", { class: "voice-title" }, [el("strong", { text: "BMO" }), el("span", { text: " Voice" })]),
+      el("span", { class: "voice-title" }, [el("strong", { text: "Bmo" }), el("span", { text: " Voice" })]),
     ]),
     el("div", { class: "voice-stage" }, [globe, statusText, transcriptText]),
     el("div", { class: "voice-bar" }, [
