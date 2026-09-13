@@ -418,14 +418,12 @@ def test_supabase_client_accepts_new_format_key():
 
 
 def test_system_prompt_allows_document_generation_and_web_access():
-    """Document mode must fire on write/create/generate, not only export verbs.
-    The model must never claim it cannot browse the web."""
+    """Document requests provide clean markdown. Web access must avoid unsolicited sources."""
     from app.prompts import DEFAULT_SYSTEM_PROMPT, VISION_SYSTEM_PROMPT
 
-    assert "write me a resume" in DEFAULT_SYSTEM_PROMPT
-    assert "create a CV" in DEFAULT_SYSTEM_PROMPT
-    assert "generate a report" in DEFAULT_SYSTEM_PROMPT
-    assert "rate my resume" in DEFAULT_SYSTEM_PROMPT
+    assert "DOCUMENTS, RESUMES & PDF REQUESTS" in DEFAULT_SYSTEM_PROMPT
+    assert "clean Markdown" in DEFAULT_SYSTEM_PROMPT
+    assert "CLEAN CHAT / NO SOURCE LINKS BY DEFAULT" in DEFAULT_SYSTEM_PROMPT
     assert "full live web search and webpage fetching" in DEFAULT_SYSTEM_PROMPT
     assert "Never tell the user to search" in DEFAULT_SYSTEM_PROMPT
     assert "do not add sources, citations, URLs, or Source links" in DEFAULT_SYSTEM_PROMPT
@@ -433,15 +431,9 @@ def test_system_prompt_allows_document_generation_and_web_access():
     assert "newest items by Published date" in DEFAULT_SYSTEM_PROMPT
     assert "Never lead with stale stories" in DEFAULT_SYSTEM_PROMPT
     assert "could not be reached" in DEFAULT_SYSTEM_PROMPT
-    assert "ONLY produce a formal standalone document when the user EXPLICITLY commands" not in DEFAULT_SYSTEM_PROMPT
-    assert "If in doubt, default to a normal conversational chat response" not in DEFAULT_SYSTEM_PROMPT
-    assert "built-in document engine" in DEFAULT_SYSTEM_PROMPT
-    assert "Do NOT say you cannot generate files" in DEFAULT_SYSTEM_PROMPT
 
-    assert "write me a resume" in VISION_SYSTEM_PROMPT
-    assert "create a CV" in VISION_SYSTEM_PROMPT
-    assert "built-in document engine" in VISION_SYSTEM_PROMPT
-    assert "Do NOT say you cannot generate files" in VISION_SYSTEM_PROMPT
+    assert "DOCUMENTS, RESUMES & PDF REQUESTS" in VISION_SYSTEM_PROMPT
+    assert "clean Markdown" in VISION_SYSTEM_PROMPT
     assert "Never claim you cannot browse the web" in VISION_SYSTEM_PROMPT
 
 
@@ -933,6 +925,10 @@ def test_plain_text_untouched():
 def test_channel_tokens_still_stripped_alongside_spans():
     src = '<|channel|>thought<|channel|><span class="hljs-keyword">int</span> x'
     assert _clean_llm_text(src) == "int x"
+
+
+
+
 
 
 # --------------------------------------------------------------------------

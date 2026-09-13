@@ -845,14 +845,13 @@ body:has(.app-shell),
 }
 
 .btn.inverted {
-  background: #fbf9f5;
-  color: #141413;
-  border: 1px solid #fbf9f5;
+  background: var(--ink);
+  color: var(--canvas);
+  border: 1px solid var(--ink);
 }
 
 .btn.inverted:hover {
-  background: #ffffff;
-  border-color: #ffffff;
+  opacity: 0.88;
 }
 
 .btn.google {
@@ -1129,17 +1128,19 @@ body:has(.app-shell),
 
 .landing {
   min-height: 100vh;
-  background: var(--canvas);
+  background: #faf9f5 !important;
+  color: #141413 !important;
+  overflow-x: hidden;
 }
 
 .landing-nav {
   position: sticky;
   top: 0;
   z-index: 30;
-  background: var(--landing-nav-bg);
+  background: rgba(250, 249, 245, 0.88) !important;
   backdrop-filter: blur(12px) saturate(140%);
   -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border-bottom: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid #ebe6df !important;
 }
 
 .landing-nav-inner {
@@ -1157,16 +1158,19 @@ body:has(.app-shell),
 }
 
 .landing-nav-bar .logo {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
+  text-decoration: none;
+  color: #141413 !important;
 }
 
-.landing-nav-bar .logo .mark {
-  height: 32px;
+.landing-nav-bar .logo .mark,
+.landing-nav-bar .logo .bmo-logo-svg,
+.landing-logo {
+  height: 24px;
   width: auto;
-}
-
-.landing-nav-bar .logo .name {
-  font-size: 19px;
+  display: block;
 }
 
 .landing-nav-links {
@@ -1177,22 +1181,29 @@ body:has(.app-shell),
 
 .landing-nav-actions {
   display: flex;
-  gap: 16px;
+  gap: 10px;
   align-items: center;
 }
 
+.btn.nav-action-btn,
 .btn.inverted.nav-action-btn,
 .nav-action-btn {
-  width: 100px;
-  background: #fbf9f5 !important;
+  width: auto;
+  min-width: 90px;
+  background: transparent !important;
   color: #141413 !important;
-  border: 1px solid #fbf9f5 !important;
+  border: 1px solid var(--hairline-strong) !important;
+  border-radius: var(--r-md);
+  font-weight: 500;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
+.btn.nav-action-btn:hover,
 .btn.inverted.nav-action-btn:hover,
 .nav-action-btn:hover {
-  background: #ffffff !important;
-  border-color: #ffffff !important;
+  background: var(--surface-card) !important;
+  border-color: var(--hairline-strong) !important;
+  color: #141413 !important;
 }
 
 @media (min-width: 768px) {
@@ -1260,6 +1271,13 @@ body:has(.app-shell),
     min-height: calc(100vh - 160px);
     /* Fill screen minus header/footer approximate height */
     padding: 0;
+  }
+
+  .landing .hero-preview,
+  video.hero-preview {
+    width: 110%;
+    margin-left: -10%;
+    justify-self: end;
   }
 }
 
@@ -1346,8 +1364,8 @@ body:has(.app-shell),
   overflow: hidden;
   background: var(--surface-card);
   color: var(--on-dark);
-  border: 1px solid var(--hairline);
-  box-shadow: var(--shadow-card);
+  border: none;
+  box-shadow: none;
   aspect-ratio: 4/5;
   /* Tall vertical video frame (Claude style) */
   width: 100%;
@@ -2045,15 +2063,19 @@ body:has(.app-shell),
   0% {
     transform: translate(0, 0) rotate(0deg);
   }
+
   20% {
     transform: translate(-1px, 1.5px) rotate(-1deg);
   }
+
   45% {
     transform: translate(1.5px, -1px) rotate(1deg);
   }
+
   70% {
     transform: translate(-0.5px, 1px) rotate(-0.5deg);
   }
+
   100% {
     transform: translate(0, 0) rotate(0deg);
   }
@@ -2088,21 +2110,25 @@ button:hover .icon-square-pen .square-pen-nib,
   transform-origin: center;
 }
 
-button:hover > .icon-plus,
+button:hover>.icon-plus,
 button:hover .icon-plus,
 .icon-plus:hover {
   transform: rotate(90deg);
 }
 
 @keyframes dotTypingFade {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }
+
   20% {
     opacity: 0.1;
     transform: scale(0.6);
   }
+
   40% {
     opacity: 1;
     transform: scale(1);
@@ -2140,18 +2166,23 @@ button:hover .icon-messageCircleMore .dot-3,
   0% {
     transform: rotate(0deg);
   }
+
   20% {
     transform: rotate(-10deg);
   }
+
   40% {
     transform: rotate(10deg);
   }
+
   60% {
     transform: rotate(-10deg);
   }
+
   80% {
     transform: rotate(5deg);
   }
+
   100% {
     transform: rotate(0deg);
   }
@@ -2175,15 +2206,35 @@ button:hover .icon-circle-help .circle-help-mark,
 
 /* User (Support / System theme) - lucide-animated */
 @keyframes userHeadAnim {
-  0% { transform: scale(1); }
-  35% { transform: scale(0.5); }
-  75% { transform: scale(1.15); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+
+  35% {
+    transform: scale(0.5);
+  }
+
+  75% {
+    transform: scale(1.15);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 @keyframes userBodyAnim {
-  0% { stroke-dasharray: 40; stroke-dashoffset: 40; opacity: 0.2; }
-  100% { stroke-dasharray: 40; stroke-dashoffset: 0; opacity: 1; }
+  0% {
+    stroke-dasharray: 40;
+    stroke-dashoffset: 40;
+    opacity: 0.2;
+  }
+
+  100% {
+    stroke-dasharray: 40;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
 }
 
 .icon-user .user-head {
@@ -2289,15 +2340,19 @@ button:hover .icon-sliders .slider-thumb-3,
   0% {
     transform: translateY(0);
   }
+
   25% {
     transform: translateY(-3px);
   }
+
   50% {
     transform: translateY(0);
   }
+
   75% {
     transform: translateY(-1.5px);
   }
+
   100% {
     transform: translateY(0);
   }
@@ -2316,23 +2371,51 @@ button:hover .icon-mic .mic-capsule,
 
 /* Audio Lines (Voice Assistant) */
 @keyframes audioWave1 {
-  0%, 100% { transform: scaleY(1); }
-  50% { transform: scaleY(0.4); }
+
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  50% {
+    transform: scaleY(0.4);
+  }
 }
 
 @keyframes audioWave2 {
-  0%, 100% { transform: scaleY(1); }
-  50% { transform: scaleY(0.3); }
+
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  50% {
+    transform: scaleY(0.3);
+  }
 }
 
 @keyframes audioWave3 {
-  0%, 100% { transform: scaleY(1); }
-  50% { transform: scaleY(1.4); }
+
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  50% {
+    transform: scaleY(1.4);
+  }
 }
 
 @keyframes audioWave4 {
-  0%, 100% { transform: scaleY(1); }
-  50% { transform: scaleY(0.35); }
+
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  50% {
+    transform: scaleY(0.35);
+  }
 }
 
 .icon-audioLines .audio-bar,
@@ -2386,10 +2469,21 @@ button:hover .icon-audio-lines .audio-bar-4,
 
 /* Arrow Up (Send Button) */
 @keyframes arrowUpBounce {
-  0% { transform: translateY(0); }
-  35% { transform: translateY(-3.5px); }
-  70% { transform: translateY(1px); }
-  100% { transform: translateY(0); }
+  0% {
+    transform: translateY(0);
+  }
+
+  35% {
+    transform: translateY(-3.5px);
+  }
+
+  70% {
+    transform: translateY(1px);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
 }
 
 .icon-arrowUp,
@@ -2438,21 +2532,27 @@ button:hover .icon-logout .logout-stem,
   0% {
     transform: rotate(0deg) translateY(0);
   }
+
   35% {
     transform: rotate(-6deg) translateY(-3px);
   }
+
   65% {
     transform: rotate(2deg) translateY(0.5px);
   }
+
   100% {
     transform: rotate(0deg) translateY(0);
   }
 }
 
 @keyframes glassesNudge {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scale(1) translateY(0);
   }
+
   50% {
     transform: scale(0.96) translateY(1px);
   }
@@ -2494,9 +2594,20 @@ button:hover .icon-hatGlasses .glasses-group,
 
 /* Sun (Light mode) */
 @keyframes sunRayPulse {
-  0% { opacity: 0.2; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.1); }
-  100% { opacity: 1; transform: scale(1); }
+  0% {
+    opacity: 0.2;
+    transform: scale(0.85);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .icon-sun {
@@ -2523,42 +2634,49 @@ button:hover .icon-sun .sun-ray-1,
 .icon-sun:hover .sun-ray-1 {
   animation: sunRayPulse 0.4s ease-out 0s;
 }
+
 .seg-btn:hover .icon-sun .sun-ray-2,
 .ob-theme-tile:hover .icon-sun .sun-ray-2,
 button:hover .icon-sun .sun-ray-2,
 .icon-sun:hover .sun-ray-2 {
   animation: sunRayPulse 0.4s ease-out 0.04s;
 }
+
 .seg-btn:hover .icon-sun .sun-ray-3,
 .ob-theme-tile:hover .icon-sun .sun-ray-3,
 button:hover .icon-sun .sun-ray-3,
 .icon-sun:hover .sun-ray-3 {
   animation: sunRayPulse 0.4s ease-out 0.08s;
 }
+
 .seg-btn:hover .icon-sun .sun-ray-4,
 .ob-theme-tile:hover .icon-sun .sun-ray-4,
 button:hover .icon-sun .sun-ray-4,
 .icon-sun:hover .sun-ray-4 {
   animation: sunRayPulse 0.4s ease-out 0.12s;
 }
+
 .seg-btn:hover .icon-sun .sun-ray-5,
 .ob-theme-tile:hover .icon-sun .sun-ray-5,
 button:hover .icon-sun .sun-ray-5,
 .icon-sun:hover .sun-ray-5 {
   animation: sunRayPulse 0.4s ease-out 0.16s;
 }
+
 .seg-btn:hover .icon-sun .sun-ray-6,
 .ob-theme-tile:hover .icon-sun .sun-ray-6,
 button:hover .icon-sun .sun-ray-6,
 .icon-sun:hover .sun-ray-6 {
   animation: sunRayPulse 0.4s ease-out 0.2s;
 }
+
 .seg-btn:hover .icon-sun .sun-ray-7,
 .ob-theme-tile:hover .icon-sun .sun-ray-7,
 button:hover .icon-sun .sun-ray-7,
 .icon-sun:hover .sun-ray-7 {
   animation: sunRayPulse 0.4s ease-out 0.24s;
 }
+
 .seg-btn:hover .icon-sun .sun-ray-8,
 .ob-theme-tile:hover .icon-sun .sun-ray-8,
 button:hover .icon-sun .sun-ray-8,
@@ -2568,12 +2686,29 @@ button:hover .icon-sun .sun-ray-8,
 
 /* Moon (Dark mode) */
 @keyframes moonRock {
-  0% { transform: rotate(0deg); }
-  20% { transform: rotate(-12deg); }
-  40% { transform: rotate(12deg); }
-  60% { transform: rotate(-6deg); }
-  80% { transform: rotate(6deg); }
-  100% { transform: rotate(0deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  20% {
+    transform: rotate(-12deg);
+  }
+
+  40% {
+    transform: rotate(12deg);
+  }
+
+  60% {
+    transform: rotate(-6deg);
+  }
+
+  80% {
+    transform: rotate(6deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
+  }
 }
 
 .icon-moon {
@@ -2594,18 +2729,23 @@ button:hover .icon-moon,
   0% {
     transform: scale(1) rotate(0deg);
   }
+
   20% {
     transform: scale(1.18) rotate(-9deg);
   }
+
   40% {
     transform: scale(1.18) rotate(9deg);
   }
+
   60% {
     transform: scale(1.1) rotate(-5deg);
   }
+
   80% {
     transform: scale(1.05) rotate(3deg);
   }
+
   100% {
     transform: scale(1) rotate(0deg);
   }
@@ -6724,31 +6864,31 @@ body:has(.chat-page.is-empty) .tools-menu,
 @media (max-width: 767px) {
 
   /* Sections / heroes — pull oversized whitespace back */
-  .landing-nav-bar .logo .mark {
-    height: 26px;
+  .landing-nav-bar .logo .mark,
+  .landing-nav-bar .logo .bmo-logo-svg,
+  .landing-logo {
+    height: 20px;
     width: auto;
   }
 
-  .landing-nav-bar .logo .name {
-    font-size: 16px;
-  }
-
   .nav-action-btn {
-    width: 80px;
-    padding: 0 6px;
-    font-size: 11.5px;
+    width: auto;
+    min-width: 76px;
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12.5px;
   }
 
   .section {
-    padding: 56px 20px;
+    padding: 48px 16px;
   }
 
   .hero {
-    padding: 48px 20px 40px;
+    padding: 32px 16px 36px;
   }
 
   .hero-grid {
-    gap: 36px;
+    gap: 32px;
   }
 
   .hero-desc {
@@ -6839,23 +6979,28 @@ body:has(.chat-page.is-empty) .tools-menu,
   .hero-actions {
     flex-direction: row;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     flex-wrap: nowrap;
+    width: 100%;
+    margin-top: 24px;
   }
 
   .hero-actions .btn {
     width: auto;
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     height: 40px;
-    padding: 0 6px;
-    font-size: 11.5px;
-    gap: 4px;
+    padding: 0 8px;
+    font-size: 12px;
+    gap: 6px;
+    justify-content: center;
     white-space: nowrap;
+    box-sizing: border-box;
   }
 
   .hero-actions .btn svg {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
   }
 

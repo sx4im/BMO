@@ -6,6 +6,7 @@ import { toast } from "./components/toast.js?v=58";
 import * as api from "./api.js?v=30";
 import { getAuth, signOut } from "./auth.js?v=31";
 import { navigate } from "./router.js?v=31";
+import { applyTheme } from "./prefs.js?v=32";
 
 /**
  * Persistent app shell shared between Chat / Analytics / Settings pages.
@@ -129,6 +130,7 @@ function closeMobile() {
  * Returns { content: HTMLElement, setActiveConversation, refresh }.
  */
 export async function mountAppShell() {
+  applyTheme();
   const root = $("#app");
   if (nodes && nodes.content && nodes.content.isConnected) {
     return shellApi();

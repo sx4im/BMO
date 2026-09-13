@@ -87,9 +87,9 @@ const CONFIG_MAP = {
 export function icon(name, opts = {}) {
   if (name === "spike" || name === "mark") {
     const w = opts.width || 16;
-    const h = opts.height || Math.round(w / 3);
+    const h = opts.height || Math.round((w * 167) / 605);
     const cls = ["lucide-icon", `icon-${name}`, opts.className || opts.class || ""].filter(Boolean).join(" ");
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 1895 633" fill="currentColor" class="${cls}" aria-hidden="true">${MARK_PATHS}</svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="207.37 384.74 605.13 167.37" fill="currentColor" class="${cls}" aria-hidden="true">${MARK_PATHS}</svg>`;
   }
   const paths = PATHS[name];
   if (!paths) {

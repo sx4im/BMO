@@ -1,14 +1,20 @@
 import { $, el, clear } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=30";
-import { logo } from "../components/logo.js?v=31";
+import { logo } from "../components/logo.js?v=32";
 import { toast } from "../components/toast.js?v=58";
 import { signInWithGoogle, signInWithGithub, isConfigured } from "../auth.js?v=31";
 import { navigate } from "../router.js?v=31";
 import { tearDownShell } from "../app-shell.js?v=72";
+import { getThemePref, setThemePref } from "../prefs.js?v=32";
 
 
 export async function renderLanding() {
   tearDownShell();
+  // Landing page strictly uses light theme
+  document.documentElement.dataset.theme = "light";
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) metaTheme.setAttribute("content", "#faf9f5");
+
   const root = $("#app");
   clear(root);
   root.className = "app-root";
@@ -60,11 +66,10 @@ export async function renderLanding() {
         el("div", { class: "landing-nav-bar" }, [
           logo({ size: "md" }),
           el("nav", { class: "landing-nav-links" }),
-          el("div", { class: "landing-nav-actions", style: "display: flex; gap: 8px; align-items: center;" }, [
+          el("div", { class: "landing-nav-actions" }, [
             el("button", {
               type: "button",
-              class: "btn inverted sm nav-action-btn",
-              style: "justify-content: center; background: #fbf9f5 !important; color: #141413 !important; border-color: #fbf9f5 !important;",
+              class: "btn sm nav-action-btn",
               onclick: startSignIn,
               text: "Try BMO",
             }),
@@ -151,6 +156,6 @@ function heroPreview() {
     loop: true,
     muted: true,
     playsinline: true,
-    style: "width: 100%; height: auto; object-fit: cover; padding: 0;"
+    style: "object-fit: cover; padding: 0; border: none;"
   });
 }
