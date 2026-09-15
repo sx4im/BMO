@@ -107,7 +107,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   let audioCtx = null;
   let ttsSource = null;
   let meterRaf = null;
-  let activeSpeech = null;   // current pipelined TTS stream (see createSpeechStream)
+  let activeSpeech = null;   // current speech playback handle
 
   // Voice-activity detection state (tuning constants at the top of the file).
   let vadAnalyser = null;
@@ -596,170 +596,108 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     setTranscript(text);
     setState("thinking", voiceWaitPhrase());
 
-    // Pipeline the reply into TTS: each sentence is synthesized and spoken AS
-    // it streams from the model, so BMO starts talking after the first
-    // sentence instead of waiting for the whole reply + one big TTS call.
-    const speech = audioCtx ? createSpeechStream() : null;
-    activeSpeech = speech;
     let reply = "";
     try {
-      reply = (await sendTurn(text, speech ? { onDelta: (soFar) => speech.pushText(soFar) } : undefined)) || "";
+      reply = (await sendTurn(text)) || "";
     } catch (err) {
       console.warn("[bimo-voice] sendTurn failed:", err?.message);
       toast(err?.message || "Couldn't connect", { tone: "error" });
     }
     turnInFlight = false;
-    if (!active) { speech?.cancel(); return; }
+    if (!active) return;
     setTranscript("");
 
-    if (!speech) { startListening(); return; }
-    speech.finish(reply);
-    const spoke = speech.hasAudio();
-    await speech.done();
-    if (activeSpeech === speech) activeSpeech = null;
-    if (!active || speech.cancelled) return;      // barge-in/close already drives next state
+    if (!reply || !audioCtx) {
+      afterSpeaking();
+      return;
+    }
+
+    let speechText = stripForSpeech(reply);
+    if (!speechText) {
+      afterSpeaking();
+      return;
+    }
+    if (speechText.length > 3900) {
+      const lastPunct = speechText.slice(0, 3900).search(/[.!?][^.!?]*$/);
+      if (lastPunct > 2000) speechText = speechText.slice(0, lastPunct + 1);
+      else speechText = speechText.slice(0, 3900);
+    }
+
+    await speakFullText(speechText);
+    if (!active) return;
     afterSpeaking();
   }
 
   function afterSpeaking() {
     setState("idle", "");
     setTimeout(() => {
-      if (active && !turnInFlight) {
+      if (active && !turnInFlight && !activeSpeech) {
         startListening();
       }
     }, TTS_COOLDOWN_MS);
   }
 
-  // ---------- speaking (pipelined TTS via Web Audio) ----------
-  // Producer/consumer: complete sentences are pushed in as the reply streams;
-  // one synth runs ahead while the previous clip plays, and clips play
-  // back-to-back. ponytail: regex sentence split — good enough for speech;
-  // swap for a real segmenter only if clause handling ever matters.
-  function createSpeechStream() {
+  // ---------- speaking (TTS via Web Audio) ----------
+  // Synthesize and play the full generated reply as a single seamless audio clip,
+  // preventing any pauses or delays mid-speech.
+  function speakFullText(textToSpeak) {
     let cancelled = false;
-    let offset = 0;          // source chars already enqueued for synthesis
-    let synthing = false;
-    let playing = false;
-    let finished = false;
-    let queuedSpeech = false;   // text was sent to /tts
-    let playedAudio = false;    // at least one chunk decoded and played
-    let ttsErrorShown = false;
-    const synthQueue = [];
-    const playQueue = [];
     let resolveDone;
     const donePromise = new Promise((r) => { resolveDone = r; });
-    const FIRST_SPLIT_RE = /[^.!?…,\n;:]+[.!?…,\n;:]+/g;
-    const SENTENCE_RE = /[^.!?…\n]+[.!?…\n]+/g;
-    // Coalesce sentences AFTER the first clip so a long reply is a few /tts
-    // calls, not dozens (the backend rate-limits /tts). The first clip flushes
-    // immediately, so time-to-first-audio stays low.
-    const MIN_CHUNK_CHARS = 100;
-    let pendingBuf = "";
 
-    function pushText(soFar) {
-      if (cancelled || typeof soFar !== "string") return;
-      const pending = soFar.slice(offset);
-      let m, lastEnd = 0;
-      const regex = !queuedSpeech ? FIRST_SPLIT_RE : SENTENCE_RE;
-      regex.lastIndex = 0;
-      while ((m = regex.exec(pending))) {
-        lastEnd = regex.lastIndex;
-        pendingBuf += m[0];
-        if (!queuedSpeech || pendingBuf.length >= MIN_CHUNK_CHARS) flushBuf();
-      }
-      offset += lastEnd;
-
-      // If pendingBuf without punctuation is already 35+ chars and has spaces, flush early for immediate audio!
-      if (!queuedSpeech && pending.length > 35 && /\s/.test(pending)) {
-        const lastSpace = pending.lastIndexOf(" ");
-        if (lastSpace > 20) {
-          pendingBuf += pending.slice(0, lastSpace);
-          offset += lastSpace;
-          flushBuf();
-        }
-      }
-    }
-    function finish(finalText) {
-      if (cancelled) { resolveDone(); return; }
-      if (typeof finalText === "string" && finalText.length > offset) {
-        pendingBuf += finalText.slice(offset);
-        offset = finalText.length;
-      }
-      flushBuf();
-      finished = true;
-      settleIfDone();
-    }
-    function flushBuf() {
-      const speech = stripForSpeech(pendingBuf);
-      pendingBuf = "";
-      if (!speech) return;
-      synthQueue.push(speech.slice(0, 1500));
-      queuedSpeech = true;
-      pumpSynth();
-    }
-    function reportTtsError(err) {
-      console.warn("[bimo-voice] TTS chunk failed:", err?.message);
-      if (ttsErrorShown || cancelled) return;
-      ttsErrorShown = true;
-      toast(err?.message || "Speech failed", { tone: "error" });
-    }
-    async function pumpSynth() {
-      if (synthing || cancelled) return;
-      const chunk = synthQueue.shift();
-      if (chunk == null) { settleIfDone(); return; }
-      synthing = true;
-      let bytes = null;
-      try { bytes = await api.synthesizeSpeech(token, chunk); }
-      catch (err) { reportTtsError(err); }
-      if (cancelled) { synthing = false; return; }
-      if (bytes) {
-        try {
-          playQueue.push(await audioCtx.decodeAudioData(bytes.slice(0)));
-          pumpPlay();
-        } catch (err) {
-          reportTtsError(err instanceof Error ? err : new Error("Could not decode speech audio"));
-        }
-      }
-      synthing = false;
-      pumpSynth();   // synthesize the next chunk while the current one plays
-    }
-    function pumpPlay() {
-      if (playing || cancelled) return;
-      const buf = playQueue.shift();
-      if (!buf) { settleIfDone(); return; }
-      playing = true;
-      playedAudio = true;
-      if (state !== "speaking") setState("speaking", "Speaking…");
-      if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
-      const source = audioCtx.createBufferSource();
-      source.buffer = buf;
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyser.connect(audioCtx.destination);
-      ttsSource = source;
-      driveGlobe(analyser);
-      source.onended = () => { stopMeter(); ttsSource = null; playing = false; pumpPlay(); };
-      source.start();
-    }
-    function settleIfDone() {
-      if (finished && !synthing && !playing && !synthQueue.length && !playQueue.length) resolveDone();
-    }
-    function cancel() {
-      if (cancelled) return;
-      cancelled = true;
-      pendingBuf = "";
-      synthQueue.length = 0;
-      playQueue.length = 0;
-      resolveDone();
-    }
-    return {
-      pushText, finish, cancel,
+    const handle = {
+      cancel: () => {
+        if (cancelled) return;
+        cancelled = true;
+        resolveDone();
+      },
       done: () => donePromise,
-      hasAudio: () => playedAudio,
-      hadSpeech: () => queuedSpeech,
       get cancelled() { return cancelled; },
     };
+
+    activeSpeech = handle;
+
+    (async () => {
+      try {
+        const bytes = await api.synthesizeSpeech(token, textToSpeak);
+        if (cancelled || !active) { resolveDone(); return; }
+
+        if (audioCtx.state === "suspended") {
+          await audioCtx.resume().catch(() => {});
+        }
+        if (cancelled || !active) { resolveDone(); return; }
+
+        const decoded = await audioCtx.decodeAudioData(bytes);
+        if (cancelled || !active) { resolveDone(); return; }
+
+        setState("speaking", "Speaking…");
+        const source = audioCtx.createBufferSource();
+        source.buffer = decoded;
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        ttsSource = source;
+        driveGlobe(analyser);
+
+        source.onended = () => {
+          stopMeter();
+          ttsSource = null;
+          resolveDone();
+        };
+        source.start();
+      } catch (err) {
+        if (!cancelled && active) {
+          console.warn("[bimo-voice] TTS failed:", err?.message);
+          toast(err?.message || "Speech failed", { tone: "error" });
+        }
+        resolveDone();
+      } finally {
+        if (activeSpeech === handle) activeSpeech = null;
+      }
+    })();
+
+    return handle.done();
   }
 
   function driveGlobe(analyser) {
@@ -792,7 +730,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   // ---------- controls ----------
   function onMicTap() {
     if (!active) return;
-    if (state === "speaking") { stopSpeaking(); startListening(); return; }
+    if (state === "speaking" || activeSpeech) { stopSpeaking(); startListening(); return; }
     if (state === "listening") {
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         // Manual tap = "send what I said now". Force the transcription even
