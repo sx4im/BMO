@@ -9167,35 +9167,34 @@ em {
    The wrapper carries the float/pulse motion and the amplitude-reactive scale
    while speaking. */
 .voice-globe {
-  width: 200px;
-  height: 200px;
+  width: 220px;
+  height: 220px;
   position: relative;
   display: grid;
   place-items: center;
   animation: voiceFloat 6s ease-in-out infinite;
   will-change: transform;
-  /* Clip the video's near-white matte so anti-aliased fringes never read as
-     a ring around the bubble (especially in dark mode). */
   overflow: hidden;
   border-radius: 50%;
+  box-shadow: 0 0 50px rgba(120, 180, 255, 0.35), 0 0 90px rgba(190, 140, 255, 0.2);
+}
+
+:root[data-theme="dark"] .voice-globe {
+  box-shadow: 0 0 60px rgba(56, 189, 248, 0.4), 0 0 110px rgba(168, 85, 247, 0.25);
 }
 
 .voice-globe-video {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
-  /* multiply melts the video's white background into the cream canvas. */
-  mix-blend-mode: multiply;
+  transform: scale(1.04);
   pointer-events: none;
 }
 
-/* On dark canvas multiply leaves a bright square/ring — darken instead and
-   scale up slightly so the asset's white padding falls outside the clip. */
 :root[data-theme="dark"] .voice-globe-video {
-  mix-blend-mode: darken;
-  transform: scale(1.14);
+  transform: scale(1.04);
 }
 
 @keyframes voiceFloat {
@@ -9314,59 +9313,6 @@ em {
   }
 }
 
-/* Mouth — centred under the eyes. Smiles at rest; opens with the audio
-   amplitude (--mouth) while speaking so the orb looks like it's talking. */
-.voice-mouth {
-  position: absolute;
-  left: 50%;
-  top: 60%;
-  transform: translate(-50%, -50%);
-  z-index: 3;
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 30px;
-  pointer-events: none;
-}
-
-.voice-smile {
-  position: absolute;
-  opacity: 1;
-  transition: opacity 0.15s ease;
-}
-
-.voice-smile path {
-  fill: none;
-  /* Soft periwinkle (#cedbff) instead of pure white — bolder + crisper so it
-     reads as solid as the eye-pills rather than a hazy line. */
-  stroke: #cedbff;
-  stroke-width: 11;
-  stroke-linecap: round;
-  filter: drop-shadow(0 0 1.5px rgba(206, 219, 255, 0.5));
-}
-
-/* NOTE: must NOT be named .voice-open — that class is added to <body> while the
-   overlay is open, so this rule would collapse the whole page. */
-.voice-mouth-open {
-  position: absolute;
-  width: calc(24px - var(--mouth, 0) * 6px);
-  height: calc(5px + var(--mouth, 0) * 18px);
-  border-radius: 999px;
-  background: #cedbff;
-  opacity: 0;
-  filter: drop-shadow(0 0 4px rgba(206, 219, 255, 0.6));
-  transition: opacity 0.15s ease;
-}
-
-/* Speaking: the resting smile fades out and the talking mouth fades in
-   (its height tracks --mouth, set per-frame from the audio amplitude). */
-.voice-globe.speaking .voice-smile {
-  opacity: 0;
-}
-
-.voice-globe.speaking .voice-mouth-open {
-  opacity: 1;
-}
 
 /* Bottom control bar */
 .voice-bar {

@@ -126,7 +126,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   // and the amplitude-reactive scale while speaking.
   const globeVideo = el("video", {
     class: "voice-globe-video",
-    src: "/assets/voice-orb.mp4",
+    src: "/assets/voice-orb3.mp4",
     autoplay: true,
     loop: true,
     muted: true,
@@ -139,22 +139,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   // behind it, a specular glint that orbits the bubble, and a mouth that smiles
   // at rest and "talks" (opens with the spoken-audio amplitude). The video
   // already carries the iridescence + blinking eyes; these add the rest of the
-  // face and the sense of life around it. Order/stacking is set in CSS via
-  // z-index, so DOM order here is just for readability.
+  // Orb 3: ethereal fluid iridescent sphere with ambient aura glow.
   const globeGlow = el("div", { class: "voice-glow", "aria-hidden": "true" });
-  const globeShine = el("div", {
-    class: "voice-shine-clip", "aria-hidden": "true",
-    html: `<div class="voice-shine-orbit"><div class="voice-shine"></div></div>`,
-  });
-  const globeMouth = el("div", {
-    class: "voice-mouth", "aria-hidden": "true",
-    html:
-      `<svg class="voice-smile" viewBox="0 0 100 50" width="46" height="24" aria-hidden="true">` +
-      `<path d="M22 16 Q50 40 78 16"/></svg>` +
-      `<span class="voice-mouth-open"></span>`,
-  });
   const globe = el("div", { class: "voice-globe", "aria-hidden": "true" }, [
-    globeGlow, globeVideo, globeShine, globeMouth,
+    globeGlow, globeVideo,
   ]);
   const statusText = el("div", { class: "voice-status", "aria-live": "polite", text: "Start talking" });
   const transcriptText = el("div", { class: "voice-transcript" });
@@ -783,9 +771,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       let sum = 0;
       for (let i = 0; i < data.length; i++) sum += data[i];
       const avg = sum / data.length / 255; // 0..1
-      globe.style.setProperty("--amp", String(1 + Math.min(0.28, avg * 0.5)));
-      // Mouth openness 0..1 — a touch of gain so normal speech clearly opens it.
-      globe.style.setProperty("--mouth", String(Math.min(1, avg * 2.4)));
+      globe.style.setProperty("--amp", String(1 + Math.min(0.24, avg * 0.45)));
       meterRaf = requestAnimationFrame(tick);
     };
     meterRaf = requestAnimationFrame(tick);
@@ -794,7 +780,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   function stopMeter() {
     if (meterRaf) { cancelAnimationFrame(meterRaf); meterRaf = null; }
     globe.style.removeProperty("--amp");
-    globe.style.removeProperty("--mouth"); // mouth eases shut when speech ends
   }
 
   function stopSpeaking() {

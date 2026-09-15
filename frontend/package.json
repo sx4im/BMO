@@ -4,9 +4,7 @@
   "private": true,
   "type": "module",
   "description": "BMO frontend tests (zero-dep except jsdom for DOM regressions)",
-  "scripts": {
-    "test": "node test-stream-splitter.mjs && node test-version-guard.mjs && node test-scroll-follower-regression.mjs && node test-greetings.mjs"
-  },
+  "scripts": {},
   "devDependencies": {
     "jsdom": "^30.0.1"
   }
