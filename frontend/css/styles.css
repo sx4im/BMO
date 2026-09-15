@@ -9176,11 +9176,11 @@ em {
   will-change: transform;
   overflow: hidden;
   border-radius: 50%;
-  box-shadow: 0 0 50px rgba(120, 180, 255, 0.35), 0 0 90px rgba(190, 140, 255, 0.2);
+  box-shadow: none;
 }
 
 :root[data-theme="dark"] .voice-globe {
-  box-shadow: 0 0 60px rgba(56, 189, 248, 0.4), 0 0 110px rgba(168, 85, 247, 0.25);
+  box-shadow: none;
 }
 
 .voice-globe-video {
@@ -9235,83 +9235,6 @@ em {
   transition: transform 80ms ease-out;
 }
 
-/* ---- face + life overlays, layered on top of the (untouched) bubble video.
-   The video supplies the iridescence + blinking eyes; these add a glow, a
-   travelling specular glint, and a mouth that smiles at rest and "talks" with
-   the spoken audio. All are children of .voice-globe, so they float/scale with
-   it for free. ---- */
-
-/* Soft ambient halo behind the bubble — breathes, and grows with the voice
-   because the whole globe scales by --amp while speaking. */
-.voice-glow {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 82%;
-  height: 82%;
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 45%,
-      rgba(120, 180, 255, 0.55), rgba(190, 140, 255, 0.30) 55%, transparent 72%);
-  filter: blur(18px);
-  z-index: 0;
-  animation: voiceGlowBreathe 4.5s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes voiceGlowBreathe {
-
-  0%,
-  100% {
-    opacity: 0.6;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 0.95;
-    transform: scale(1.06);
-  }
-}
-
-/* Orbiting specular highlight — a glass-like glint that travels around the
-   bubble. Clipped to a circle inside the bubble so it never spills onto the
-   cream canvas; screen blend so it brightens whatever it passes over. */
-.voice-shine-clip {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 74%;
-  height: 74%;
-  border-radius: 50%;
-  overflow: hidden;
-  z-index: 2;
-  pointer-events: none;
-}
-
-.voice-shine-orbit {
-  position: absolute;
-  inset: 0;
-  animation: voiceShineOrbit 9s linear infinite;
-}
-
-.voice-shine {
-  position: absolute;
-  left: 50%;
-  top: 12%;
-  width: 44%;
-  height: 44%;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(circle,
-      rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.30) 42%, transparent 70%);
-  mix-blend-mode: screen;
-  filter: blur(4px);
-}
-
-@keyframes voiceShineOrbit {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 
 /* Bottom control bar */

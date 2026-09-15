@@ -139,10 +139,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   // behind it, a specular glint that orbits the bubble, and a mouth that smiles
   // at rest and "talks" (opens with the spoken-audio amplitude). The video
   // already carries the iridescence + blinking eyes; these add the rest of the
-  // Orb 3: ethereal fluid iridescent sphere with ambient aura glow.
-  const globeGlow = el("div", { class: "voice-glow", "aria-hidden": "true" });
   const globe = el("div", { class: "voice-globe", "aria-hidden": "true" }, [
-    globeGlow, globeVideo,
+    globeVideo,
   ]);
   const statusText = el("div", { class: "voice-status", "aria-live": "polite", text: "Start talking" });
   const transcriptText = el("div", { class: "voice-transcript" });
