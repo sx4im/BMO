@@ -445,7 +445,7 @@ export async function renderChat({ id, incognito }) {
   }
 
   async function handleComposerSubmit(turn) {
-    const { text, attachments, model, reasoningEffort, studyMode, autoSearch = true } = turn;
+    const { text, attachments, model, reasoningEffort, studyMode, autoSearch = true, systemPrompt } = turn;
 
     if (model === "image") {
       await sendImageMessage(text, attachments);
@@ -758,6 +758,9 @@ export async function renderChat({ id, incognito }) {
       token: auth.token,
       sendTurn: async (text, opts) => {
         activeVoiceOnDelta = opts?.onDelta || null;
+        const langInstruction = opts?.language && opts.language !== "en"
+          ? `Selected conversation language: ${opts.languageName}. Respond fluently and naturally in ${opts.languageName}.`
+          : undefined;
         try {
           await handleComposerSubmit({
             text,
@@ -766,6 +769,7 @@ export async function renderChat({ id, incognito }) {
             reasoningEffort: "low",
             autoSearch: false,
             studyMode: false,
+            systemPrompt: langInstruction,
           });
           for (let i = messages.length - 1; i >= 0; i--) {
             if (messages[i].role === "assistant") return messages[i].content || "";

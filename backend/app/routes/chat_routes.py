@@ -533,14 +533,21 @@ def chat(user):
                             history, batch_content,
                         )
                     else:
-                        active_sys_prompt = convo.get("system_prompt")
-                        if chosen_friendly == "aeon" and not active_sys_prompt:
-                            active_sys_prompt = AEON_SYSTEM_PROMPT
-                        messages_payload = nvidia_client.build_messages(
-                            history,
-                            batch_content,
-                            system_prompt=active_sys_prompt,
-                        )
+                        if chosen_friendly == "aeon":
+                            extra_sys = convo.get("system_prompt")
+                            messages_payload = nvidia_client.build_messages(
+                                history,
+                                batch_content,
+                                base_system_prompt=AEON_SYSTEM_PROMPT,
+                                system_prompt=extra_sys,
+                            )
+                        else:
+                            active_sys_prompt = convo.get("system_prompt")
+                            messages_payload = nvidia_client.build_messages(
+                                history,
+                                batch_content,
+                                system_prompt=active_sys_prompt,
+                            )
                 else:
                     messages_payload = nvidia_client.build_continuation_messages(
                         history, batch_content,

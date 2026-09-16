@@ -325,11 +325,12 @@ export async function listModels(token) {
 
 // ---------- voice transcription ----------
 
-export async function transcribeAudio(token, audioBlob) {
+export async function transcribeAudio(token, audioBlob, { language } = {}) {
   const execute = async (t) => {
     const fd = new FormData();
     const isWav = (audioBlob.type || "").includes("wav");
     fd.append("audio", audioBlob, isWav ? "recording.wav" : "recording.webm");
+    if (language) fd.append("language", language);
     const response = await fetch(`${config.apiUrl}/transcribe`, {
       method: "POST",
       headers: authHeaders(t),

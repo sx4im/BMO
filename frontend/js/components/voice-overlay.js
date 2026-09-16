@@ -83,6 +83,16 @@ function stripForSpeech(md = "") {
     .trim();
 }
 
+export const VOICE_LANGUAGES = [
+  { id: "en", code: "EN", label: "English", voiceName: "Hannah", model: "flux-hannah-en", recLang: "en-US", flag: "🇺🇸" },
+  { id: "nl", code: "NL", label: "Dutch", voiceName: "Rhea", model: "aura-2-rhea-nl", recLang: "nl-NL", flag: "🇳🇱" },
+  { id: "fr", code: "FR", label: "French", voiceName: "Agathe", model: "aura-2-agathe-fr", recLang: "fr-FR", flag: "🇫🇷" },
+  { id: "de", code: "DE", label: "German", voiceName: "Aurelia", model: "aura-2-aurelia-de", recLang: "de-DE", flag: "🇩🇪" },
+  { id: "it", code: "IT", label: "Italian", voiceName: "Livia", model: "aura-2-livia-it", recLang: "it-IT", flag: "🇮🇹" },
+  { id: "es", code: "ES", label: "Spanish", voiceName: "Celeste", model: "aura-2-celeste-es", recLang: "es-ES", flag: "🇪🇸" },
+  { id: "ja", code: "JA", label: "Japanese", voiceName: "Izanami", model: "aura-2-izanami-ja", recLang: "ja-JP", flag: "🇯🇵" },
+];
+
 /**
  * @param {object} ctx
  * @param {string} ctx.token - Supabase access token for API calls.
@@ -126,6 +136,17 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   let meterRaf = null;
   let activeSpeech = null;   // current speech playback handle
 
+  // Language selection (7 supported languages)
+  let currentLangId = "en";
+  try {
+    const saved = localStorage.getItem("bimo-voice-lang");
+    if (saved && VOICE_LANGUAGES.some((l) => l.id === saved)) currentLangId = saved;
+  } catch {}
+
+  function getLangConfig() {
+    return VOICE_LANGUAGES.find((l) => l.id === currentLangId) || VOICE_LANGUAGES[0];
+  }
+
   // Persistent Deepgram TTS WebSocket across turns
   let ttsWS = null;
 
@@ -135,7 +156,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       return ttsWS;
     }
     try {
-      const streamUrl = api.ttsStreamUrl(token, { model: "flux-hannah-en", sampleRate: 24000 });
+      const activeLang = getLangConfig();
+      const streamUrl = api.ttsStreamUrl(token, { model: activeLang.model, sampleRate: 24000 });
       const ws = new WebSocket(streamUrl);
       ws.binaryType = "arraybuffer";
       ttsWS = ws;
@@ -195,6 +217,103 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     "aria-label": "Type a message",
     onkeydown: (e) => { if (e.key === "Enter") submitTyped(); },
   });
+
+  // Language selector button and popup menu along the text bar
+  const langFlagEl = el("span", { class: "voice-lang-flag", text: getLangConfig().flag });
+  const langCodeEl = el("span", { class: "voice-lang-code", text: getLangConfig().code });
+
+  const langBtn = el("button", {
+    class: "voice-lang-btn",
+    type: "button",
+    "aria-label": `Language: ${getLangConfig().label}`,
+    title: "Change voice language",
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+    onclick: (e) => {
+      e.stopPropagation();
+      toggleLangMenu();
+    },
+  }, [langFlagEl, langCodeEl]);
+
+  const langMenu = el("div", { class: "voice-lang-menu", role: "menu" });
+
+  function renderLangMenu() {
+    clear(langMenu);
+    for (const l of VOICE_LANGUAGES) {
+      const active = l.id === currentLangId;
+      langMenu.append(
+        el("button", {
+          type: "button",
+          class: `voice-lang-item${active ? " active" : ""}`,
+          role: "menuitemradio",
+          "aria-checked": active ? "true" : "false",
+          onclick: (e) => {
+            e.stopPropagation();
+            selectLanguage(l.id);
+          },
+        }, [
+          el("span", { class: "voice-lang-flag", text: l.flag }),
+          el("div", { class: "voice-lang-info" }, [
+            el("span", { class: "voice-lang-label", text: l.label }),
+            el("span", { class: "voice-lang-voice", text: `${l.voiceName} (${l.code})` }),
+          ]),
+          active ? el("span", { class: "voice-lang-check", html: icon("check", { width: 14, height: 14 }) }) : null,
+        ].filter(Boolean))
+      );
+    }
+  }
+
+  function toggleLangMenu(open) {
+    const next = open ?? !langMenu.classList.contains("open");
+    if (next) renderLangMenu();
+    langMenu.classList.toggle("open", next);
+    langBtn.setAttribute("aria-expanded", next ? "true" : "false");
+  }
+
+  function closeLangMenu() {
+    if (langMenu.classList.contains("open")) {
+      langMenu.classList.remove("open");
+      langBtn.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  function selectLanguage(id) {
+    if (currentLangId === id) {
+      closeLangMenu();
+      return;
+    }
+    currentLangId = id;
+    try { localStorage.setItem("bimo-voice-lang", id); } catch {}
+    const conf = getLangConfig();
+    langFlagEl.textContent = conf.flag;
+    langCodeEl.textContent = conf.code;
+    langBtn.setAttribute("aria-label", `Language: ${conf.label}`);
+    closeLangMenu();
+
+    // Reconnect TTS WebSocket for new language model
+    if (ttsWS) {
+      try { ttsWS.close(); } catch {}
+      ttsWS = null;
+    }
+    ensureTTSWS();
+
+    // Update speech recognition language if Web Speech is active
+    if (recognition) {
+      recognition.lang = conf.recLang;
+      if (speechRecSupported && !isBraveBrowser && state === "listening") {
+        stopRecognition();
+        startSpeechRecognition();
+      }
+    }
+  }
+
+  const langWrap = el("div", { class: "voice-lang-wrap" }, [langBtn, langMenu]);
+
+  const onDocClick = (e) => {
+    if (!langWrap.contains(e.target)) closeLangMenu();
+  };
+  document.addEventListener("click", onDocClick);
+
   const micBtn = el("button", {
     class: "voice-mic", type: "button", "aria-label": "Microphone", title: "Talk",
     onclick: onMicTap, html: icon("mic", { width: 22, height: 22 }),
@@ -213,6 +332,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     el("div", { class: "voice-stage" }, [globe, statusText, transcriptText]),
     el("div", { class: "voice-bar" }, [
       el("div", { class: "voice-input-wrap" }, [typeInput]),
+      langWrap,
       micBtn,
       closeBtn,
     ]),
@@ -361,6 +481,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
+      recognition.lang = getLangConfig().recLang;
 
       let lastRecognizedText = "";
 
@@ -630,7 +751,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       const blob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
       let wav;
       try { wav = await blobToWav16kMono(blob); } catch { wav = blob; }
-      const res = await api.transcribeAudio(token, wav);
+      const res = await api.transcribeAudio(token, wav, { language: currentLangId });
       const t = (res?.text || "").trim();
       if (t) endTurn(t);
       else setState("idle", "Didn't catch that — tap the mic");
@@ -655,7 +776,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
     let reply = "";
     try {
-      reply = (await sendTurn(text, speech ? { onDelta: (soFar) => speech.pushText(soFar) } : undefined)) || "";
+      const activeLang = getLangConfig();
+      reply = (await sendTurn(text, {
+        language: activeLang.id,
+        languageName: activeLang.label,
+        onDelta: speech ? (soFar) => speech.pushText(soFar) : undefined,
+      })) || "";
     } catch (err) {
       console.warn("[bimo-voice] sendTurn failed:", err?.message);
       toast(err?.message || "Couldn't connect", { tone: "error" });
@@ -929,7 +1055,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
     (async () => {
       try {
-        const bytes = await api.synthesizeSpeech(token, textToSpeak);
+        const activeLang = getLangConfig();
+        const bytes = await api.synthesizeSpeech(token, textToSpeak, { voice: activeLang.model, language: activeLang.id });
         if (cancelled || !active) { resolveDone(); return; }
 
         if (audioCtx.state === "suspended") {
@@ -1037,6 +1164,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     if (!active) return;
     active = false;
     document.removeEventListener("keydown", onKey);
+    document.removeEventListener("click", onDocClick);
     stopRecognition();
     stopRecorder();
     stopSpeaking();

@@ -578,10 +578,11 @@ def build_messages(
     user_content,
     *,
     system_prompt: Optional[str] = None,
+    base_system_prompt: Optional[str] = None,
     history_limit: int = 24,
 ) -> list[dict]:
-    base_prompt = DEFAULT_SYSTEM_PROMPT
-    if system_prompt:
+    base_prompt = base_system_prompt or DEFAULT_SYSTEM_PROMPT
+    if system_prompt and system_prompt != base_prompt:
         base_prompt = f"{base_prompt}\n\nAdditional instructions: {system_prompt}"
     out: list[dict] = [{"role": "system", "content": base_prompt}]
     history = [m for m in history if m.get("role") in {"user", "assistant"}]
