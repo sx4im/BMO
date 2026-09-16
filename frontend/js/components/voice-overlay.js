@@ -84,13 +84,13 @@ function stripForSpeech(md = "") {
 }
 
 export const VOICE_LANGUAGES = [
-  { id: "en", code: "EN", label: "English", voiceName: "Hannah", model: "flux-hannah-en", recLang: "en-US", flag: "🇺🇸" },
-  { id: "nl", code: "NL", label: "Dutch", voiceName: "Rhea", model: "aura-2-rhea-nl", recLang: "nl-NL", flag: "🇳🇱" },
-  { id: "fr", code: "FR", label: "French", voiceName: "Agathe", model: "aura-2-agathe-fr", recLang: "fr-FR", flag: "🇫🇷" },
-  { id: "de", code: "DE", label: "German", voiceName: "Aurelia", model: "aura-2-aurelia-de", recLang: "de-DE", flag: "🇩🇪" },
-  { id: "it", code: "IT", label: "Italian", voiceName: "Livia", model: "aura-2-livia-it", recLang: "it-IT", flag: "🇮🇹" },
-  { id: "es", code: "ES", label: "Spanish", voiceName: "Celeste", model: "aura-2-celeste-es", recLang: "es-ES", flag: "🇪🇸" },
-  { id: "ja", code: "JA", label: "Japanese", voiceName: "Izanami", model: "aura-2-izanami-ja", recLang: "ja-JP", flag: "🇯🇵" },
+  { id: "en", code: "EN", label: "English", voiceName: "Hannah", model: "flux-hannah-en", recLang: "en-US" },
+  { id: "nl", code: "NL", label: "Dutch", voiceName: "Rhea", model: "aura-2-rhea-nl", recLang: "nl-NL" },
+  { id: "fr", code: "FR", label: "French", voiceName: "Agathe", model: "aura-2-agathe-fr", recLang: "fr-FR" },
+  { id: "de", code: "DE", label: "German", voiceName: "Aurelia", model: "aura-2-aurelia-de", recLang: "de-DE" },
+  { id: "it", code: "IT", label: "Italian", voiceName: "Livia", model: "aura-2-livia-it", recLang: "it-IT" },
+  { id: "es", code: "ES", label: "Spanish", voiceName: "Celeste", model: "aura-2-celeste-es", recLang: "es-ES" },
+  { id: "ja", code: "JA", label: "Japanese", voiceName: "Izanami", model: "aura-2-izanami-ja", recLang: "ja-JP" },
 ];
 
 /**
@@ -219,8 +219,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   });
 
   // Language selector button and popup menu along the text bar
-  const langFlagEl = el("span", { class: "voice-lang-flag", text: getLangConfig().flag });
-  const langCodeEl = el("span", { class: "voice-lang-code", text: getLangConfig().code });
+  const langLabelEl = el("span", { class: "voice-lang-code", text: getLangConfig().label });
 
   const langBtn = el("button", {
     class: "voice-lang-btn",
@@ -229,11 +228,19 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     title: "Change voice language",
     "aria-haspopup": "menu",
     "aria-expanded": "false",
-    onclick: (e) => {
+    onmousedown: (e) => {
+      e.preventDefault();
       e.stopPropagation();
       toggleLangMenu();
     },
-  }, [langFlagEl, langCodeEl]);
+    onclick: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
+  }, [
+    el("span", { class: "voice-lang-icon", html: icon("globe", { width: 15, height: 15 }) }),
+    langLabelEl,
+  ]);
 
   const langMenu = el("div", { class: "voice-lang-menu", role: "menu" });
 
@@ -247,15 +254,19 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
           class: `voice-lang-item${active ? " active" : ""}`,
           role: "menuitemradio",
           "aria-checked": active ? "true" : "false",
-          onclick: (e) => {
+          onmousedown: (e) => {
+            e.preventDefault();
             e.stopPropagation();
             selectLanguage(l.id);
           },
+          onclick: (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          },
         }, [
-          el("span", { class: "voice-lang-flag", text: l.flag }),
           el("div", { class: "voice-lang-info" }, [
             el("span", { class: "voice-lang-label", text: l.label }),
-            el("span", { class: "voice-lang-voice", text: `${l.voiceName} (${l.code})` }),
+            el("span", { class: "voice-lang-voice", text: `${l.voiceName}` }),
           ]),
           active ? el("span", { class: "voice-lang-check", html: icon("check", { width: 14, height: 14 }) }) : null,
         ].filter(Boolean))
@@ -285,8 +296,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     currentLangId = id;
     try { localStorage.setItem("bimo-voice-lang", id); } catch {}
     const conf = getLangConfig();
-    langFlagEl.textContent = conf.flag;
-    langCodeEl.textContent = conf.code;
+    langLabelEl.textContent = conf.label;
     langBtn.setAttribute("aria-label", `Language: ${conf.label}`);
     closeLangMenu();
 
@@ -299,10 +309,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
     // Update speech recognition language if Web Speech is active
     if (recognition) {
-      recognition.lang = conf.recLang;
-      if (speechRecSupported && !isBraveBrowser && state === "listening") {
-        stopRecognition();
-        startSpeechRecognition();
+      try {
+        recognition.lang = conf.recLang;
+        if (speechRecSupported && !isBraveBrowser && state === "listening") {
+          stopRecognition();
+          startSpeechRecognition();
+        }
+      } catch (err) {
+        console.warn("[bimo-voice] recognition lang update error:", err);
       }
     }
   }
@@ -799,27 +813,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     if (speech) {
       speech.finish(reply);
       await speech.done();
-      if (speech.hasAudio()) {
-        if (activeSpeech === speech) activeSpeech = null;
-        if (!active || speech.cancelled) return;
-        afterSpeaking();
-        return;
-      }
-    }
-
-    if (!active || speech?.cancelled) return;
-    let speechText = stripForSpeech(reply);
-    if (!speechText) {
+      if (activeSpeech === speech) activeSpeech = null;
+      if (!active || speech.cancelled) return;
       afterSpeaking();
       return;
     }
-    if (speechText.length > 3900) {
-      const lastPunct = speechText.slice(0, 3900).search(/[.!?][^.!?]*$/);
-      if (lastPunct > 2000) speechText = speechText.slice(0, lastPunct + 1);
-      else speechText = speechText.slice(0, 3900);
-    }
 
-    await speakFullText(speechText);
     if (!active) return;
     afterSpeaking();
   }
