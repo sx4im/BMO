@@ -12,7 +12,7 @@ import requests
 from flask import Blueprint, Response, jsonify, request
 from flask_sock import Sock
 
-from .. import deepgram_tts, image_safety, nvidia_client, riva_transcribe, riva_tts, search_router, store
+from .. import deepgram_tts, image_safety, nvidia_client, riva_transcribe, search_router, store
 from ..auth import require_user, user_from_token
 from ..config import (
     IMAGE_MODEL_ID,
@@ -287,42 +287,31 @@ def tts(user):  # noqa: ARG001
     if language is not None and (not isinstance(language, str) or len(language) > 20):
         return bad_request("invalid language", 422)
 
-    # Prioritize Deepgram (Flux Hannah)
-    if is_deepgram_configured():
-        try:
-            dg_model = voice or get_deepgram_tts_model()
-            endpoint = "v2" if dg_model.startswith("flux") else "v1"
-            resp = requests.post(
-                f"https://api.deepgram.com/{endpoint}/speak?model={dg_model}&encoding=linear16&sample_rate=24000",
-                headers={
-                    "Authorization": f"Token {get_deepgram_api_key()}",
-                    "Content-Type": "application/json",
-                },
-                json={"text": text},
-                timeout=30,
-            )
-            if resp.ok and resp.content:
-                data = resp.content
-                if not data.startswith(b"RIFF"):
-                    data = _pcm_to_wav(data, 24000)
-                return Response(data, mimetype="audio/wav")
-            logger.warning("Deepgram REST TTS returned status %s: %s", resp.status_code, resp.text)
-        except Exception as exc:
-            logger.warning("Deepgram REST TTS failed: %s", exc)
+    if not is_deepgram_configured():
+        return bad_request("Text-to-speech is not configured. Set DEEPGRAM_API_KEY.", 503)
 
-    # Fallback to NVIDIA Riva if available
-    if riva_tts.tts_available():
-        try:
-            wav = riva_tts.synthesize_wav(text, voice=voice, language=language)
-            return Response(wav, mimetype="audio/wav")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Riva TTS failed: %s", exc)
-            return bad_request(f"TTS failed: {exc}", 502)
-
-    return bad_request(
-        "Text-to-speech is not configured. Set DEEPGRAM_API_KEY or configure NVIDIA Riva.",
-        503,
-    )
+    try:
+        dg_model = voice or get_deepgram_tts_model()
+        endpoint = "v2" if dg_model.startswith("flux") else "v1"
+        resp = requests.post(
+            f"https://api.deepgram.com/{endpoint}/speak?model={dg_model}&encoding=linear16&sample_rate=24000",
+            headers={
+                "Authorization": f"Token {get_deepgram_api_key()}",
+                "Content-Type": "application/json",
+            },
+            json={"text": text},
+            timeout=30,
+        )
+        if resp.ok and resp.content:
+            data = resp.content
+            if not data.startswith(b"RIFF"):
+                data = _pcm_to_wav(data, 24000)
+            return Response(data, mimetype="audio/wav")
+        logger.warning("Deepgram REST TTS returned status %s: %s", resp.status_code, resp.text)
+        return bad_request(f"Deepgram TTS synthesis failed ({resp.status_code})", 502)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Deepgram REST TTS failed: %s", exc)
+        return bad_request(f"TTS failed: {exc}", 502)
 
 
 # ---------- Deepgram Aura-1 Streaming TTS (WebSocket) ----------

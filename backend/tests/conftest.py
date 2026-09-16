@@ -14,6 +14,7 @@ def client(monkeypatch):
     monkeypatch.setenv("SUPABASE_STORAGE_BUCKET", "bimo-attachments")
     monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
     monkeypatch.setenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "test-deepgram-key")
     monkeypatch.setenv("CORS_ORIGINS", "*")
 
     main = importlib.import_module("app.main")

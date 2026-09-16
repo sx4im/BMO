@@ -22,6 +22,7 @@ def client(monkeypatch):
     monkeypatch.setenv("SUPABASE_STORAGE_BUCKET", "bimo-attachments")
     monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
     monkeypatch.setenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "test-deepgram-key")
     monkeypatch.setenv("CORS_ORIGINS", "*")
 
     # Re-import so module-level env reads are fresh.
@@ -72,64 +73,27 @@ def test_nvidia_debug_disabled_by_default(client):
 
 
 def test_tts_available_when_key_configured(client):  # noqa: ARG001 — fixture sets env
-    """Bimo Voice TTS is available when the NVIDIA key + riva client are present."""
-    from app import riva_tts
+    """Bimo Voice TTS is available when the Deepgram key is present."""
+    from app import config
 
-    assert riva_tts.tts_available() is True
+    assert config.is_deepgram_configured() is True
 
 
-def test_riva_tts_wraps_pcm_into_wav(monkeypatch):
-    """synthesize_wav must turn the model's raw LINEAR_PCM into a valid mono
-    16-bit WAV the browser can decode — verified without touching the network
-    by faking the riva client."""
+def test_pcm_to_wav_wrapper():
+    """_pcm_to_wav must wrap raw linear PCM into a valid mono 16-bit WAV container."""
     import io
-    import sys
-    import types
     import wave
+    from app.routes.media_routes import _pcm_to_wav
 
-    from app import riva_tts
-
-    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test-key")
-
-    captured = {}
-
-    class _Enc:
-        LINEAR_PCM = 1
-
-    class _Auth:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class _Resp:
-        audio = b"\x01\x00" * 800  # 800 int16 PCM samples
-
-    class _Svc:
-        def __init__(self, auth):
-            pass
-
-        def synthesize(self, **kwargs):
-            captured.update(kwargs)
-            return _Resp()
-
-    fake_riva = types.ModuleType("riva")
-    fake_client = types.ModuleType("riva.client")
-    fake_client.Auth = _Auth
-    fake_client.SpeechSynthesisService = _Svc
-    fake_client.AudioEncoding = _Enc
-    fake_riva.client = fake_client
-    monkeypatch.setitem(sys.modules, "riva", fake_riva)
-    monkeypatch.setitem(sys.modules, "riva.client", fake_client)
-
-    wav = riva_tts.synthesize_wav("hello world", voice="Magpie-Multilingual.EN-US.Aria")
+    raw_pcm = b"\x01\x00" * 800  # 800 int16 PCM samples
+    wav = _pcm_to_wav(raw_pcm, sample_rate=24000)
 
     assert wav[:4] == b"RIFF" and wav[8:12] == b"WAVE"
     with wave.open(io.BytesIO(wav), "rb") as wf:
         assert wf.getnchannels() == 1
         assert wf.getsampwidth() == 2
         assert wf.getnframes() == 800
-    # The voice we passed must reach the model.
-    assert captured["voice_name"] == "Magpie-Multilingual.EN-US.Aria"
-    assert captured["encoding"] == _Enc.LINEAR_PCM
+        assert wf.getframerate() == 24000
 
 
 def test_security_headers_present(client):

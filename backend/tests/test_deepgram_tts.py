@@ -127,17 +127,16 @@ def test_rest_tts_fallback_to_deepgram(client, monkeypatch):
         algorithm="HS256",
     )
 
-    with patch("app.routes.media_routes.riva_tts.tts_available", return_value=False):
-        with patch("app.routes.media_routes.requests.post") as mock_post:
-            mock_post.return_value.ok = True
-            mock_post.return_value.content = b"RIFFmockwavcontent"
+    with patch("app.routes.media_routes.requests.post") as mock_post:
+        mock_post.return_value.ok = True
+        mock_post.return_value.content = b"RIFFmockwavcontent"
 
-            res = client.post(
-                "/tts",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"text": "Hello fallback"},
-            )
-            assert res.status_code == 200
-            assert res.data == b"RIFFmockwavcontent"
-            assert mock_post.called
-            assert "deepgram.com" in mock_post.call_args[0][0]
+        res = client.post(
+            "/tts",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"text": "Hello fallback"},
+        )
+        assert res.status_code == 200
+        assert res.data == b"RIFFmockwavcontent"
+        assert mock_post.called
+        assert "deepgram.com" in mock_post.call_args[0][0]
