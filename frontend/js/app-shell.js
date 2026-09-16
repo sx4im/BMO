@@ -1,5 +1,5 @@
 import { $, el, clear } from "./utils.js?v=30";
-import { icon } from "./icons.js?v=68";
+import { icon } from "./icons.js?v=69";
 import { renderSidebar } from "./components/sidebar.js?v=62";
 import { openChatSearch } from "./components/chat-search.js?v=31";
 import { toast } from "./components/toast.js?v=58";
