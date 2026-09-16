@@ -126,9 +126,15 @@ def relay_tts_stream(
     except DgConnectionClosed as exc:
         logger.warning("Deepgram streaming connection closed: %s", exc)
     except Exception as exc:
-        logger.exception("Failed to connect to Deepgram streaming TTS: %s", exc)
+        err_detail = str(exc)
+        if hasattr(exc, "response"):
+            resp = getattr(exc, "response", None)
+            if resp:
+                body = getattr(resp, "body", b"")
+                err_detail = f"status={getattr(resp, 'status_code', '?')}, body={body.decode('utf-8', errors='ignore') if isinstance(body, (bytes, bytearray)) else body}"
+        logger.warning("Failed to connect to Deepgram streaming TTS (%s): %s", chosen_model, err_detail)
         try:
-            client_ws.send(json.dumps({"type": "Error", "message": f"Deepgram connection failed: {exc}"}))
+            client_ws.send(json.dumps({"type": "Error", "message": f"Deepgram connection failed: {err_detail}"}))
         except Exception:
             pass
     finally:

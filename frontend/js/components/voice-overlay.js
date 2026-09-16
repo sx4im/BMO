@@ -104,6 +104,23 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   let recognition = null;
   let speechRecSupported = !!SpeechRec;
 
+  // Brave disables Google's Web Speech backend by default for privacy.
+  // Proactively detect Brave and route straight to MediaRecorder + Whisper/Riva.
+  let isBraveBrowser = false;
+  if (typeof navigator !== "undefined" && navigator.brave && typeof navigator.brave.isBrave === "function") {
+    navigator.brave.isBrave().then((val) => {
+      if (val) {
+        console.info("[bimo-voice] Brave detected; routing speech input to MediaRecorder");
+        isBraveBrowser = true;
+        speechRecSupported = false;
+        if (state === "listening" && recognition) {
+          stopRecognition();
+          startRecorder();
+        }
+      }
+    }).catch(() => {});
+  }
+
   let audioCtx = null;
   let ttsSource = null;
   let meterRaf = null;
@@ -228,7 +245,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     setTranscript("");
     setState("listening", "Listening…");
     micBtn.classList.add("active");
-    if (speechRecSupported) {
+    if (speechRecSupported && !isBraveBrowser) {
       startSpeechRecognition();
     } else {
       startRecorder();
@@ -346,20 +363,31 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
       recognition.onerror = (event) => {
         console.warn("[bimo-voice] Web Speech error:", event?.error);
-        if (event?.error === "not-allowed" || event?.error === "service-not-allowed" || event?.error !== "no-speech") {
+        if (event?.error !== "no-speech") {
           speechRecSupported = false;
+          stopRecognition();
           startRecorder();
         }
       };
 
+      let emptyEndCount = 0;
       recognition.onend = () => {
         if (active && state === "listening" && !turnInFlight) {
           const text = lastRecognizedText.trim();
           if (text) {
             lastRecognizedText = "";
+            emptyEndCount = 0;
             stopRecognition();
             endTurn(text);
           } else {
+            emptyEndCount++;
+            if (emptyEndCount >= 2) {
+              console.warn("[bimo-voice] Web Speech ended repeatedly without results, falling back to MediaRecorder");
+              speechRecSupported = false;
+              stopRecognition();
+              startRecorder();
+              return;
+            }
             try {
               recognition.start();
             } catch {

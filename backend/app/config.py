@@ -59,7 +59,13 @@ def get_aeon_model() -> str:
 
 
 def get_deepgram_api_key() -> str:
-    return os.getenv("DEEPGRAM_API_KEY", "").strip()
+    raw = os.getenv("DEEPGRAM_API_KEY", "").strip()
+    cleaned = raw.strip('"').strip("'").strip()
+    if cleaned.lower().startswith("token "):
+        cleaned = cleaned[6:].strip()
+    elif cleaned.lower().startswith("bearer "):
+        cleaned = cleaned[7:].strip()
+    return cleaned
 
 
 def get_deepgram_tts_model() -> str:
