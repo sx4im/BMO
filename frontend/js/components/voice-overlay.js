@@ -126,6 +126,32 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   let meterRaf = null;
   let activeSpeech = null;   // current speech playback handle
 
+  // Persistent Deepgram TTS WebSocket across turns
+  let ttsWS = null;
+
+  function ensureTTSWS() {
+    if (!active) return null;
+    if (ttsWS && (ttsWS.readyState === WebSocket.OPEN || ttsWS.readyState === WebSocket.CONNECTING)) {
+      return ttsWS;
+    }
+    try {
+      const streamUrl = api.ttsStreamUrl(token, { model: "flux-hannah-en", sampleRate: 24000 });
+      const ws = new WebSocket(streamUrl);
+      ws.binaryType = "arraybuffer";
+      ttsWS = ws;
+      ws.onclose = () => {
+        if (ttsWS === ws) ttsWS = null;
+      };
+      return ws;
+    } catch (e) {
+      console.warn("[bimo-voice] Pre-warm WebSocket failed:", e);
+      return null;
+    }
+  }
+
+  // Pre-warm the WebSocket immediately so first turn has 0ms connection latency
+  ensureTTSWS();
+
   // Voice-activity detection state (tuning constants at the top of the file).
   let vadAnalyser = null;
   let vadSource = null;
@@ -681,12 +707,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     }, TTS_COOLDOWN_MS);
   }
 
-  // ---------- speaking (streaming Deepgram Aura-1 via Web Audio) ----------
+  // ---------- speaking (streaming Deepgram Flux via Web Audio) ----------
   function createDeepgramTTSStream() {
     let cancelled = false;
     let offset = 0;
-    let buffer = "";
-    let sentFirstChunk = false;
     let finished = false;
     let flushSent = false;
     let flushReceived = false;
@@ -698,35 +722,19 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     let resolveDone;
     const donePromise = new Promise((r) => { resolveDone = r; });
 
-    const streamUrl = api.ttsStreamUrl(token, { model: "flux-hannah-en", sampleRate: 24000 });
-    let ws = null;
-    try {
-      ws = new WebSocket(streamUrl);
-      ws.binaryType = "arraybuffer";
-    } catch (e) {
-      console.warn("[bimo-voice] WebSocket creation failed:", e);
-    }
-
-    function cleanupWS() {
-      if (ws) {
-        try { ws.onopen = null; ws.onmessage = null; ws.onerror = null; ws.onclose = null; } catch {}
-        try { ws.close(); } catch {}
-        ws = null;
-      }
-    }
+    const ws = ensureTTSWS();
 
     function checkDone() {
       if (cancelled) return;
       if (finished && (flushReceived || wsClosed) && queuedSources.length === 0) {
         stopMeter();
-        cleanupWS();
         resolveDone();
       }
     }
 
     if (ws) {
       ws.onopen = () => {
-        if (cancelled) { cleanupWS(); return; }
+        if (cancelled) return;
         while (pendingTextQueue.length) {
           const chunk = pendingTextQueue.shift();
           try { ws.send(JSON.stringify({ type: "Speak", text: chunk })); } catch {}
@@ -742,7 +750,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         if (typeof event.data === "string") {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === "Flushed") {
+            if (data.type === "Flushed" || data.type === "SpeechMetadata") {
               flushReceived = true;
               checkDone();
             } else if (data.type === "Error") {
@@ -775,6 +783,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       };
 
       ws.onclose = () => {
+        if (ttsWS === ws) ttsWS = null;
         wsClosed = true;
         checkDone();
       };
@@ -799,7 +808,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       driveGlobe(analyser);
 
       const now = audioCtx.currentTime;
-      const startTime = Math.max(now + 0.025, nextPlayTime);
+      // Start immediately with minimum jitter buffer (10ms)
+      const startTime = Math.max(now + 0.010, nextPlayTime);
       source.start(startTime);
       nextPlayTime = startTime + audioBuffer.duration;
 
@@ -816,10 +826,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       };
     }
 
-    function flushText(force = false) { // eslint-disable-line no-unused-vars
-      if (!buffer) return;
-      const clean = stripForSpeech(buffer);
-      buffer = "";
+    function sendChunk(rawText) {
+      const clean = stripForSpeech(rawText);
       if (!clean) return;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
@@ -835,40 +843,30 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     function pushText(soFar) {
       if (cancelled || typeof soFar !== "string") return;
       const pending = soFar.slice(offset);
-      let lastEnd = 0;
+      if (!pending) return;
 
-      const regex = !sentFirstChunk
-        ? /[^,;:!?.…\n]+[,;:!?.…\n]+/g
-        : /[^!?.…\n]+[!?.…\n]+/g;
+      // Real-time progressive token streaming: send words as soon as they form (at spaces or punctuation)
+      const lastSpace = pending.lastIndexOf(" ");
+      const lastPunct = pending.search(/[,;:!?.…\n][^,;:!?.…\n]*$/);
+      const splitIdx = Math.max(lastSpace, lastPunct);
 
-      regex.lastIndex = 0;
-      let match;
-      while ((match = regex.exec(pending))) {
-        lastEnd = regex.lastIndex;
-        buffer += match[0];
-        flushText();
-        sentFirstChunk = true;
-      }
-      offset += lastEnd;
-
-      if (!sentFirstChunk && pending.length > 35 && /\s/.test(pending)) {
-        const lastSpace = pending.lastIndexOf(" ");
-        if (lastSpace > 20) {
-          buffer += pending.slice(0, lastSpace);
-          offset += lastSpace;
-          flushText();
-          sentFirstChunk = true;
-        }
+      if (splitIdx > 0) {
+        const toSend = pending.slice(0, splitIdx + 1);
+        offset += splitIdx + 1;
+        sendChunk(toSend);
+      } else if (pending.length >= 24) {
+        offset += pending.length;
+        sendChunk(pending);
       }
     }
 
     function finish(finalText) {
       if (cancelled) { resolveDone(); return; }
       if (typeof finalText === "string" && finalText.length > offset) {
-        buffer += finalText.slice(offset);
+        const remaining = finalText.slice(offset);
         offset = finalText.length;
+        sendChunk(remaining);
       }
-      flushText(true);
       finished = true;
 
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -894,11 +892,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
           ws.send(JSON.stringify({ type: "Interrupt" }));
-          ws.send(JSON.stringify({ type: "Clear" }));
-          ws.send(JSON.stringify({ type: "Close" }));
         } catch {}
       }
-      cleanupWS();
       resolveDone();
     }
 
@@ -1046,6 +1041,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     stopRecorder();
     stopSpeaking();
     stopVAD();
+    if (ttsWS) {
+      try { ttsWS.send(JSON.stringify({ type: "Close" })); } catch {}
+      try { ttsWS.close(); } catch {}
+      ttsWS = null;
+    }
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
     if (audioCtx) { try { audioCtx.close(); } catch { /* ignore */ } audioCtx = null; }
     document.body.classList.remove("voice-open");
