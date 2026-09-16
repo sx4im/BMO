@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, send_file
 from .. import nvidia_client, riva_tts, store, supabase_client
 from ..analytics import build_summary, ratings_chart_png
 from ..auth import require_user
+from ..config import is_deepgram_configured
 from .helpers import bad_request, friendly_error
 
 logger = logging.getLogger("bmo.routes.analytics")
@@ -26,7 +27,7 @@ def health():
         "status": "ok",
         "store": "supabase" if supabase_client.is_configured() else "unconfigured",
         "models": "configured" if nvidia_client.is_configured() else "unconfigured",
-        "tts": "configured" if riva_tts.tts_available() else "unconfigured",
+        "tts": "configured" if (riva_tts.tts_available() or is_deepgram_configured()) else "unconfigured",
     })
 
 

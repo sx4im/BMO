@@ -126,7 +126,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   // and the amplitude-reactive scale while speaking.
   const globeVideo = el("video", {
     class: "voice-globe-video",
-    src: "/assets/voice-orb3.mp4",
+    src: "/assets/voice-orb.mp4",
     autoplay: true,
     loop: true,
     muted: true,
@@ -596,22 +596,38 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     setTranscript(text);
     setState("thinking", voiceWaitPhrase());
 
+    const speech = audioCtx ? createDeepgramTTSStream() : null;
+    activeSpeech = speech;
+
     let reply = "";
     try {
-      reply = (await sendTurn(text)) || "";
+      reply = (await sendTurn(text, speech ? { onDelta: (soFar) => speech.pushText(soFar) } : undefined)) || "";
     } catch (err) {
       console.warn("[bimo-voice] sendTurn failed:", err?.message);
       toast(err?.message || "Couldn't connect", { tone: "error" });
     }
     turnInFlight = false;
-    if (!active) return;
+    if (!active) { speech?.cancel(); return; }
     setTranscript("");
 
     if (!reply || !audioCtx) {
+      speech?.cancel();
       afterSpeaking();
       return;
     }
 
+    if (speech) {
+      speech.finish(reply);
+      await speech.done();
+      if (speech.hasAudio()) {
+        if (activeSpeech === speech) activeSpeech = null;
+        if (!active || speech.cancelled) return;
+        afterSpeaking();
+        return;
+      }
+    }
+
+    if (!active || speech?.cancelled) return;
     let speechText = stripForSpeech(reply);
     if (!speechText) {
       afterSpeaking();
@@ -635,6 +651,237 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         startListening();
       }
     }, TTS_COOLDOWN_MS);
+  }
+
+  // ---------- speaking (streaming Deepgram Aura-1 via Web Audio) ----------
+  function createDeepgramTTSStream() {
+    let cancelled = false;
+    let offset = 0;
+    let buffer = "";
+    let sentFirstChunk = false;
+    let finished = false;
+    let flushSent = false;
+    let flushReceived = false;
+    let hasReceivedAudio = false;
+    let wsClosed = false;
+    let nextPlayTime = 0;
+    const queuedSources = [];
+    const pendingTextQueue = [];
+    let resolveDone;
+    const donePromise = new Promise((r) => { resolveDone = r; });
+
+    const streamUrl = api.ttsStreamUrl(token, { model: "flux-hannah-en", sampleRate: 24000 });
+    let ws = null;
+    try {
+      ws = new WebSocket(streamUrl);
+      ws.binaryType = "arraybuffer";
+    } catch (e) {
+      console.warn("[bimo-voice] WebSocket creation failed:", e);
+    }
+
+    function cleanupWS() {
+      if (ws) {
+        try { ws.onopen = null; ws.onmessage = null; ws.onerror = null; ws.onclose = null; } catch {}
+        try { ws.close(); } catch {}
+        ws = null;
+      }
+    }
+
+    function checkDone() {
+      if (cancelled) return;
+      if (finished && (flushReceived || wsClosed) && queuedSources.length === 0) {
+        stopMeter();
+        cleanupWS();
+        resolveDone();
+      }
+    }
+
+    if (ws) {
+      ws.onopen = () => {
+        if (cancelled) { cleanupWS(); return; }
+        while (pendingTextQueue.length) {
+          const chunk = pendingTextQueue.shift();
+          try { ws.send(JSON.stringify({ type: "Speak", text: chunk })); } catch {}
+        }
+        if (finished && !flushSent) {
+          flushSent = true;
+          try { ws.send(JSON.stringify({ type: "Flush" })); } catch {}
+        }
+      };
+
+      ws.onmessage = (event) => {
+        if (cancelled || !active) return;
+        if (typeof event.data === "string") {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === "Flushed") {
+              flushReceived = true;
+              checkDone();
+            } else if (data.type === "Error") {
+              console.warn("[bimo-voice] Deepgram streaming status:", data.message);
+              if (!hasReceivedAudio) {
+                wsClosed = true;
+                checkDone();
+              }
+            }
+          } catch {}
+          return;
+        }
+
+        if (event.data instanceof ArrayBuffer) {
+          const raw = event.data;
+          if (!raw.byteLength) return;
+          const int16 = new Int16Array(raw);
+          const sampleRate = 24000;
+          const audioBuffer = audioCtx.createBuffer(1, int16.length, sampleRate);
+          const channel = audioBuffer.getChannelData(0);
+          for (let i = 0; i < int16.length; i++) {
+            channel[i] = int16[i] / 32768.0;
+          }
+          queueAudioBuffer(audioBuffer);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.warn("[bimo-voice] Deepgram WS error:", err);
+      };
+
+      ws.onclose = () => {
+        wsClosed = true;
+        checkDone();
+      };
+    }
+
+    function queueAudioBuffer(audioBuffer) {
+      if (cancelled || !active || !audioCtx) return;
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume().catch(() => {});
+      }
+      if (state !== "speaking") {
+        setState("speaking", "Speaking…");
+      }
+
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyser.connect(audioCtx.destination);
+      ttsSource = source;
+      driveGlobe(analyser);
+
+      const now = audioCtx.currentTime;
+      const startTime = Math.max(now + 0.025, nextPlayTime);
+      source.start(startTime);
+      nextPlayTime = startTime + audioBuffer.duration;
+
+      hasReceivedAudio = true;
+      queuedSources.push(source);
+      source.onended = () => {
+        const idx = queuedSources.indexOf(source);
+        if (idx !== -1) queuedSources.splice(idx, 1);
+        if (queuedSources.length === 0) {
+          stopMeter();
+          ttsSource = null;
+        }
+        checkDone();
+      };
+    }
+
+    function flushText(force = false) { // eslint-disable-line no-unused-vars
+      if (!buffer) return;
+      const clean = stripForSpeech(buffer);
+      buffer = "";
+      if (!clean) return;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: "Speak", text: clean }));
+        } catch (err) {
+          console.warn("[bimo-voice] Deepgram send failed:", err);
+        }
+      } else if (ws && ws.readyState === WebSocket.CONNECTING) {
+        pendingTextQueue.push(clean);
+      }
+    }
+
+    function pushText(soFar) {
+      if (cancelled || typeof soFar !== "string") return;
+      const pending = soFar.slice(offset);
+      let lastEnd = 0;
+
+      const regex = !sentFirstChunk
+        ? /[^,;:!?.…\n]+[,;:!?.…\n]+/g
+        : /[^!?.…\n]+[!?.…\n]+/g;
+
+      regex.lastIndex = 0;
+      let match;
+      while ((match = regex.exec(pending))) {
+        lastEnd = regex.lastIndex;
+        buffer += match[0];
+        flushText();
+        sentFirstChunk = true;
+      }
+      offset += lastEnd;
+
+      if (!sentFirstChunk && pending.length > 35 && /\s/.test(pending)) {
+        const lastSpace = pending.lastIndexOf(" ");
+        if (lastSpace > 20) {
+          buffer += pending.slice(0, lastSpace);
+          offset += lastSpace;
+          flushText();
+          sentFirstChunk = true;
+        }
+      }
+    }
+
+    function finish(finalText) {
+      if (cancelled) { resolveDone(); return; }
+      if (typeof finalText === "string" && finalText.length > offset) {
+        buffer += finalText.slice(offset);
+        offset = finalText.length;
+      }
+      flushText(true);
+      finished = true;
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        flushSent = true;
+        try { ws.send(JSON.stringify({ type: "Flush" })); } catch {}
+      } else if (ws && ws.readyState === WebSocket.CONNECTING) {
+        // Will be flushed in onopen
+      } else {
+        checkDone();
+      }
+    }
+
+    function cancel() {
+      if (cancelled) return;
+      cancelled = true;
+      pendingTextQueue.length = 0;
+      for (const s of queuedSources) {
+        try { s.onended = null; s.stop(); } catch {}
+      }
+      queuedSources.length = 0;
+      nextPlayTime = 0;
+      stopMeter();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: "Interrupt" }));
+          ws.send(JSON.stringify({ type: "Clear" }));
+          ws.send(JSON.stringify({ type: "Close" }));
+        } catch {}
+      }
+      cleanupWS();
+      resolveDone();
+    }
+
+    return {
+      pushText,
+      finish,
+      cancel,
+      done: () => donePromise,
+      hasAudio: () => hasReceivedAudio,
+      get cancelled() { return cancelled; },
+    };
   }
 
   // ---------- speaking (TTS via Web Audio) ----------

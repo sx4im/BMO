@@ -406,6 +406,19 @@ export async function synthesizeSpeech(token, text, { voice, language } = {}) {
   }
 }
 
+export function ttsStreamUrl(token, { model = "flux-hannah-en", sampleRate = 24000 } = {}) {
+  const t = getAuth().auth?.token || token || "";
+  let base = (config.apiUrl || "").replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
+  if (!base.startsWith("ws://") && !base.startsWith("wss://")) {
+    base = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
+  }
+  const params = new URLSearchParams();
+  if (t) params.set("token", t);
+  if (model) params.set("model", model);
+  if (sampleRate) params.set("sample_rate", String(sampleRate));
+  return `${base.replace(/\/+$/, "")}/tts/stream?${params.toString()}`;
+}
+
 // ---------- document export ----------
 
 /**

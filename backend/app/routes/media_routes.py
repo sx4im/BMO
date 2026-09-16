@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -9,13 +10,17 @@ import time
 
 import requests
 from flask import Blueprint, Response, jsonify, request
+from flask_sock import Sock
 
-from .. import image_safety, nvidia_client, riva_transcribe, riva_tts, search_router, store
-from ..auth import require_user
+from .. import deepgram_tts, image_safety, nvidia_client, riva_transcribe, riva_tts, search_router, store
+from ..auth import require_user, user_from_token
 from ..config import (
     IMAGE_MODEL_ID,
     IMAGE_USAGE_TOKENS,
     WHISPER_MODEL,
+    get_deepgram_api_key,
+    get_deepgram_tts_model,
+    is_deepgram_configured,
     upload_magic_ok,
     upload_type_allowed,
 )
@@ -25,6 +30,7 @@ from .helpers import bad_request, friendly_error
 logger = logging.getLogger("bmo.routes.media")
 
 media_bp = Blueprint("media_routes", __name__)
+sock = Sock(media_bp)
 
 
 def _rest_transcription_provider():
@@ -248,23 +254,64 @@ def tts(user):  # noqa: ARG001
     text = text.strip()
     if len(text) > 4000:
         return bad_request("text too long (max 4000 chars)", 422)
-    if not riva_tts.tts_available():
-        return bad_request(
-            "Text-to-speech is not configured. Set NVIDIA_API_KEY and ensure nvidia-riva-client is installed.",
-            503,
-        )
     voice = payload.get("voice")
     language = payload.get("language")
     if voice is not None and (not isinstance(voice, str) or len(voice) > 80):
         return bad_request("invalid voice", 422)
     if language is not None and (not isinstance(language, str) or len(language) > 20):
         return bad_request("invalid language", 422)
+
+    if not riva_tts.tts_available():
+        if is_deepgram_configured():
+            try:
+                dg_model = voice or get_deepgram_tts_model()
+                resp = requests.post(
+                    f"https://api.deepgram.com/v1/speak?model={dg_model}&encoding=linear16&sample_rate=24000",
+                    headers={
+                        "Authorization": f"Token {get_deepgram_api_key()}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"text": text},
+                    timeout=30,
+                )
+                if resp.ok and resp.content:
+                    return Response(resp.content, mimetype="audio/wav")
+            except Exception as exc:
+                logger.warning("Deepgram REST TTS fallback failed: %s", exc)
+        return bad_request(
+            "Text-to-speech is not configured. Set DEEPGRAM_API_KEY or configure NVIDIA Riva.",
+            503,
+        )
     try:
         wav = riva_tts.synthesize_wav(text, voice=voice, language=language)
         return Response(wav, mimetype="audio/wav")
     except Exception as exc:  # noqa: BLE001
         logger.warning("TTS failed: %s", exc)
         return bad_request(f"TTS failed: {exc}", 502)
+
+
+# ---------- Deepgram Aura-1 Streaming TTS (WebSocket) ----------
+
+@sock.route("/tts/stream")
+def tts_stream(ws):
+    token = request.args.get("token")
+    user = user_from_token(token)
+    if not user:
+        try:
+            ws.send(json.dumps({"type": "Error", "message": "Authentication required"}))
+            ws.close(4401, "Unauthorized")
+        except Exception:
+            pass
+        return
+
+    model = request.args.get("model")
+    raw_rate = request.args.get("sample_rate")
+    try:
+        sample_rate = int(raw_rate) if raw_rate else 24000
+    except (ValueError, TypeError):
+        sample_rate = 24000
+
+    deepgram_tts.relay_tts_stream(ws, model=model, sample_rate=sample_rate)
 
 
 # ---------- Web Search (TinyFish) ----------

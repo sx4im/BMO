@@ -14,6 +14,8 @@ DEFAULT_NEXOS_MODEL = "openai/gpt-oss-120b"
 DEFAULT_VISION_MODEL = "google/diffusiongemma-26b-a4b-it"
 DEFAULT_AEON_MODEL = "qwen/qwen3.8-27b"
 DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-klein-4b"
+DEFAULT_DEEPGRAM_TTS_MODEL = "flux-hannah-en"
+DEFAULT_DEEPGRAM_WS_URL = "wss://api.deepgram.com/v2/speak"
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_IMAGE_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -54,6 +56,18 @@ def get_aeon_model() -> str:
         or os.getenv("NVIDIA_AEON_MODEL")
         or DEFAULT_AEON_MODEL
     ).strip()
+
+
+def get_deepgram_api_key() -> str:
+    return os.getenv("DEEPGRAM_API_KEY", "").strip()
+
+
+def get_deepgram_tts_model() -> str:
+    return os.getenv("DEEPGRAM_TTS_MODEL", DEFAULT_DEEPGRAM_TTS_MODEL).strip()
+
+
+def is_deepgram_configured() -> bool:
+    return bool(get_deepgram_api_key())
 
 
 def get_internal_models() -> list[dict]:
