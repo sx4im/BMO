@@ -2912,57 +2912,7 @@ button:hover .icon-dislike,
   transform: translate(-1.5px, 2.5px) rotate(-14deg);
 }
 
-/* Animated Delete / Trash Icon */
-.icon-delete .trash-lid,
-.icon-trash .trash-lid,
-.icon-trash-2 .trash-lid {
-  transform-origin: 4px 6px;
-  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.icon-delete .trash-bin,
-.icon-trash .trash-bin,
-.icon-trash-2 .trash-bin {
-  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.btn.danger:hover .icon-delete .trash-lid,
-.btn.danger:hover .icon-trash .trash-lid,
-.btn.danger:hover .icon-trash-2 .trash-lid,
-.btn.danger:focus-visible .icon-delete .trash-lid,
-.btn.danger:focus-visible .icon-trash .trash-lid,
-.btn.danger:focus-visible .icon-trash-2 .trash-lid,
-.sidebar-convo-menu-item.danger:hover .icon-delete .trash-lid,
-.sidebar-convo-menu-item.danger:hover .icon-trash .trash-lid,
-.sidebar-convo-menu-item.danger:hover .icon-trash-2 .trash-lid,
-button:hover .icon-delete .trash-lid,
-button:hover .icon-trash .trash-lid,
-button:hover .icon-trash-2 .trash-lid,
-.icon-delete:hover .trash-lid,
-.icon-trash:hover .trash-lid,
-.icon-trash-2:hover .trash-lid {
-  transform: translateY(-2.5px) rotate(-8deg);
-}
-
-.btn.danger:hover .icon-delete .trash-bin,
-.btn.danger:hover .icon-trash .trash-bin,
-.btn.danger:hover .icon-trash-2 .trash-bin,
-.btn.danger:focus-visible .icon-delete .trash-bin,
-.btn.danger:focus-visible .icon-trash .trash-bin,
-.btn.danger:focus-visible .icon-trash-2 .trash-bin,
-.sidebar-convo-menu-item.danger:hover .icon-delete .trash-bin,
-.sidebar-convo-menu-item.danger:hover .icon-trash .trash-bin,
-.sidebar-convo-menu-item.danger:hover .icon-trash-2 .trash-bin,
-button:hover .icon-delete .trash-bin,
-button:hover .icon-trash .trash-bin,
-button:hover .icon-trash-2 .trash-bin,
-.icon-delete:hover .trash-bin,
-.icon-trash:hover .trash-bin,
-.icon-trash-2:hover .trash-bin {
-  transform: translateY(0.5px);
-}
-
-
+/* Delete / Trash Icon stays clean and static */
 
 .sidebar-nav-icon,
 .sidebar-nav-new .sidebar-nav-icon {
@@ -5534,23 +5484,6 @@ body:has(.chat-page.is-empty) .tools-menu,
   width: 164px;
   max-width: 100%;
   justify-content: center;
-}
-
-/* Keep Delete account icon static */
-.settings-actions .btn.danger .trash-lid,
-.settings-actions .btn.danger:hover .trash-lid,
-.settings-actions .btn.danger:focus-visible .trash-lid,
-.settings-actions .btn.danger .trash-bin,
-.settings-actions .btn.danger:hover .trash-bin,
-.settings-actions .btn.danger:focus-visible .trash-bin,
-.btn.danger .trash-lid,
-.btn.danger:hover .trash-lid,
-.btn.danger:focus-visible .trash-lid,
-.btn.danger .trash-bin,
-.btn.danger:hover .trash-bin,
-.btn.danger:focus-visible .trash-bin {
-  transform: none !important;
-  transition: none !important;
 }
 
 .page-back:hover {
@@ -9369,8 +9302,8 @@ em {
 }
 
 .voice-close:hover {
-  background: var(--ink-strong, #111);
-  transform: scale(1.05);
+  background: var(--ink);
+  opacity: 0.88;
 }
 
 .voice-close:active {
