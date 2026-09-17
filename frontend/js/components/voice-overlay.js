@@ -182,7 +182,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   let discardTake = false;    // drop the in-flight recording on stop (typed turn)
   let recordStartedAt = 0;    // performance.now() when the current take began
 
-  const TTS_COOLDOWN_MS = 350; // pause after BMO speaks before listening again
+  const TTS_COOLDOWN_MS = 500; // pause after BMO speaks before listening again
 
   // ---------- DOM ----------
   // The orb is a muted, looping video of the iridescent bubble. CSS blends its
@@ -347,7 +347,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
   // ---------- listening ----------
   function startListening() {
-    if (!active || turnInFlight) return;
+    if (!active || turnInFlight || state === "speaking" || activeSpeech || ttsSource) return;
     setTranscript("");
     setState("listening", "Listening…");
     micBtn.classList.add("active");
@@ -728,6 +728,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     turnInFlight = true;
     micBtn.classList.remove("active");
     stopRecognition();
+    stopRecorder();
     setTranscript(text);
     setState("thinking", voiceWaitPhrase());
 
@@ -742,37 +743,44 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         languageName: activeLang.label,
         onDelta: speech ? (soFar) => speech.pushText(soFar) : undefined,
       })) || "";
+
+      if (!active) { speech?.cancel(); return; }
+      setTranscript("");
+
+      if (!reply || !audioCtx) {
+        speech?.cancel();
+        if (activeSpeech === speech) activeSpeech = null;
+        afterSpeaking();
+        return;
+      }
+
+      if (speech) {
+        speech.finish(reply);
+        await speech.done();
+        if (activeSpeech === speech) activeSpeech = null;
+        if (!active || speech.cancelled) return;
+        afterSpeaking();
+        return;
+      }
+
+      if (!active) return;
+      afterSpeaking();
     } catch (err) {
       console.warn("[bimo-voice] sendTurn failed:", err?.message);
       toast(err?.message || "Couldn't connect", { tone: "error" });
-    }
-    turnInFlight = false;
-    if (!active) { speech?.cancel(); return; }
-    setTranscript("");
-
-    if (!reply || !audioCtx) {
       speech?.cancel();
-      afterSpeaking();
-      return;
-    }
-
-    if (speech) {
-      speech.finish(reply);
-      await speech.done();
       if (activeSpeech === speech) activeSpeech = null;
-      if (!active || speech.cancelled) return;
       afterSpeaking();
-      return;
+    } finally {
+      turnInFlight = false;
     }
-
-    if (!active) return;
-    afterSpeaking();
   }
 
   function afterSpeaking() {
+    if (!active) return;
     setState("idle", "");
     setTimeout(() => {
-      if (active && !turnInFlight && !activeSpeech) {
+      if (active && !turnInFlight && !activeSpeech && state !== "speaking" && !ttsSource) {
         startListening();
       }
     }, TTS_COOLDOWN_MS);
@@ -797,9 +805,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
     function checkDone() {
       if (cancelled) return;
-      if (finished && (flushReceived || wsClosed) && queuedSources.length === 0) {
-        stopMeter();
-        resolveDone();
+      const audioStillPlaying = queuedSources.length > 0 || (audioCtx && nextPlayTime > 0 && audioCtx.currentTime < nextPlayTime);
+      if (finished && (flushReceived || wsClosed)) {
+        if (!audioStillPlaying) {
+          stopMeter();
+          resolveDone();
+        } else if (queuedSources.length === 0 && audioCtx && nextPlayTime > 0) {
+          const waitMs = Math.max(20, Math.ceil((nextPlayTime - audioCtx.currentTime) * 1000) + 40);
+          setTimeout(() => { if (!cancelled) checkDone(); }, waitMs);
+        }
       }
     }
 
@@ -821,7 +835,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         if (typeof event.data === "string") {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === "Flushed" || data.type === "SpeechMetadata") {
+            if (data.type === "Flushed") {
               flushReceived = true;
               checkDone();
             } else if (data.type === "Error") {
@@ -866,6 +880,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         audioCtx.resume().catch(() => {});
       }
       if (state !== "speaking") {
+        stopRecognition();
+        stopRecorder();
+        micBtn.classList.remove("active");
         setState("speaking", "Speaking…");
       }
 
@@ -889,7 +906,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       source.onended = () => {
         const idx = queuedSources.indexOf(source);
         if (idx !== -1) queuedSources.splice(idx, 1);
-        if (queuedSources.length === 0) {
+        if (queuedSources.length === 0 && (!audioCtx || !nextPlayTime || audioCtx.currentTime >= nextPlayTime)) {
           stopMeter();
           ttsSource = null;
         }
