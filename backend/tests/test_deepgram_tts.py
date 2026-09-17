@@ -19,13 +19,13 @@ def test_deepgram_config(monkeypatch):
     monkeypatch.delenv("DEEPGRAM_TTS_MODEL", raising=False)
     assert not config.is_deepgram_configured()
     assert config.get_deepgram_api_key() == ""
-    assert config.get_deepgram_tts_model() == "flux-hannah-en"
+    assert config.get_deepgram_tts_model() == "flux-sienna-en"
 
     monkeypatch.setenv("DEEPGRAM_API_KEY", "test-deepgram-key")
-    monkeypatch.setenv("DEEPGRAM_TTS_MODEL", "flux-hannah-en")
+    monkeypatch.setenv("DEEPGRAM_TTS_MODEL", "flux-sienna-en")
     assert config.is_deepgram_configured()
     assert config.get_deepgram_api_key() == "test-deepgram-key"
-    assert config.get_deepgram_tts_model() == "flux-hannah-en"
+    assert config.get_deepgram_tts_model() == "flux-sienna-en"
 
 
 def test_relay_tts_stream_unconfigured():
@@ -103,14 +103,14 @@ def test_relay_tts_stream_flux():
         mock_connect.return_value.__enter__.return_value = mock_dg_ws
         deepgram_tts.relay_tts_stream(
             mock_ws,
-            model="flux-hannah-en",
+            model="flux-sienna-en",
             api_key="dg-secret-key",
             sample_rate=24000,
         )
 
         mock_connect.assert_called_once()
         assert "v2/speak" in mock_connect.call_args[0][0]
-        assert "flux-hannah-en" in mock_connect.call_args[0][0]
+        assert "flux-sienna-en" in mock_connect.call_args[0][0]
 
         sent_to_dg = [call[0][0] for call in mock_dg_ws.send.call_args_list]
         assert any("Speak" in s for s in sent_to_dg)

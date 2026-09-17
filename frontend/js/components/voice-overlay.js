@@ -84,7 +84,7 @@ function stripForSpeech(md = "") {
 }
 
 export const VOICE_LANGUAGES = [
-  { id: "en", code: "EN", label: "English", voiceName: "Hannah", model: "flux-hannah-en", recLang: "en-US" },
+  { id: "en", code: "EN", label: "English", voiceName: "Sienna", model: "flux-sienna-en", recLang: "en-US" },
   { id: "nl", code: "NL", label: "Dutch", voiceName: "Rhea", model: "aura-2-rhea-nl", recLang: "nl-NL" },
   { id: "fr", code: "FR", label: "French", voiceName: "Agathe", model: "aura-2-agathe-fr", recLang: "fr-FR" },
   { id: "de", code: "DE", label: "German", voiceName: "Aurelia", model: "aura-2-aurelia-de", recLang: "de-DE" },
