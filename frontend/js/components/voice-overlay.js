@@ -218,87 +218,22 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     onkeydown: (e) => { if (e.key === "Enter") submitTyped(); },
   });
 
-  // Language selector button and popup menu along the text bar
+  // Language selector button along the text bar (cycles sequentially on click)
   const langLabelEl = el("span", { class: "voice-lang-code", text: getLangConfig().label });
 
-  const langBtn = el("button", {
-    class: "voice-lang-btn",
-    type: "button",
-    "aria-label": `Language: ${getLangConfig().label}`,
-    title: "Change voice language",
-    "aria-haspopup": "menu",
-    "aria-expanded": "false",
-    onmousedown: (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleLangMenu();
-    },
-    onclick: (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    },
-  }, [
-    el("span", { class: "voice-lang-icon", html: icon("globe", { width: 15, height: 15 }) }),
-    langLabelEl,
-  ]);
-
-  const langMenu = el("div", { class: "voice-lang-menu", role: "menu" });
-
-  function renderLangMenu() {
-    clear(langMenu);
-    for (const l of VOICE_LANGUAGES) {
-      const active = l.id === currentLangId;
-      langMenu.append(
-        el("button", {
-          type: "button",
-          class: `voice-lang-item${active ? " active" : ""}`,
-          role: "menuitemradio",
-          "aria-checked": active ? "true" : "false",
-          onmousedown: (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            selectLanguage(l.id);
-          },
-          onclick: (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          },
-        }, [
-          el("div", { class: "voice-lang-info" }, [
-            el("span", { class: "voice-lang-label", text: l.label }),
-            el("span", { class: "voice-lang-voice", text: `${l.voiceName}` }),
-          ]),
-          active ? el("span", { class: "voice-lang-check", html: icon("check", { width: 14, height: 14 }) }) : null,
-        ].filter(Boolean))
-      );
-    }
-  }
-
-  function toggleLangMenu(open) {
-    const next = open ?? !langMenu.classList.contains("open");
-    if (next) renderLangMenu();
-    langMenu.classList.toggle("open", next);
-    langBtn.setAttribute("aria-expanded", next ? "true" : "false");
-  }
-
-  function closeLangMenu() {
-    if (langMenu.classList.contains("open")) {
-      langMenu.classList.remove("open");
-      langBtn.setAttribute("aria-expanded", "false");
-    }
+  function cycleLanguage() {
+    const idx = VOICE_LANGUAGES.findIndex((l) => l.id === currentLangId);
+    const next = VOICE_LANGUAGES[(idx + 1) % VOICE_LANGUAGES.length];
+    selectLanguage(next.id);
   }
 
   function selectLanguage(id) {
-    if (currentLangId === id) {
-      closeLangMenu();
-      return;
-    }
+    if (currentLangId === id) return;
     currentLangId = id;
     try { localStorage.setItem("bimo-voice-lang", id); } catch {}
     const conf = getLangConfig();
     langLabelEl.textContent = conf.label;
-    langBtn.setAttribute("aria-label", `Language: ${conf.label}`);
-    closeLangMenu();
+    langBtn.setAttribute("aria-label", `Language: ${conf.label} (click to change)`);
 
     // Reconnect TTS WebSocket for new language model
     if (ttsWS) {
@@ -321,12 +256,23 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     }
   }
 
-  const langWrap = el("div", { class: "voice-lang-wrap" }, [langBtn, langMenu]);
+  const langBtn = el("button", {
+    class: "voice-lang-btn",
+    type: "button",
+    "aria-label": `Language: ${getLangConfig().label} (click to change)`,
+    title: "Click to change language",
+    onmousedown: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      cycleLanguage();
+    },
+    onclick: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
+  }, [langLabelEl]);
 
-  const onDocClick = (e) => {
-    if (!langWrap.contains(e.target)) closeLangMenu();
-  };
-  document.addEventListener("click", onDocClick);
+  const langWrap = el("div", { class: "voice-lang-wrap" }, [langBtn]);
 
   const micBtn = el("button", {
     class: "voice-mic", type: "button", "aria-label": "Microphone", title: "Talk",
@@ -1163,7 +1109,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     if (!active) return;
     active = false;
     document.removeEventListener("keydown", onKey);
-    document.removeEventListener("click", onDocClick);
     stopRecognition();
     stopRecorder();
     stopSpeaking();

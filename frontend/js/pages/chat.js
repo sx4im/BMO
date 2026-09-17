@@ -10,7 +10,7 @@ import { navigate } from "../router.js?v=31";
 import { mountAppShell } from "../app-shell.js?v=72";
 import { toast } from "../components/toast.js?v=58";
 import { whenMarkdownReady } from "../components/markdown.js?v=33";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=45";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=46";
 import * as api from "../api.js?v=61";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=25";
