@@ -68,10 +68,35 @@ const VAD_SILENCE_MS   = 2500;   // wait 2.5s of silence so user can pause and t
 const VAD_NO_SPEECH_MS = 8000;   // never spoke -> release the mic, don't transcribe noise
 const VAD_MAX_TURN_MS  = 60000;  // hard safety cap per turn
 
+// Expand 4-digit years (e.g. 1986 -> nineteen eighty-six) if present
+function expandYearsForSpeech(text) {
+  const ONES = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+  const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+  function twoDigits(n) {
+    if (n < 20) return ONES[n];
+    const tens = Math.floor(n / 10);
+    const ones = n % 10;
+    return ones ? `${TENS[tens]}-${ONES[ones]}` : TENS[tens];
+  }
+
+  return String(text).replace(/\b(19|20)(\d{2})\b/g, (_, century, year) => {
+    const cVal = parseInt(century, 10);
+    const yVal = parseInt(year, 10);
+    const cWords = cVal === 19 ? "nineteen" : "twenty";
+    if (yVal === 0) return cVal === 20 ? "two thousand" : "nineteen hundred";
+    if (yVal < 10 && cVal === 20) return `two thousand ${ONES[yVal]}`;
+    if (yVal < 10) return `${cWords} oh ${ONES[yVal]}`;
+    return `${cWords} ${twoDigits(yVal)}`;
+  });
+}
+
 // Turn assistant markdown into something worth speaking: drop code, math,
 // images, and markdown punctuation so the model doesn't read backticks/pipes.
+// Keep inter-word whitespace intact so streaming chunks don't glue words together.
 function stripForSpeech(md = "") {
-  return String(md)
+  const cleaned = String(md)
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`]*`/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
@@ -79,8 +104,8 @@ function stripForSpeech(md = "") {
     .replace(/\$\$[\s\S]*?\$\$/g, " ")
     .replace(/\$[^$\n]*\$/g, " ")
     .replace(/[#*_>~|`]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/[ \t\r\n]+/g, " ");
+  return expandYearsForSpeech(cleaned);
 }
 
 export const VOICE_LANGUAGES = [
@@ -835,7 +860,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         if (typeof event.data === "string") {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === "Flushed") {
+            if (data.type === "Flushed" || (flushSent && data.type === "SpeechMetadata")) {
               flushReceived = true;
               checkDone();
             } else if (data.type === "Error") {
@@ -916,15 +941,17 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
     function sendChunk(rawText) {
       const clean = stripForSpeech(rawText);
-      if (!clean) return;
+      if (!clean || !clean.trim()) return;
+      // Ensure words do not get glued together across WebSocket Speak chunks
+      const textToSend = clean.endsWith(" ") ? clean : `${clean} `;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
-          ws.send(JSON.stringify({ type: "Speak", text: clean }));
+          ws.send(JSON.stringify({ type: "Speak", text: textToSend }));
         } catch (err) {
           console.warn("[bimo-voice] Deepgram send failed:", err);
         }
       } else if (ws && ws.readyState === WebSocket.CONNECTING) {
-        pendingTextQueue.push(clean);
+        pendingTextQueue.push(textToSend);
       }
     }
 
@@ -933,18 +960,23 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       const pending = soFar.slice(offset);
       if (!pending) return;
 
-      // Real-time progressive token streaming: send words as soon as they form (at spaces or punctuation)
-      const lastSpace = pending.lastIndexOf(" ");
-      const lastPunct = pending.search(/[,;:!?.…\n][^,;:!?.…\n]*$/);
-      const splitIdx = Math.max(lastSpace, lastPunct);
-
-      if (splitIdx > 0) {
-        const toSend = pending.slice(0, splitIdx + 1);
-        offset += splitIdx + 1;
+      // Stream full clauses when punctuation appears for natural spoken prosody and cadence
+      const punctIdx = pending.search(/[,;:!?.…\n]/);
+      if (punctIdx >= 0) {
+        const toSend = pending.slice(0, punctIdx + 1);
+        offset += punctIdx + 1;
         sendChunk(toSend);
-      } else if (pending.length >= 24) {
-        offset += pending.length;
-        sendChunk(pending);
+        return;
+      }
+
+      // If no punctuation yet, stream at the last word boundary once we have a comfortable phrase (>= 24 chars)
+      if (pending.length >= 24) {
+        const lastSpace = pending.lastIndexOf(" ");
+        if (lastSpace > 0) {
+          const toSend = pending.slice(0, lastSpace + 1);
+          offset += lastSpace + 1;
+          sendChunk(toSend);
+        }
       }
     }
 
