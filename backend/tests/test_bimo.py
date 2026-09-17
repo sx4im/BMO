@@ -688,6 +688,53 @@ def test_whatsapp_uses_aeon_model(monkeypatch):
     assert "Hello from Aeon on WhatsApp!" in sent_messages[0][1]
 
 
+def test_cors_origins_default_excludes_localhost(monkeypatch):
+    from app.config import cors_origins
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    origins = cors_origins()
+    assert origins == ["https://bimo.qzz.io"]
+    assert "http://localhost:5500" not in origins
+
+
+def test_whatsapp_webhook_verification_security(client, monkeypatch):
+    monkeypatch.delenv("WHATSAPP_VERIFY_TOKEN", raising=False)
+    from app import whatsapp
+    monkeypatch.setattr(whatsapp, "WHATSAPP_VERIFY_TOKEN", "")
+
+    # When unconfigured, GET verification should return 503
+    resp = client.get("/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=bimo_whatsapp_verify_token_2026&hub.challenge=test_challenge")
+    assert resp.status_code == 503
+
+    # When configured with a secret, wrong token returns 403, correct returns 200
+    monkeypatch.setenv("WHATSAPP_VERIFY_TOKEN", "super_secret_token_123")
+    monkeypatch.setattr(whatsapp, "WHATSAPP_VERIFY_TOKEN", "super_secret_token_123")
+    resp = client.get("/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=test_challenge")
+    assert resp.status_code == 403
+    resp = client.get("/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=super_secret_token_123&hub.challenge=test_challenge")
+    assert resp.status_code == 200
+    assert resp.get_data(as_text=True) == "test_challenge"
+
+
+def test_tts_voice_validation(client, monkeypatch):
+    import time
+    import jwt
+
+    claims = {
+        "sub": "test_tts_user",
+        "email": "tts@test.com",
+        "aud": "authenticated",
+        "iss": "https://example.supabase.co/auth/v1",
+        "exp": int(time.time()) + 3600,
+    }
+    token = jwt.encode(claims, "test-jwt-secret", algorithm="HS256")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Invalid voice containing special/injected characters should be rejected with 422
+    resp = client.post("/tts", headers=headers, json={"text": "hello", "voice": "flux&injected=1"})
+    assert resp.status_code == 422
+    assert "invalid voice" in resp.get_json()["detail"]
+
+
 def test_whatsapp_maintains_conversation_context(monkeypatch):
     from app import whatsapp
 

@@ -168,8 +168,5 @@ def upload_magic_ok(data: bytes) -> bool:
 
 
 def cors_origins() -> list[str]:
-    raw = os.getenv(
-        "CORS_ORIGINS",
-        "https://bimo.qzz.io,http://localhost:5500,http://127.0.0.1:5500",
-    ).strip()
+    raw = os.getenv("CORS_ORIGINS", "https://bimo.qzz.io").strip()
     return [o.strip() for o in raw.split(",") if o.strip()]

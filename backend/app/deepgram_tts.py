@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from typing import Optional
 
@@ -54,6 +55,8 @@ def relay_tts_stream(
         return
 
     chosen_model = (model or get_deepgram_tts_model() or DEFAULT_DEEPGRAM_TTS_MODEL).strip()
+    if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", chosen_model):
+        chosen_model = DEFAULT_DEEPGRAM_TTS_MODEL
     endpoint = "v2" if chosen_model.startswith("flux") else "v1"
     dg_url = (
         f"wss://api.deepgram.com/{endpoint}/speak?model={chosen_model}&encoding=linear16&sample_rate={sample_rate}"

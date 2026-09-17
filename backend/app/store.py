@@ -382,18 +382,23 @@ def analytics_summary(user_id: str) -> dict:
         sb.table("conversations")
         .select("id", count="exact")
         .eq("user_id", user_id)
+        .limit(1000)
     )
     convo_count = convos.count or 0
     convo_ids = [c["id"] for c in (convos.data or [])]
+    msg_count = 0
     if convo_ids:
-        msgs = _execute(
-            sb.table("messages")
-            .select("id", count="exact")
-            .in_("conversation_id", convo_ids)
-        )
-        msg_count = msgs.count or 0
-    else:
-        msg_count = 0
+        # Query in chunks of 100 to prevent PostgREST URI overflow (414) on large sets
+        CHUNK_SIZE = 100
+        for i in range(0, len(convo_ids), CHUNK_SIZE):
+            chunk = convo_ids[i : i + CHUNK_SIZE]
+            msgs = _execute(
+                sb.table("messages")
+                .select("id", count="exact")
+                .in_("conversation_id", chunk)
+                .limit(1)
+            )
+            msg_count += msgs.count or 0
 
     feedback_rows = user_feedback(user_id)
     ratings = [r["rating"] for r in feedback_rows]
@@ -520,70 +525,3 @@ def delete_auth_user(user_id: str) -> None:
     this as best-effort: data is already gone by the time we reach here.
     """
     supabase().auth.admin.delete_user(user_id)
-
-
-# ---------- storage / attachments ----------
-
-def download_attachment(path: str, user_id: str) -> bytes:
-    """Pull an attachment's raw bytes back out of Supabase Storage.
-
-    Used by /chat to inline images as base64 so NVIDIA's vision model
-    doesn't have to fetch our signed URL from its own outbound network.
-    Always requires user_id and rejects paths outside that user's prefix.
-    """
-    if not isinstance(path, str) or not path:
-        raise ValueError("Invalid attachment path")
-    if not isinstance(user_id, str) or not user_id:
-        raise PermissionError("user_id required")
-    if ".." in path or path.startswith("/") or "\\" in path:
-        raise PermissionError("Path traversal rejected")
-    if not path.startswith(f"{user_id}/"):
-        raise PermissionError(f"User {user_id} does not own attachment path: {path}")
-    return supabase().storage.from_(attachments_bucket()).download(path)
-
-
-
-def upload_attachment_for_user(
-    user_id: str,
-    *,
-    filename: str,
-    file_bytes: bytes,
-    content_type: str,
-    expires_in: int = 60 * 60,
-) -> dict:
-    """Upload to Supabase Storage and return a fresh signed URL.
-
-    Files live under ``<user_id>/<random>/<filename>`` so the storage RLS
-    policy in 0001_init.sql can scope them to their owner. ``expires_in`` is the
-    signed-URL lifetime in seconds (default 1 hour; generated images pass a much
-    longer TTL so they stay viewable well beyond the active session).
-    """
-    bucket = attachments_bucket()
-    safe_name = filename.replace("\\", "_").split("/")[-1] or "file"
-    path = f"{user_id}/{secrets.token_hex(8)}/{safe_name}"
-    sb = supabase()
-    sb.storage.from_(bucket).upload(
-        path=path,
-        file=file_bytes,
-        file_options={"content-type": content_type, "upsert": "false"},
-    )
-    signed = sb.storage.from_(bucket).create_signed_url(path, expires_in)
-    if isinstance(signed, dict):
-        url = signed.get("signedURL") or signed.get("signed_url") or signed.get("signedUrl")
-    else:
-        url = getattr(signed, "signed_url", None) or getattr(signed, "signedURL", None)
-    if not url:
-        # Different supabase-py versions return the signed URL under different
-        # keys; if we still have nothing, log the shape so we can add the new
-        # key. Without a URL the vision model will silently receive no image.
-        logger.error(
-            "create_signed_url returned no usable URL: type=%s repr=%r",
-            type(signed).__name__, signed,
-        )
-    return {
-        "path": path,
-        "url": url,
-        "content_type": content_type,
-        "size": len(file_bytes),
-        "filename": safe_name,
-    }

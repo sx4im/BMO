@@ -32,12 +32,31 @@ whatsapp_bp = Blueprint("whatsapp", __name__)
 
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "").strip()
 WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "").strip()
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "bimo_whatsapp_verify_token_2026").strip()
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "").strip()
 
-# Shared multi-worker SQLite database for WhatsApp conversation memory.
-# Lives in /tmp/ so all gunicorn worker processes share the exact same state without external DB requirements.
-_DB_PATH = os.getenv("WHATSAPP_DB_PATH", "/tmp/bmo_whatsapp_context.db")
+
+def _resolve_whatsapp_db_path() -> str:
+    custom = os.getenv("WHATSAPP_DB_PATH", "").strip()
+    if custom:
+        return custom
+    # Default to user's private ~/.bmo directory with 0700 permissions
+    base_dir = os.path.join(os.path.expanduser("~"), ".bmo")
+    try:
+        os.makedirs(base_dir, mode=0o700, exist_ok=True)
+        os.chmod(base_dir, 0o700)
+    except Exception:
+        uid = os.getuid() if hasattr(os, "getuid") else "shared"
+        base_dir = os.path.join("/tmp", f".bmo_{uid}")
+        os.makedirs(base_dir, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(base_dir, 0o700)
+        except Exception:
+            pass
+    return os.path.join(base_dir, "whatsapp_context.db")
+
+
+_DB_PATH = _resolve_whatsapp_db_path()
 _db_lock = threading.Lock()
 _MAX_HISTORY_TURNS = 40  # up to 40 messages (20 user + 20 assistant turns)
 _HISTORY_TTL_SECONDS = 24 * 3600  # 24 hours conversation memory window
@@ -47,6 +66,13 @@ def _init_whatsapp_db() -> None:
     """Initialize the SQLite context table and enable WAL mode for fast concurrency across workers."""
     with _db_lock:
         try:
+            db_dir = os.path.dirname(_DB_PATH)
+            if db_dir:
+                os.makedirs(db_dir, mode=0o700, exist_ok=True)
+                try:
+                    os.chmod(db_dir, 0o700)
+                except Exception:
+                    pass
             conn = sqlite3.connect(_DB_PATH, timeout=10.0)
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("""
@@ -61,6 +87,11 @@ def _init_whatsapp_db() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_phone_time ON whatsapp_messages(phone, created_at);")
             conn.commit()
             conn.close()
+            if os.path.exists(_DB_PATH):
+                try:
+                    os.chmod(_DB_PATH, 0o600)
+                except Exception:
+                    pass
         except Exception as exc:
             logger.exception("Failed to initialize WhatsApp SQLite database: %s", exc)
 
@@ -319,8 +350,11 @@ def verify_webhook():
     challenge = request.args.get("hub.challenge")
 
     expected_verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", WHATSAPP_VERIFY_TOKEN).strip()
+    if not expected_verify_token:
+        logger.warning("WhatsApp webhook verification failed: WHATSAPP_VERIFY_TOKEN is not configured.")
+        return jsonify({"error": "Webhook verification not configured"}), 503
 
-    if mode == "subscribe" and token == expected_verify_token:
+    if mode == "subscribe" and token and token == expected_verify_token:
         logger.info("WhatsApp webhook verified successfully!")
         return challenge, 200
 

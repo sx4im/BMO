@@ -282,7 +282,7 @@ def tts(user):  # noqa: ARG001
         return bad_request("text too long (max 4000 chars)", 422)
     voice = payload.get("voice")
     language = payload.get("language")
-    if voice is not None and (not isinstance(voice, str) or len(voice) > 80):
+    if voice is not None and (not isinstance(voice, str) or not re.match(r"^[a-zA-Z0-9_-]{1,64}$", voice)):
         return bad_request("invalid voice", 422)
     if language is not None and (not isinstance(language, str) or len(language) > 20):
         return bad_request("invalid language", 422)
@@ -329,9 +329,21 @@ def tts_stream(ws):
         return
 
     model = request.args.get("model")
+    if model:
+        model = model.strip()
+        if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", model):
+            try:
+                ws.send(json.dumps({"type": "Error", "message": "Invalid TTS model name"}))
+                ws.close(4400, "Invalid model")
+            except Exception:
+                pass
+            return
+
     raw_rate = request.args.get("sample_rate")
     try:
         sample_rate = int(raw_rate) if raw_rate else 24000
+        if sample_rate not in {8000, 16000, 24000, 32000, 48000}:
+            sample_rate = 24000
     except (ValueError, TypeError):
         sample_rate = 24000
 
