@@ -4,7 +4,7 @@
  */
 
 import { el, clear } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=70";
+import { icon } from "../icons.js?v=71";
 import { getAuth } from "../auth.js?v=31";
 import { navigate } from "../router.js?v=31";
 import { mountAppShell } from "../app-shell.js?v=72";
