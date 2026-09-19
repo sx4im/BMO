@@ -94,8 +94,9 @@ function expandYearsForSpeech(text) {
 
 // Turn assistant markdown into something worth speaking: drop code, math,
 // images, and markdown punctuation so the model doesn't read backticks/pipes.
-// Keep inter-word whitespace intact so streaming chunks don't glue words together.
-function stripForSpeech(md = "") {
+// Ellipses ('...') are only allowed at the very start of a turn (e.g. 'Hmm...', 'Ahh...').
+// In the middle or end of speech, ellipses are converted to natural comma pauses so TTS doesn't delay.
+function stripForSpeech(md = "", isStartOfTurn = false) {
   const cleaned = String(md)
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`]*`/g, " ")
@@ -104,7 +105,9 @@ function stripForSpeech(md = "") {
     .replace(/\$\$[\s\S]*?\$\$/g, " ")
     .replace(/\$[^$\n]*\$/g, " ")
     .replace(/[#*_>~|`]/g, " ")
-    .replace(/\.{3,}|…/g, ", ")
+    .replace(/(\.{2,}|…)/g, (match, _, offset) => {
+      return (isStartOfTurn && offset <= 8) ? match : ", ";
+    })
     .replace(/[ \t\r\n]+/g, " ");
   return expandYearsForSpeech(cleaned);
 }
@@ -838,6 +841,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     let wsClosed = false;
     let nextPlayTime = 0;
     let finishTimer = null;
+    let hasSentFirstChunk = false;
     const queuedSources = [];
     const pendingTextQueue = [];
     let resolveDone;
@@ -978,8 +982,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     }
 
     function sendChunk(rawText) {
-      const clean = stripForSpeech(rawText);
-      if (!clean || !clean.trim()) return;
+      const isStart = !hasSentFirstChunk;
+      const clean = stripForSpeech(rawText, isStart);
+      // Skip chunks with no actual spoken words (prevents sending orphan dots or bare punctuation)
+      if (!clean || !clean.replace(/[\s.,;:!?…-]/g, "")) return;
+      hasSentFirstChunk = true;
       // Ensure words do not get glued together across WebSocket Speak chunks
       const textToSend = clean.endsWith(" ") ? clean : `${clean} `;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -998,11 +1005,13 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       const pending = soFar.slice(offset);
       if (!pending) return;
 
-      // Stream full clauses when punctuation appears for natural spoken prosody and cadence
-      const punctIdx = pending.search(/[,;:!?.…\n]/);
-      if (punctIdx >= 0) {
-        const toSend = pending.slice(0, punctIdx + 1);
-        offset += punctIdx + 1;
+      // Stream full clauses when punctuation appears for natural spoken prosody and cadence.
+      // Match punctuation without splitting in the middle of consecutive dots (e.g. ..., ..)
+      const match = pending.match(/([,;:!?\n]|\.+)/);
+      if (match && match.index != null) {
+        const endIdx = match.index + match[0].length;
+        const toSend = pending.slice(0, endIdx);
+        offset += endIdx;
         sendChunk(toSend);
         return;
       }
