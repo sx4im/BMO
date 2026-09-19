@@ -64,7 +64,7 @@ const VAD_ENTER_FACTOR = 2.0;    // speech: level > floor * 2.0 (and > MIN)
 const VAD_EXIT_FACTOR  = 1.4;    // silence again below floor * 1.4 (hysteresis)
 const VAD_MIN_LEVEL    = 0.005;  // absolute gate so dead-quiet rooms don't fire on hiss
 const VAD_ENTER_FRAMES = 2;      // ~2 consecutive loud frames (~35 ms) to confirm speech
-const VAD_SILENCE_MS   = 2500;   // wait 2.5s of silence so user can pause and think naturally
+const VAD_SILENCE_MS   = 2000;   // wait 2.0s of silence so user can pause and think naturally
 const VAD_NO_SPEECH_MS = 8000;   // never spoke -> release the mic, don't transcribe noise
 const VAD_MAX_TURN_MS  = 60000;  // hard safety cap per turn
 
@@ -104,6 +104,7 @@ function stripForSpeech(md = "") {
     .replace(/\$\$[\s\S]*?\$\$/g, " ")
     .replace(/\$[^$\n]*\$/g, " ")
     .replace(/[#*_>~|`]/g, " ")
+    .replace(/\.{3,}|…/g, ", ")
     .replace(/[ \t\r\n]+/g, " ");
   return expandYearsForSpeech(cleaned);
 }
@@ -489,7 +490,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
               stopRecognition();
               endTurn(textToSend);
             }
-          }, 2500); // 2.5s of quiet gives user natural time to pause and think
+          }, 2000); // exactly 2.0s of silence gives user natural time to pause and think
         }
       };
 
@@ -505,6 +506,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       let emptyEndCount = 0;
       recognition.onend = () => {
         if (active && state === "listening" && !turnInFlight) {
+          // If the 2-second silence timer is running, the user just paused to think — do NOT cut them off
+          if (speechSilenceTimer) {
+            try {
+              recognition.start();
+            } catch {}
+            return;
+          }
+
           const text = lastRecognizedText.trim();
           if (text) {
             lastRecognizedText = "";
@@ -513,7 +522,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
             endTurn(text);
           } else {
             emptyEndCount++;
-            if (emptyEndCount >= 2) {
+            if (emptyEndCount >= 3) {
               console.warn("[bimo-voice] Web Speech ended repeatedly without results, falling back to MediaRecorder");
               speechRecSupported = false;
               stopRecognition();
