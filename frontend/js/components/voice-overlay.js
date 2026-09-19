@@ -781,10 +781,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
       if (speech) {
         speech.finish(reply);
-        // Safety timeout guarantees speech.done() never hangs under any network anomaly
+        // Generous safety cap so speech is never prematurely cut off mid-sentence
         await Promise.race([
           speech.done(),
-          new Promise((resolve) => setTimeout(resolve, 3500)),
+          new Promise((resolve) => setTimeout(resolve, 45000)),
         ]);
         if (activeSpeech === speech) activeSpeech = null;
         if (!active || speech.cancelled) return;
@@ -843,26 +843,26 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       if (finished) {
         if (!audioStillPlaying) {
           // If all audio playback has finished through the speakers:
-          if (flushReceived || wsClosed || hasReceivedAudio) {
+          if (flushReceived || wsClosed) {
             if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
             stopMeter();
             ttsSource = null;
             resolveDone();
             return;
           }
-        }
 
-        if (queuedSources.length === 0 && audioCtx && nextPlayTime > 0 && audioCtx.currentTime < nextPlayTime) {
-          const waitMs = Math.max(20, Math.ceil((nextPlayTime - audioCtx.currentTime) * 1000) + 40);
+          if (!finishTimer) {
+            finishTimer = setTimeout(() => {
+              if (!cancelled) {
+                stopMeter();
+                ttsSource = null;
+                resolveDone();
+              }
+            }, 1200);
+          }
+        } else if (queuedSources.length === 0 && audioCtx && nextPlayTime > 0 && audioCtx.currentTime < nextPlayTime) {
+          const waitMs = Math.max(20, Math.ceil((nextPlayTime - audioCtx.currentTime) * 1000) + 30);
           setTimeout(() => { if (!cancelled) checkDone(); }, waitMs);
-        } else if (!audioStillPlaying && !finishTimer) {
-          finishTimer = setTimeout(() => {
-            if (!cancelled) {
-              stopMeter();
-              ttsSource = null;
-              resolveDone();
-            }
-          }, 400);
         }
       }
     }
@@ -929,7 +929,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
     function queueAudioBuffer(audioBuffer) {
       if (cancelled || !active || !audioCtx) return;
-      if (finished && (flushReceived || !activeSpeech)) return;
+      if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
       if (audioCtx.state === "suspended") {
         audioCtx.resume().catch(() => {});
       }
@@ -1023,20 +1023,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         try { ws.send(JSON.stringify({ type: "Flush" })); } catch {}
       }
       checkDone();
-
-      // Fallback: if resolveDone is not triggered within 2.5s of finish, resolve
-      setTimeout(() => {
-        if (!cancelled) {
-          stopMeter();
-          ttsSource = null;
-          resolveDone();
-        }
-      }, 2500);
     }
 
     function cancel() {
       if (cancelled) return;
       cancelled = true;
+      if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
       pendingTextQueue.length = 0;
       for (const s of queuedSources) {
         try { s.onended = null; s.stop(); } catch {}
