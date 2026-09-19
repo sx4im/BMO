@@ -1,5 +1,5 @@
 import { el, clear } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=68";
+import { icon } from "../icons.js?v=70";
 import { avatar } from "./avatar.js?v=30";
 import { getRoute, navigate } from "../router.js?v=31";
 import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=58";

@@ -4,7 +4,7 @@
  */
 
 import { el, clear } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=48";
+import { icon } from "../icons.js?v=70";
 import { getAuth } from "../auth.js?v=31";
 import { navigate } from "../router.js?v=31";
 import { mountAppShell } from "../app-shell.js?v=72";
@@ -142,7 +142,6 @@ export async function renderChat({ id, incognito }) {
   }, [
     convoPinIcon,
     convoPinLabel,
-    el("span", { class: "menu-shortcut", text: "P" }),
   ]);
 
   const renameItem = el("button", {
@@ -169,7 +168,6 @@ export async function renderChat({ id, incognito }) {
   }, [
     el("span", { class: "menu-icon", html: icon("pencil", { width: 15, height: 15 }) }),
     el("span", { class: "menu-label", text: "Rename" }),
-    el("span", { class: "menu-shortcut", text: "R" }),
   ]);
 
   const deleteItem = el("button", {
@@ -196,7 +194,6 @@ export async function renderChat({ id, incognito }) {
   }, [
     el("span", { class: "menu-icon", html: icon("trash", { width: 15, height: 15 }) }),
     el("span", { class: "menu-label", text: "Delete" }),
-    el("span", { class: "menu-shortcut", text: "D" }),
   ]);
 
   const convoMenu = el("div", { class: "chat-topbar-menu", role: "menu" }, [
