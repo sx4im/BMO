@@ -9,8 +9,9 @@ import { getAuth } from "../auth.js?v=31";
 import { navigate } from "../router.js?v=31";
 import { mountAppShell } from "../app-shell.js?v=72";
 import { toast } from "../components/toast.js?v=58";
+import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { whenMarkdownReady } from "../components/markdown.js?v=33";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=49";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=50";
 import * as api from "../api.js?v=61";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=25";
@@ -109,8 +110,129 @@ export async function renderChat({ id, incognito }) {
     html: icon(incognito ? "x" : "incognito", { width: 26, height: 24 }),
   });
 
+  const convoTitleText = el("span", {
+    class: "chat-topbar-title-text",
+    text: "",
+  });
+
+  const convoTitleCaret = el("span", {
+    class: "chat-topbar-title-caret",
+    html: icon("chevronDown", { width: 14, height: 14 }),
+  });
+
+  let isConvoMenuOpen = false;
+  function closeConvoMenu() {
+    isConvoMenuOpen = false;
+    convoMenu.classList.remove("open");
+    convoTitleBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleConvoMenu() {
+    if (incognito || !conversation?.id) return;
+    isConvoMenuOpen = !isConvoMenuOpen;
+    convoMenu.classList.toggle("open", isConvoMenuOpen);
+    convoTitleBtn.setAttribute("aria-expanded", isConvoMenuOpen ? "true" : "false");
+  }
+
+  const convoMenu = el("div", { class: "chat-topbar-menu", role: "menu" }, [
+    el("button", {
+      type: "button",
+      class: "chat-topbar-menu-item",
+      onclick: (e) => {
+        e.stopPropagation();
+        closeConvoMenu();
+        if (!conversation?.id) return;
+        openPromptModal({
+          title: "Rename chat",
+          initialValue: conversation.title,
+          confirmText: "Save",
+          onConfirm: async (val) => {
+            if (val && val !== conversation.title) {
+              await api.renameConversation(auth.token, conversation.id, val);
+              conversation.title = val;
+              updateTopBarTitle();
+              loadConversations();
+            }
+          },
+        });
+      },
+    }, [
+      el("span", { class: "menu-icon", html: icon("pencil", { width: 15, height: 15 }) }),
+      el("span", { text: "Rename" }),
+    ]),
+    el("button", {
+      type: "button",
+      class: "chat-topbar-menu-item danger",
+      onclick: (e) => {
+        e.stopPropagation();
+        closeConvoMenu();
+        if (!conversation?.id) return;
+        openConfirmModal({
+          title: "Delete chat",
+          message: "Are you sure you want to delete this chat?",
+          confirmText: "Delete",
+          cancelText: "Cancel",
+          danger: true,
+          onConfirm: async () => {
+            await api.deleteConversation(auth.token, conversation.id);
+            loadConversations();
+            navigate("#/app/chat");
+          },
+        });
+      },
+    }, [
+      el("span", { class: "menu-icon", html: icon("trash", { width: 15, height: 15 }) }),
+      el("span", { text: "Delete" }),
+    ]),
+  ]);
+
+  const convoTitleBtn = el("button", {
+    type: "button",
+    class: "chat-topbar-title-btn",
+    "aria-label": "Chat options",
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+    title: "Chat options",
+    style: "display: none;",
+    onclick: (e) => {
+      e.stopPropagation();
+      toggleConvoMenu();
+    },
+  }, [convoTitleText, convoTitleCaret]);
+
+  const onDocClickConvoMenu = (e) => {
+    if (!convoTitleBtn.contains(e.target) && !convoMenu.contains(e.target)) {
+      closeConvoMenu();
+    }
+  };
+  document.addEventListener("click", onDocClickConvoMenu);
+
+  function updateTopBarTitle() {
+    if (incognito) {
+      convoTitleText.textContent = "Incognito chat";
+      convoTitleBtn.title = "Incognito chat";
+      convoTitleBtn.style.display = "inline-flex";
+      convoTitleCaret.style.display = "none";
+      return;
+    }
+    if (conversation?.title) {
+      convoTitleText.textContent = conversation.title;
+      convoTitleBtn.title = conversation.title;
+      convoTitleBtn.style.display = "inline-flex";
+      convoTitleCaret.style.display = "inline-flex";
+    } else if (id) {
+      convoTitleText.textContent = "Chat";
+      convoTitleBtn.title = "Chat";
+      convoTitleBtn.style.display = "inline-flex";
+      convoTitleCaret.style.display = "inline-flex";
+    } else {
+      convoTitleBtn.style.display = "none";
+    }
+  }
+
   const header = el("header", { class: "chat-topbar" }, [
     el("div", { class: "inner" }, [
+      el("div", { class: "chat-topbar-title-wrap" }, [convoTitleBtn, convoMenu]),
       el("div", { class: "chat-topbar-actions" }, [incognitoBtn]),
     ]),
   ]);
@@ -191,6 +313,7 @@ export async function renderChat({ id, incognito }) {
         loadConversations();
       }
       composer.renderModelBadge(incognito);
+      updateTopBarTitle();
     },
 
     onUserMessage: (m) => {
@@ -361,6 +484,7 @@ export async function renderChat({ id, incognito }) {
     messageFeed.stream.style.display = "";
     composer.element.style.display = "";
     header.style.display = "";
+    updateTopBarTitle();
     const spinner = page.querySelector(".blade-spinner");
     if (spinner) spinner.remove();
     const isEmpty = messages.length === 0 && !composer.isGenerating && !searching && !imageGenerating && !streamHandler.isStreaming;
@@ -431,6 +555,7 @@ export async function renderChat({ id, incognito }) {
       if (conversation?.model) {
         composer.currentModel = conversation.model;
       }
+      updateTopBarTitle();
       if (lastMessageIsPendingImagePrompt()) {
         pollForImageResult();
       }
@@ -843,6 +968,7 @@ export async function renderChat({ id, incognito }) {
     if (voiceHandle) { try { voiceHandle.close(); } catch {} voiceHandle = null; }
     window.removeEventListener("focus", attemptFocus);
     window.removeEventListener("pageshow", attemptFocus);
+    document.removeEventListener("click", onDocClickConvoMenu);
     document.removeEventListener("touchstart", handleUniversalFocus);
     document.removeEventListener("pointerdown", handleUniversalFocus);
     document.removeEventListener("visibilitychange", onVisibilityChange);

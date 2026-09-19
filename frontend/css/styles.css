@@ -91,12 +91,12 @@
   /* page + chat bg (claude.ai dark) */
   --sidebar-bg: #111111;
   /* left navigation panel */
-  --surface-soft: #232323;
+  --surface-soft: #282826;
   /* hover rows + user bubble */
   --surface-card: #151515;
   /* panels sit FLAT on the page bg; borders define them */
-  --surface-active: #343434;
-  /* active/open item highlight (claude.ai) */
+  --surface-active: #3d3d3a;
+  /* active/open item highlight (brighter, cleaner version) */
   --input-bar: #20201f;
   /* message input bar — one step above canvas (claude.ai) */
   --landing-nav-bg: rgba(17, 17, 17, 0.85);
@@ -107,15 +107,14 @@
   --surface-dark-elevated: #232321;
   --surface-dark-soft: #1c1b1a;
 
-  /* User bubble — near-black, with the same dull off-white text */
+  /* User bubble — near-black, with clean bright white #eeedea text */
   --user-bubble: #232323;
-  --user-bubble-ink: #d6d2ca;
+  --user-bubble-ink: #eeedea;
 
-  /* Ink — black text becomes a dull, professional off-white (pure white read
-     too bright). Headings/bold/chat sit just above the icon white (--body). */
-  --ink: #d6d2ca;
-  --body-strong: #cfccc4;
-  --body: #cdcac3;
+  /* Ink — bright clean white #eeedea for chat replies, prompt text, wordmark, and active titles */
+  --ink: #eeedea;
+  --body-strong: #eeedea;
+  --body: #eeedea;
   --muted: #a8a49a;
   /* nudged brighter for AA on the deeper canvas */
   --muted-soft: #7d7a72;
@@ -1014,9 +1013,9 @@ body:has(.app-shell),
 :root[data-theme="dark"] .logo .mark,
 :root[data-theme="dark"] .logo .mark svg,
 :root[data-theme="dark"] .logo .mark path {
-  color: #d6d2ca !important;
-  fill: #d6d2ca !important;
-  stroke: #d6d2ca !important;
+  color: #eeedea !important;
+  fill: #eeedea !important;
+  stroke: #eeedea !important;
 }
 
 :root:not([data-theme="dark"]) .logo .mark,
@@ -1035,9 +1034,9 @@ body:has(.app-shell),
   :root:not([data-theme="light"]) .logo .mark,
   :root:not([data-theme="light"]) .logo .mark svg,
   :root:not([data-theme="light"]) .logo .mark path {
-    color: #d6d2ca !important;
-    fill: #d6d2ca !important;
-    stroke: #d6d2ca !important;
+    color: #eeedea !important;
+    fill: #eeedea !important;
+    stroke: #eeedea !important;
   }
 }
 
@@ -1946,7 +1945,7 @@ body:has(.app-shell),
 .landing-footer .logo .mark {
   height: 30px;
   width: auto;
-  color: #d6d2ca;
+  color: #eeedea;
 }
 
 
@@ -2026,8 +2025,9 @@ body:has(.app-shell),
 
 .sidebar-nav {
   /* 6px + item 12px = 18px — flush with .sidebar-head / Bmo. left edge.
-     Top padding is the Claude-style breathing room under the wordmark. */
-  padding: 16px 6px 0;
+     Top padding is the Claude-style breathing room under the wordmark.
+     Bottom padding gives clean professional breathing room below Settings before conversations. */
+  padding: 16px 6px 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -3026,18 +3026,23 @@ button:hover .icon-dislike,
   min-height: 36px;
 }
 
-.sidebar-convo-lists .item.active button.entry,
 .sidebar-convo-lists .item:hover button.entry,
-.sidebar-recent .item.active button.entry,
 .sidebar-recent .item:hover button.entry {
   background: var(--surface-soft);
   color: var(--ink);
 }
 
-/* The OPEN conversation gets the stronger active shade (claude.ai #343434). */
+/* The OPEN conversation gets the stronger active shade (brighter version #3d3d3a). */
 .sidebar-convo-lists .item.active button.entry,
 .sidebar-recent .item.active button.entry {
   background: var(--surface-active, var(--surface-card));
+  color: var(--ink);
+}
+
+.sidebar-convo-lists .item.active:hover button.entry,
+.sidebar-recent .item.active:hover button.entry {
+  background: #464643;
+  color: var(--ink);
 }
 
 .sidebar-convo-lists .item .title,
@@ -3430,6 +3435,109 @@ button:hover .icon-dislike,
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
+}
+
+.chat-topbar-title-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: calc(100% - 60px);
+}
+
+.chat-topbar-title-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  font-weight: 500;
+  cursor: pointer;
+  max-width: 100%;
+  transition: background 150ms ease, color 150ms ease;
+  user-select: none;
+}
+
+.chat-topbar-title-btn:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.chat-topbar-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.chat-topbar-title-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+
+.chat-topbar-title-btn[aria-expanded="true"] .chat-topbar-title-caret {
+  transform: rotate(180deg);
+}
+
+.chat-topbar-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  min-width: 140px;
+  background: var(--surface-dark-elevated, var(--canvas));
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  padding: 4px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-topbar-menu.open {
+  display: flex;
+}
+
+.chat-topbar-menu-item {
+  appearance: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.chat-topbar-menu-item:hover {
+  background: var(--surface-soft);
+}
+
+.chat-topbar-menu-item.danger {
+  color: var(--error, #e24b4a);
+}
+
+.chat-topbar-menu-item.danger:hover {
+  background: rgba(226, 75, 74, 0.12);
 }
 
 .chat-topbar .title-block {

@@ -781,7 +781,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
       if (speech) {
         speech.finish(reply);
-        await speech.done();
+        // Safety timeout guarantees speech.done() never hangs under any network anomaly
+        await Promise.race([
+          speech.done(),
+          new Promise((resolve) => setTimeout(resolve, 8000)),
+        ]);
         if (activeSpeech === speech) activeSpeech = null;
         if (!active || speech.cancelled) return;
         afterSpeaking();
@@ -805,7 +809,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     if (!active) return;
     setState("idle", "");
     setTimeout(() => {
-      if (active && !turnInFlight && !activeSpeech && state !== "speaking" && !ttsSource) {
+      if (active && !turnInFlight && !activeSpeech && state !== "speaking") {
+        ttsSource = null;
         startListening();
       }
     }, TTS_COOLDOWN_MS);
@@ -834,6 +839,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       if (finished && (flushReceived || wsClosed)) {
         if (!audioStillPlaying) {
           stopMeter();
+          ttsSource = null;
           resolveDone();
         } else if (queuedSources.length === 0 && audioCtx && nextPlayTime > 0) {
           const waitMs = Math.max(20, Math.ceil((nextPlayTime - audioCtx.currentTime) * 1000) + 40);
@@ -860,7 +866,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         if (typeof event.data === "string") {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === "Flushed" || (flushSent && data.type === "SpeechMetadata")) {
+            if (data.type === "Flushed" || data.type === "SpeechMetadata") {
+              flushReceived = true;
+              checkDone();
+            } else if (data.type === "Warning" && (data.code === "NO_ACTIVE_SPEECH" || data.code === "NO_SYNTHESIZABLE_TEXT")) {
               flushReceived = true;
               checkDone();
             } else if (data.type === "Error") {
@@ -931,7 +940,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       source.onended = () => {
         const idx = queuedSources.indexOf(source);
         if (idx !== -1) queuedSources.splice(idx, 1);
-        if (queuedSources.length === 0 && (!audioCtx || !nextPlayTime || audioCtx.currentTime >= nextPlayTime)) {
+        if (queuedSources.length === 0) {
           stopMeter();
           ttsSource = null;
         }
@@ -1009,6 +1018,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       queuedSources.length = 0;
       nextPlayTime = 0;
       stopMeter();
+      ttsSource = null;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
           ws.send(JSON.stringify({ type: "Interrupt" }));
