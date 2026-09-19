@@ -3351,10 +3351,22 @@ button:hover .icon-dislike,
   place-items: center;
   border-radius: var(--r-sm);
   color: var(--ink);
+  transition: color 150ms ease, background 150ms ease;
+}
+
+:root[data-theme="dark"] .mobile-bar button.menu {
+  color: #d6d2ca;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .mobile-bar button.menu {
+    color: #d6d2ca;
+  }
 }
 
 .mobile-bar button.menu:hover {
   background: var(--surface-card);
+  color: var(--ink);
 }
 
 .mobile-bar button.menu svg {
