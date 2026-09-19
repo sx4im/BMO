@@ -3350,18 +3350,9 @@ button:hover .icon-dislike,
   display: grid;
   place-items: center;
   border-radius: var(--r-sm);
-  color: var(--ink);
+  color: var(--muted);
+  cursor: pointer;
   transition: color 150ms ease, background 150ms ease;
-}
-
-:root[data-theme="dark"] .mobile-bar button.menu {
-  color: #d6d2ca;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .mobile-bar button.menu {
-    color: #d6d2ca;
-  }
 }
 
 .mobile-bar button.menu:hover {

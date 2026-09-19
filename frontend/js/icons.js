@@ -83,7 +83,7 @@ const CONFIG_MAP = {
   planUsage: { viewBox: "0 0 14 14" },
   about: { viewBox: "0 0 24 24" },
   helpStudy: { viewBox: "0 0 14 14" },
-  pin: { viewBox: "0 0 100 100", fill: true },
+  pin: { viewBox: "2.38 2.38 95.24 95.24", fill: true },
   pinOff: { viewBox: "0 0 100 100", fill: true },
 };
 

@@ -784,7 +784,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         // Safety timeout guarantees speech.done() never hangs under any network anomaly
         await Promise.race([
           speech.done(),
-          new Promise((resolve) => setTimeout(resolve, 8000)),
+          new Promise((resolve) => setTimeout(resolve, 3500)),
         ]);
         if (activeSpeech === speech) activeSpeech = null;
         if (!active || speech.cancelled) return;
@@ -807,10 +807,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
   function afterSpeaking() {
     if (!active) return;
+    turnInFlight = false;
+    activeSpeech = null;
+    ttsSource = null;
     setState("idle", "");
     setTimeout(() => {
       if (active && !turnInFlight && !activeSpeech && state !== "speaking") {
-        ttsSource = null;
         startListening();
       }
     }, TTS_COOLDOWN_MS);
@@ -826,6 +828,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     let hasReceivedAudio = false;
     let wsClosed = false;
     let nextPlayTime = 0;
+    let finishTimer = null;
     const queuedSources = [];
     const pendingTextQueue = [];
     let resolveDone;
@@ -836,14 +839,30 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     function checkDone() {
       if (cancelled) return;
       const audioStillPlaying = queuedSources.length > 0 || (audioCtx && nextPlayTime > 0 && audioCtx.currentTime < nextPlayTime);
-      if (finished && (flushReceived || wsClosed)) {
+
+      if (finished) {
         if (!audioStillPlaying) {
-          stopMeter();
-          ttsSource = null;
-          resolveDone();
-        } else if (queuedSources.length === 0 && audioCtx && nextPlayTime > 0) {
+          // If all audio playback has finished through the speakers:
+          if (flushReceived || wsClosed || hasReceivedAudio) {
+            if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
+            stopMeter();
+            ttsSource = null;
+            resolveDone();
+            return;
+          }
+        }
+
+        if (queuedSources.length === 0 && audioCtx && nextPlayTime > 0 && audioCtx.currentTime < nextPlayTime) {
           const waitMs = Math.max(20, Math.ceil((nextPlayTime - audioCtx.currentTime) * 1000) + 40);
           setTimeout(() => { if (!cancelled) checkDone(); }, waitMs);
+        } else if (!audioStillPlaying && !finishTimer) {
+          finishTimer = setTimeout(() => {
+            if (!cancelled) {
+              stopMeter();
+              ttsSource = null;
+              resolveDone();
+            }
+          }, 400);
         }
       }
     }
@@ -910,6 +929,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
     function queueAudioBuffer(audioBuffer) {
       if (cancelled || !active || !audioCtx) return;
+      if (finished && (flushReceived || !activeSpeech)) return;
       if (audioCtx.state === "suspended") {
         audioCtx.resume().catch(() => {});
       }
@@ -1001,11 +1021,17 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       if (ws && ws.readyState === WebSocket.OPEN) {
         flushSent = true;
         try { ws.send(JSON.stringify({ type: "Flush" })); } catch {}
-      } else if (ws && ws.readyState === WebSocket.CONNECTING) {
-        // Will be flushed in onopen
-      } else {
-        checkDone();
       }
+      checkDone();
+
+      // Fallback: if resolveDone is not triggered within 2.5s of finish, resolve
+      setTimeout(() => {
+        if (!cancelled) {
+          stopMeter();
+          ttsSource = null;
+          resolveDone();
+        }
+      }, 2500);
     }
 
     function cancel() {
@@ -1120,18 +1146,27 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   }
 
   function stopSpeaking() {
-    if (activeSpeech) { activeSpeech.cancel(); activeSpeech = null; }
+    if (activeSpeech) {
+      try { activeSpeech.cancel(); } catch {}
+      activeSpeech = null;
+    }
     stopMeter();
     if (ttsSource) {
       try { ttsSource.onended = null; ttsSource.stop(); } catch { /* ignore */ }
       ttsSource = null;
     }
+    turnInFlight = false;
+    setState("idle", "");
   }
 
   // ---------- controls ----------
   function onMicTap() {
     if (!active) return;
-    if (state === "speaking" || activeSpeech) { stopSpeaking(); startListening(); return; }
+    if (state === "speaking" || activeSpeech || turnInFlight) {
+      stopSpeaking();
+      startListening();
+      return;
+    }
     if (state === "listening") {
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         // Manual tap = "send what I said now". Force the transcription even
