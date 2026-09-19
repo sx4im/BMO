@@ -3466,31 +3466,31 @@ button:hover .icon-dislike,
 
 .chat-topbar-chevron-btn {
   appearance: none;
-  background: var(--surface-soft);
-  border: 1px solid var(--hairline);
+  background: transparent;
+  border: none;
   outline: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 24px;
-  padding: 0;
+  width: auto;
+  height: auto;
+  padding: 3px 4px;
   border-radius: var(--r-sm);
   color: var(--muted);
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+  transition: color 150ms ease, background 150ms ease;
 }
 
 .chat-topbar-chevron-btn:hover,
 .chat-topbar-chevron-btn[aria-expanded="true"] {
-  background: var(--surface-active);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--ink);
-  border-color: var(--hairline-strong);
 }
 
 .chat-topbar-chevron-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
+  display: block;
   transition: transform 150ms ease;
 }
 

@@ -213,7 +213,7 @@ export async function renderChat({ id, incognito }) {
       e.stopPropagation();
       toggleConvoMenu();
     },
-    html: icon("chevronDown", { width: 14, height: 14 }),
+    html: icon("chevronDown", { width: 18, height: 18 }),
   });
 
   const menuAnchor = el("div", { class: "chat-topbar-menu-anchor" }, [
