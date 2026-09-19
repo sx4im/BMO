@@ -115,93 +115,136 @@ export async function renderChat({ id, incognito }) {
     text: "",
   });
 
-  const convoTitleCaret = el("span", {
-    class: "chat-topbar-title-caret",
+  const convoPinIcon = el("span", {
+    class: "menu-icon",
+    html: icon("pin", { width: 15, height: 15 }),
+  });
+  const convoPinLabel = el("span", { class: "menu-label", text: "Pin" });
+
+  const pinItem = el("button", {
+    type: "button",
+    class: "chat-topbar-menu-item",
+    onclick: async (e) => {
+      e.stopPropagation();
+      closeConvoMenu();
+      if (!conversation?.id) return;
+      const nextPinned = !conversation.pinned;
+      try {
+        await api.updateConversation(auth.token, conversation.id, { pinned: nextPinned });
+        conversation.pinned = nextPinned;
+        updateTopBarTitle();
+        toast(nextPinned ? "Pinned" : "Unpinned", { tone: "success" });
+        loadConversations();
+      } catch (err) {
+        toast(err?.message || "Couldn't update pin", { tone: "error" });
+      }
+    },
+  }, [
+    convoPinIcon,
+    convoPinLabel,
+    el("span", { class: "menu-shortcut", text: "P" }),
+  ]);
+
+  const renameItem = el("button", {
+    type: "button",
+    class: "chat-topbar-menu-item",
+    onclick: (e) => {
+      e.stopPropagation();
+      closeConvoMenu();
+      if (!conversation?.id) return;
+      openPromptModal({
+        title: "Rename chat",
+        initialValue: conversation.title,
+        confirmText: "Save",
+        onConfirm: async (val) => {
+          if (val && val !== conversation.title) {
+            await api.updateConversation(auth.token, conversation.id, { title: val });
+            conversation.title = val;
+            updateTopBarTitle();
+            loadConversations();
+          }
+        },
+      });
+    },
+  }, [
+    el("span", { class: "menu-icon", html: icon("pencil", { width: 15, height: 15 }) }),
+    el("span", { class: "menu-label", text: "Rename" }),
+    el("span", { class: "menu-shortcut", text: "R" }),
+  ]);
+
+  const deleteItem = el("button", {
+    type: "button",
+    class: "chat-topbar-menu-item danger",
+    onclick: (e) => {
+      e.stopPropagation();
+      closeConvoMenu();
+      if (!conversation?.id) return;
+      openConfirmModal({
+        title: "Delete chat",
+        message: "Are you sure you want to delete this chat?",
+        confirmText: "Delete",
+        cancelText: "Cancel",
+        danger: true,
+        onConfirm: async () => {
+          await api.deleteConversation(auth.token, conversation.id);
+          toast("Chat deleted", { tone: "warning" });
+          loadConversations();
+          navigate("#/app/chat");
+        },
+      });
+    },
+  }, [
+    el("span", { class: "menu-icon", html: icon("trash", { width: 15, height: 15 }) }),
+    el("span", { class: "menu-label", text: "Delete" }),
+    el("span", { class: "menu-shortcut", text: "D" }),
+  ]);
+
+  const convoMenu = el("div", { class: "chat-topbar-menu", role: "menu" }, [
+    pinItem,
+    renameItem,
+    deleteItem,
+  ]);
+
+  const chevronBtn = el("button", {
+    type: "button",
+    class: "chat-topbar-chevron-btn",
+    "aria-label": "Chat options",
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+    title: "Chat options",
+    onclick: (e) => {
+      e.stopPropagation();
+      toggleConvoMenu();
+    },
     html: icon("chevronDown", { width: 14, height: 14 }),
   });
+
+  const menuAnchor = el("div", { class: "chat-topbar-menu-anchor" }, [
+    chevronBtn,
+    convoMenu,
+  ]);
+
+  const titleWrap = el("div", { class: "chat-topbar-title-wrap", style: "display: none;" }, [
+    convoTitleText,
+    menuAnchor,
+  ]);
 
   let isConvoMenuOpen = false;
   function closeConvoMenu() {
     isConvoMenuOpen = false;
     convoMenu.classList.remove("open");
-    convoTitleBtn.setAttribute("aria-expanded", "false");
+    chevronBtn.setAttribute("aria-expanded", "false");
   }
 
   function toggleConvoMenu() {
     if (incognito || !conversation?.id) return;
     isConvoMenuOpen = !isConvoMenuOpen;
     convoMenu.classList.toggle("open", isConvoMenuOpen);
-    convoTitleBtn.setAttribute("aria-expanded", isConvoMenuOpen ? "true" : "false");
+    chevronBtn.setAttribute("aria-expanded", isConvoMenuOpen ? "true" : "false");
   }
 
-  const convoMenu = el("div", { class: "chat-topbar-menu", role: "menu" }, [
-    el("button", {
-      type: "button",
-      class: "chat-topbar-menu-item",
-      onclick: (e) => {
-        e.stopPropagation();
-        closeConvoMenu();
-        if (!conversation?.id) return;
-        openPromptModal({
-          title: "Rename chat",
-          initialValue: conversation.title,
-          confirmText: "Save",
-          onConfirm: async (val) => {
-            if (val && val !== conversation.title) {
-              await api.renameConversation(auth.token, conversation.id, val);
-              conversation.title = val;
-              updateTopBarTitle();
-              loadConversations();
-            }
-          },
-        });
-      },
-    }, [
-      el("span", { class: "menu-icon", html: icon("pencil", { width: 15, height: 15 }) }),
-      el("span", { text: "Rename" }),
-    ]),
-    el("button", {
-      type: "button",
-      class: "chat-topbar-menu-item danger",
-      onclick: (e) => {
-        e.stopPropagation();
-        closeConvoMenu();
-        if (!conversation?.id) return;
-        openConfirmModal({
-          title: "Delete chat",
-          message: "Are you sure you want to delete this chat?",
-          confirmText: "Delete",
-          cancelText: "Cancel",
-          danger: true,
-          onConfirm: async () => {
-            await api.deleteConversation(auth.token, conversation.id);
-            loadConversations();
-            navigate("#/app/chat");
-          },
-        });
-      },
-    }, [
-      el("span", { class: "menu-icon", html: icon("trash", { width: 15, height: 15 }) }),
-      el("span", { text: "Delete" }),
-    ]),
-  ]);
-
-  const convoTitleBtn = el("button", {
-    type: "button",
-    class: "chat-topbar-title-btn",
-    "aria-label": "Chat options",
-    "aria-haspopup": "menu",
-    "aria-expanded": "false",
-    title: "Chat options",
-    style: "display: none;",
-    onclick: (e) => {
-      e.stopPropagation();
-      toggleConvoMenu();
-    },
-  }, [convoTitleText, convoTitleCaret]);
-
   const onDocClickConvoMenu = (e) => {
-    if (!convoTitleBtn.contains(e.target) && !convoMenu.contains(e.target)) {
+    if (!menuAnchor.contains(e.target)) {
       closeConvoMenu();
     }
   };
@@ -210,29 +253,28 @@ export async function renderChat({ id, incognito }) {
   function updateTopBarTitle() {
     if (incognito) {
       convoTitleText.textContent = "Incognito chat";
-      convoTitleBtn.title = "Incognito chat";
-      convoTitleBtn.style.display = "inline-flex";
-      convoTitleCaret.style.display = "none";
+      menuAnchor.style.display = "none";
+      titleWrap.style.display = "inline-flex";
       return;
     }
     if (conversation?.title) {
       convoTitleText.textContent = conversation.title;
-      convoTitleBtn.title = conversation.title;
-      convoTitleBtn.style.display = "inline-flex";
-      convoTitleCaret.style.display = "inline-flex";
+      convoPinIcon.innerHTML = icon(conversation.pinned ? "pinOff" : "pin", { width: 15, height: 15 });
+      convoPinLabel.textContent = conversation.pinned ? "Unpin" : "Pin";
+      menuAnchor.style.display = "inline-flex";
+      titleWrap.style.display = "inline-flex";
     } else if (id) {
       convoTitleText.textContent = "Chat";
-      convoTitleBtn.title = "Chat";
-      convoTitleBtn.style.display = "inline-flex";
-      convoTitleCaret.style.display = "inline-flex";
+      menuAnchor.style.display = "inline-flex";
+      titleWrap.style.display = "inline-flex";
     } else {
-      convoTitleBtn.style.display = "none";
+      titleWrap.style.display = "none";
     }
   }
 
   const header = el("header", { class: "chat-topbar" }, [
     el("div", { class: "inner" }, [
-      el("div", { class: "chat-topbar-title-wrap" }, [convoTitleBtn, convoMenu]),
+      titleWrap,
       el("div", { class: "chat-topbar-actions" }, [incognitoBtn]),
     ]),
   ]);
