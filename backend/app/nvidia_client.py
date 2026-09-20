@@ -103,18 +103,15 @@ def _clean_key(raw: str) -> str:
 
 def _read_api_key(model: Optional[str] = None) -> str:
     """Read API_KEY from the environment defensively.
-    Supports model-specific overrides like NVIDIA_NEXOS_KEY, TINKER_API_KEY, GROQ_API_KEY, or MISTRAL_API_KEY.
+    Supports model-specific overrides like KILO_API_KEY, GROQ_API_KEY, or MISTRAL_API_KEY.
     """
     if model:
+        if kilo_client.is_kilo_model(model):
+            return kilo_client._read_api_key()
         if groq_client.is_groq_model(model):
             return groq_client._read_api_key()
         if mistral_client.is_mistral_model(model):
             return mistral_client._read_api_key()
-        m = model.lower()
-        if "inkling" in m or "nexos" in m:
-            nexos_key = os.environ.get("NVIDIA_NEXOS_KEY") or os.environ.get("TINKER_API_KEY")
-            if nexos_key:
-                return _clean_key(nexos_key)
 
     raw = os.environ.get("NVIDIA_API_KEY")
     if not raw:
