@@ -706,14 +706,27 @@ def iter_response(
     elif "nemotron" in chosen_model.lower():
         if max_tokens is None:
             max_tokens = 16384
-        messages = _nemotron_set_reasoning(messages, thinking)
+        effort = reasoning_effort or "low"
+        is_super = "super" in chosen_model.lower()
+        # On Nemotron Super, low effort means fast concise thinking without long 'detailed thinking' prefix
         if thinking:
-            effort = reasoning_effort or "low"
+            if not is_super or effort in ("high", "max"):
+                messages = _nemotron_set_reasoning(messages, True)
+        else:
+            messages = _nemotron_set_reasoning(messages, False)
+
+        # Official NVIDIA NIM recommendation for Nemotron 3 Super: temperature=1.0, top_p=0.95
+        if is_super:
+            temperature = 1.0
+            kwargs["top_p"] = 0.95
+
+        if thinking:
             kwargs["reasoning_effort"] = effort
             kwargs["extra_body"] = {
                 "chat_template_kwargs": {
                     "thinking": True,
                     "enable_thinking": True,
+                    "low_effort": (effort == "low"),
                     "reasoning_effort": effort,
                 }
             }
