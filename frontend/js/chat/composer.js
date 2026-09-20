@@ -488,9 +488,6 @@ export class Composer {
     if (this.extendedThinking) {
       return "high";
     }
-    if (model === "deep") {
-      return "medium";
-    }
     return "low";
   }
 

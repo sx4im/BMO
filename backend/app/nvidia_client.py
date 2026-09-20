@@ -48,7 +48,7 @@ from openai import (
     RateLimitError,
 )
 
-from . import groq_client, mistral_client
+from . import groq_client, kilo_client, mistral_client
 from .config import (
     DEFAULT_BASE_URL,
     DEFAULT_IMAGE_BASE_URL,
@@ -69,6 +69,8 @@ logger = logging.getLogger("bmo.nvidia")
 
 def base_url(model: Optional[str] = None) -> str:
     if model:
+        if kilo_client.is_kilo_model(model):
+            return kilo_client.base_url()
         if groq_client.is_groq_model(model):
             return groq_client.base_url()
         if mistral_client.is_mistral_model(model):
@@ -631,6 +633,17 @@ def iter_response(
         {"type": "usage", "data": dict} at the end if provided
     """
     chosen_model = (model or default_model()).strip()
+    if kilo_client.is_kilo_model(chosen_model):
+        yield from kilo_client.iter_response(
+            messages,
+            model=chosen_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            thinking=thinking,
+        )
+        return
+
     if mistral_client.is_mistral_model(chosen_model):
         yield from mistral_client.iter_response(
             messages,
@@ -676,7 +689,7 @@ def iter_response(
         if max_tokens is None:
             max_tokens = 16384
         if thinking:
-            effort = reasoning_effort or "medium"
+            effort = reasoning_effort or "low"
             kwargs["reasoning_effort"] = effort
             kwargs["extra_body"] = {
                 "chat_template_kwargs": {
@@ -930,7 +943,18 @@ def iter_response_with_fallback(
 ) -> Iterator[dict]:
     """Wraps `iter_response` with automatic fallback to Stanza 2.5 if primary times out."""
     chosen_model = model or default_model()
-    
+
+    if kilo_client.is_kilo_model(chosen_model):
+        yield from kilo_client.iter_response(
+            messages,
+            model=chosen_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            thinking=thinking,
+        )
+        return
+
     stanza_id = get_stanza_model().lower()
     nexos_id = get_nexos_model().lower()
     

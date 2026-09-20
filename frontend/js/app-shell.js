@@ -33,6 +33,11 @@ export async function loadConversations() {
   try {
     state.conversations = await api.listConversations(auth.token);
     if (nodes) renderSidebars();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bmo:conversations-updated", { detail: state.conversations })
+      );
+    }
   } catch (err) {
     toast(err.message || "Couldn't load chats", { tone: "error" });
   }
@@ -215,6 +220,11 @@ function shellApi() {
     setConversations(list) {
       state.conversations = Array.isArray(list) ? list : [];
       renderSidebars();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("bmo:conversations-updated", { detail: state.conversations })
+        );
+      }
     },
     setIncognitoActive(active) {
       const btn = nodes?.mobileIncognitoBtn;

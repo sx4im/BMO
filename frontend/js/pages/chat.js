@@ -553,14 +553,39 @@ export async function renderChat({ id, incognito }) {
     enteringId = null;
   }
 
+  function syncCurrentConversationFromList(list) {
+    if (!id || !Array.isArray(list) || !conversation) return;
+    const found = list.find((c) => String(c.id) === String(id));
+    if (found) {
+      let changed = false;
+      if (found.title && found.title !== conversation.title) {
+        conversation.title = found.title;
+        changed = true;
+      }
+      if (found.pinned !== undefined && found.pinned !== conversation.pinned) {
+        conversation.pinned = found.pinned;
+        changed = true;
+      }
+      if (changed) {
+        updateTopBarTitle();
+      }
+    }
+  }
+
   async function loadConversations() {
     try {
       const list = await api.listConversations(auth.token);
       shell.setConversations(list);
+      syncCurrentConversationFromList(list);
     } catch {
       /* non-blocking sidebar sync */
     }
   }
+
+  const onConversationsUpdated = (e) => {
+    syncCurrentConversationFromList(e.detail);
+  };
+  window.addEventListener("bmo:conversations-updated", onConversationsUpdated);
 
   async function loadModels() {
     try {
@@ -632,6 +657,8 @@ export async function renderChat({ id, incognito }) {
       return;
     }
 
+
+    const isFirstTurn = !id || messages.filter((m) => m.role === "user").length <= 1;
 
     const optimisticUser = {
       id: uid(),
@@ -728,6 +755,11 @@ export async function renderChat({ id, incognito }) {
       composer.syncSendEnabled();
       renderUI();
       loadConversations();
+      if (isFirstTurn) {
+        setTimeout(loadConversations, 1200);
+        setTimeout(loadConversations, 2500);
+        setTimeout(loadConversations, 4500);
+      }
     }
   }
 
@@ -1011,5 +1043,6 @@ export async function renderChat({ id, incognito }) {
     document.removeEventListener("touchstart", handleUniversalFocus);
     document.removeEventListener("pointerdown", handleUniversalFocus);
     document.removeEventListener("visibilitychange", onVisibilityChange);
+    window.removeEventListener("bmo:conversations-updated", onConversationsUpdated);
   };
 }

@@ -1151,7 +1151,7 @@ def test_chat_default_reasoning_efforts(client, monkeypatch):
     assert captured_kwargs.get("reasoning_effort") == "low"
     assert captured_kwargs.get("thinking") is True
 
-    # 2. Nexos default reasoning effort is 'medium'
+    # 2. Nexos default reasoning effort is 'low'
     resp = client.post(
         "/chat",
         headers={"Authorization": f"Bearer {token}"},
@@ -1159,7 +1159,7 @@ def test_chat_default_reasoning_efforts(client, monkeypatch):
     )
     assert resp.status_code == 200
     list(resp.response)
-    assert captured_kwargs.get("reasoning_effort") == "medium"
+    assert captured_kwargs.get("reasoning_effort") == "low"
     assert captured_kwargs.get("thinking") is True
 
     # 3. Extended thinking sets reasoning effort to 'high' for both

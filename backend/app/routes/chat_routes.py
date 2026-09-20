@@ -385,7 +385,7 @@ def chat(user):
         if chosen_friendly == "thinking":
             reasoning_effort = "low"
         elif chosen_friendly == "deep":
-            reasoning_effort = "medium"
+            reasoning_effort = "low"
 
     use_thinking = True
     if chosen_friendly == "aeon":
