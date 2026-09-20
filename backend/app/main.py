@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from . import groq_client, kilo_client, mistral_client, nvidia_client, store, supabase_client, whatsapp
+from . import groq_client, mistral_client, nvidia_client, store, supabase_client, whatsapp
 from .auth import prewarm_jwks
 from .config import (
     DEFAULT_IMAGE_MODEL,
@@ -139,9 +139,6 @@ if groq_client.is_configured():
 
 if mistral_client.is_configured():
     logger.info("Mistral key fingerprint: %s (model=%s)", mistral_client.api_key_fingerprint(), mistral_client.default_model())
-
-if kilo_client.is_configured():
-    logger.info("Kilo key fingerprint: %s (model=%s)", kilo_client.api_key_fingerprint(), kilo_client.default_model())
 
 if nvidia_client.is_configured():
     logger.info("NVIDIA key fingerprint: %s", nvidia_client.api_key_fingerprint())

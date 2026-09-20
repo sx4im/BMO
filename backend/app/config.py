@@ -10,7 +10,7 @@ import os
 
 # Default foundation models
 DEFAULT_STANZA_MODEL = "ministral-8b-2512"
-DEFAULT_NEXOS_MODEL = "stepfun/step-3.7-flash:free"
+DEFAULT_NEXOS_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 DEFAULT_VISION_MODEL = "google/diffusiongemma-26b-a4b-it"
 DEFAULT_AEON_MODEL = "qwen/qwen3.8-27b"
 DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-klein-4b"
@@ -21,8 +21,6 @@ DEFAULT_IMAGE_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 DEFAULT_MISTRAL_MODEL = "ministral-8b-2512"
-DEFAULT_KILO_BASE_URL = "https://api.kilo.ai/api/gateway"
-DEFAULT_KILO_MODEL = "stepfun/step-3.7-flash:free"
 DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
 # Internal model catalog
@@ -43,27 +41,8 @@ def get_stanza_model() -> str:
     ).strip()
 
 
-def get_kilo_base_url() -> str:
-    return os.getenv("KILO_BASE_URL", DEFAULT_KILO_BASE_URL).rstrip("/")
-
-
-def get_kilo_model() -> str:
-    m = (os.getenv("KILO_MODEL") or os.getenv("KILO_NEXOS_MODEL") or DEFAULT_KILO_MODEL).strip()
-    if m in {"kilo-auto/frontier", "kilo-auto/efficient"}:
-        return DEFAULT_KILO_MODEL
-    return m or DEFAULT_KILO_MODEL
-
-
 def get_nexos_model() -> str:
-    m = (
-        os.getenv("KILO_MODEL")
-        or os.getenv("KILO_NEXOS_MODEL")
-        or os.getenv("NVIDIA_NEXOS_MODEL")
-        or DEFAULT_NEXOS_MODEL
-    ).strip()
-    if m in {"kilo-auto/frontier", "kilo-auto/efficient"}:
-        return DEFAULT_NEXOS_MODEL
-    return m or DEFAULT_NEXOS_MODEL
+    return os.getenv("NVIDIA_NEXOS_MODEL", DEFAULT_NEXOS_MODEL).strip()
 
 
 def get_vision_model() -> str:

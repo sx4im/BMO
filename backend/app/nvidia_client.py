@@ -48,7 +48,7 @@ from openai import (
     RateLimitError,
 )
 
-from . import groq_client, kilo_client, mistral_client
+from . import groq_client, mistral_client
 from .config import (
     DEFAULT_BASE_URL,
     DEFAULT_IMAGE_BASE_URL,
@@ -69,14 +69,12 @@ logger = logging.getLogger("bmo.nvidia")
 
 def base_url(model: Optional[str] = None) -> str:
     if model:
-        if kilo_client.is_kilo_model(model):
-            return kilo_client.base_url()
         if groq_client.is_groq_model(model):
             return groq_client.base_url()
         if mistral_client.is_mistral_model(model):
             return mistral_client.base_url()
         m = model.lower()
-        if "inkling" in m or "nexos" in m:
+        if "inkling" in m or "nexos" in m or "nemotron" in m:
             nexos_url = os.environ.get("NVIDIA_NEXOS_BASE_URL") or os.environ.get("TINKER_BASE_URL")
             if nexos_url:
                 return nexos_url.rstrip("/")
@@ -103,15 +101,18 @@ def _clean_key(raw: str) -> str:
 
 def _read_api_key(model: Optional[str] = None) -> str:
     """Read API_KEY from the environment defensively.
-    Supports model-specific overrides like KILO_API_KEY, GROQ_API_KEY, or MISTRAL_API_KEY.
+    Supports model-specific overrides like NVIDIA_NEXOS_KEY, TINKER_API_KEY, GROQ_API_KEY, or MISTRAL_API_KEY.
     """
     if model:
-        if kilo_client.is_kilo_model(model):
-            return kilo_client._read_api_key()
         if groq_client.is_groq_model(model):
             return groq_client._read_api_key()
         if mistral_client.is_mistral_model(model):
             return mistral_client._read_api_key()
+        m = model.lower()
+        if "inkling" in m or "nexos" in m or "nemotron" in m:
+            nexos_key = os.environ.get("NVIDIA_NEXOS_KEY") or os.environ.get("TINKER_API_KEY")
+            if nexos_key:
+                return _clean_key(nexos_key)
 
     raw = os.environ.get("NVIDIA_API_KEY")
     if not raw:
@@ -630,17 +631,6 @@ def iter_response(
         {"type": "usage", "data": dict} at the end if provided
     """
     chosen_model = (model or default_model()).strip()
-    if kilo_client.is_kilo_model(chosen_model):
-        yield from kilo_client.iter_response(
-            messages,
-            model=chosen_model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            reasoning_effort=reasoning_effort,
-            thinking=thinking,
-        )
-        return
-
     if mistral_client.is_mistral_model(chosen_model):
         yield from mistral_client.iter_response(
             messages,
@@ -940,17 +930,6 @@ def iter_response_with_fallback(
 ) -> Iterator[dict]:
     """Wraps `iter_response` with automatic fallback to Stanza 2.5 if primary times out."""
     chosen_model = model or default_model()
-
-    if kilo_client.is_kilo_model(chosen_model):
-        yield from kilo_client.iter_response(
-            messages,
-            model=chosen_model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            reasoning_effort=reasoning_effort,
-            thinking=thinking,
-        )
-        return
 
     stanza_id = get_stanza_model().lower()
     nexos_id = get_nexos_model().lower()
