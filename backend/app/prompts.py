@@ -154,12 +154,16 @@ CONTINUATION_VISION_PROMPT = (
 )
 
 TITLE_PROMPT = (
-    "You generate short conversation titles for a chat app. Given a user's "
+    "You generate concise conversation titles for a chat app. Given a user's "
     "first message and the assistant's reply, return a single clean title "
-    "of 3 to 6 words that captures the topic. Rules: title-case, no quotes, "
-    "no trailing punctuation, no emoji, no 'Chat about', 'Discussion on', "
-    "or similar prefixes. Just the topic. Return only the title text, "
-    "nothing else."
+    "of 2 to 5 words that captures the core topic.\n"
+    "Rules:\n"
+    "- Always separate words with spaces (e.g. 'Box Placement Rules', NEVER 'BoxPlacementRules').\n"
+    "- Use standard Title Case with spaces between words.\n"
+    "- Keep it short, descriptive, and natural (2 to 5 words).\n"
+    "- No quotes, no trailing punctuation, no emoji.\n"
+    "- No prefixes like 'Chat about', 'Discussion on', 'Help with'.\n"
+    "Return only the title text with spaces, nothing else."
 )
 
 WHATSAPP_SYSTEM_PROMPT = (

@@ -1378,6 +1378,10 @@ def test_search_endpoint(client, monkeypatch):
         ("thanks!", False),
         ("Explain photosynthesis", False),
         ("What is the derivative of x^2?", False),
+        ("Solve this logic and spatial puzzle step-by-step: Five boxes are lined up in a row", False),
+        ("Here is a logic puzzle for you to solve", False),
+        ("Solve this riddle about an echo", False),
+        ("Brain teaser: A farmer needs to cross a river with a fox", False),
         ("Write a quicksort function", False),
         ("write a python script that reverses a string", False),
         ("help me write a cover letter", False),
@@ -1955,6 +1959,33 @@ def test_chat_survives_a_search_that_returns_nothing(client, monkeypatch):
     if isinstance(content, list):
         content = "".join(p.get("text", "") for p in content if p.get("type") == "text")
     assert "<live_web_search" not in content
+
+
+def test_generate_title_normalizes_pascal_case_and_strips_prefixes(monkeypatch):
+    """generate_title must normalize PascalCase/CamelCase into cleanly spaced words
+    and strip prefixes like 'Title:'."""
+    from app import nvidia_client
+
+    class _FakeChoice:
+        class message:  # noqa: N801
+            content = "Title: InitialBoxPlacementRules"
+
+    class _FakeCompletion:
+        choices = [_FakeChoice()]
+
+    class _FakeClient:
+        class chat:  # noqa: N801
+            class completions:  # noqa: N801
+                @staticmethod
+                def create(**kwargs):
+                    return _FakeCompletion()
+
+    monkeypatch.setattr(nvidia_client, "_client", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr("app.mistral_client.is_mistral_model", lambda m: False)
+
+    title = nvidia_client.generate_title("solve puzzle", "box arrangement")
+    assert title == "Initial Box Placement Rules"
+
 
 
 

@@ -145,3 +145,13 @@ export function scrambleElement(el, htmlContent, duration = 800) {
     }
   }, intervalTime);
 }
+
+export function formatTitle(raw) {
+  if (!raw) return "";
+  let t = String(raw).trim();
+  if (!t.includes(" ") && /[a-z][A-Z]/.test(t)) {
+    t = t.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  }
+  return t.replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/\s+/g, " ").trim();
+}
+

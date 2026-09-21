@@ -4425,6 +4425,23 @@ button:hover .icon-dislike,
   margin-top: 20px;
 }
 
+.feedback-send-btn {
+  padding: 0 13px;
+  height: 36px;
+  gap: 6px;
+}
+
+.feedback-send-btn .send-arrow-icon,
+.feedback-send-btn .icon-send {
+  transform: rotate(45deg);
+  transition: transform 150ms ease;
+}
+
+.feedback-send-btn:hover:not(:disabled) .send-arrow-icon,
+.feedback-send-btn:hover:not(:disabled) .icon-send {
+  transform: rotate(45deg) translate(1.5px, -1.5px);
+}
+
 .file-row {
   display: flex;
   align-items: center;

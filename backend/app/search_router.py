@@ -68,6 +68,13 @@ _MATH_INTENT = re.compile(
     r"expand|prove|theorem|equation|matrix|eigenvalue|probability of|permutations?|combinations?)\b",
     re.IGNORECASE,
 )
+_REASONING_PUZZLE = re.compile(
+    r"\b(puzzles?|riddles?|brain\s*teasers?|sudoku|crosswords?|anagrams?|rebus)\b"
+    r"|\b(logic(al)?|spatial|deductive|analytical|lateral\s+thinking)\s+(reasoning|puzzle|riddle|problem|question|task|game|test|challenge)\b"
+    r"|\b(solve|figure\s+out|answer)\s+(this\s+)?(logic(al)?|spatial|puzzle|riddle|brain\s*teaser|word\s+problem)\b"
+    r"|\b(knights?\s+and\s+knaves?|river\s+crossing|cross\s+a\s+river|monty\s+hall|tower\s+of\s+hanoi|zebra\s+puzzle|einstein(\x27s)?\s+puzzle)\b",
+    re.IGNORECASE,
+)
 
 _RECENCY = re.compile(
     r"\b(today|tonight|yesterday|tomorrow|right now|just now|current|currently|latest|newest|"
@@ -167,6 +174,8 @@ def _tier1(text: str) -> bool | None:
         return False
     if _PURE_ARITHMETIC.match(text) or _MATH_INTENT.search(text):
         return False
+    if _REASONING_PUZZLE.search(text):
+        return False
     if _RECENCY.search(text) or _RECENT_YEAR.search(text):
         return True
     # A named past year or past-tense framing means the answer is settled
@@ -215,7 +224,7 @@ def _decision_prompt() -> str:
         "currently holds a role, an ongoing situation, or which current product, "
         "AI model, or published benchmark is better or best.\n"
         "Choose false for greetings, small talk, creative writing, coding, "
-        "mathematics, and stable general knowledge. A which-is-best question "
+        "mathematics, logic puzzles, riddles, brain teasers, and stable general knowledge. A which-is-best question "
         "about named models or products is not an opinion; choose true.\n"
         "When true, set query to a search engine query of at most twelve "
         "keywords that would retrieve the answer."

@@ -91,8 +91,8 @@ export async function renderFeedback() {
   });
 
   const sendBtn = el("button", {
-    type: "submit", class: "btn primary",
-    html: `${icon("send", { width: 15, height: 15 })} <span>Send</span>`,
+    type: "submit", class: "btn primary feedback-send-btn",
+    html: `<span>Send</span> ${icon("send", { width: 14, height: 14, class: "send-arrow-icon" })}`,
   });
   const sendHtml = sendBtn.innerHTML;
 

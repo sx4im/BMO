@@ -3,7 +3,7 @@
 // Dismiss with the X, a backdrop click, or Escape; navigate rows with the
 // arrow keys and Enter.
 
-import { el, clear } from "../utils.js?v=30";
+import { el, clear, formatTitle } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=69";
 
 let activeOverlay = null;
@@ -116,7 +116,7 @@ export function openChatSearch({ conversations = [], onSelect, onNewChat } = {})
         for (const c of items) {
           const row = makeRow({
             iconName: "messageSquare",
-            title: c.title || "Untitled chat",
+            title: formatTitle(c.title) || "Untitled chat",
             run: () => { close(); onSelect && onSelect(c.id); },
           });
           list.append(row);

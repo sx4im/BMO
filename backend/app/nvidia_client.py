@@ -1082,6 +1082,11 @@ def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:
             title = title[len(prefix):].strip()
     title = title.strip("\"'*. \n")
     title = title.split("\n", 1)[0].strip()
+    # Normalize any CamelCase/PascalCase without spaces (e.g. InitialBoxPlacementRules -> Initial Box Placement Rules)
+    if " " not in title and re.search(r"[a-z][A-Z]", title):
+        title = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", title).strip()
+    title = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", title).strip()
+    title = re.sub(r"\s+", " ", title).strip()
     if not title or len(title) > 80:
         return None
     return title

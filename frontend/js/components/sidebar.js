@@ -1,4 +1,4 @@
-import { el, clear } from "../utils.js?v=51";
+import { el, clear, formatTitle } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=71";
 import { avatar } from "./avatar.js?v=30";
 import { getRoute, navigate } from "../router.js?v=31";
@@ -143,7 +143,7 @@ function buildConvoItem(c, { activeId, onSelectConversation, onCloseMobile, onPi
           onCloseMobile && onCloseMobile();
         },
       },
-      [el("span", { class: "title", text: c.title })]
+      [el("span", { class: "title", text: formatTitle(c.title) })]
     ),
     menuBtn,
     menu,

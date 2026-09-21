@@ -3,7 +3,7 @@
  * Coordinates the message feed, composer, stream handler, voice assistant, and image generation.
  */
 
-import { el, clear } from "../utils.js?v=30";
+import { el, clear, formatTitle } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=71";
 import { getAuth } from "../auth.js?v=31";
 import { navigate } from "../router.js?v=31";
@@ -255,7 +255,7 @@ export async function renderChat({ id, incognito }) {
       return;
     }
     if (conversation?.title) {
-      convoTitleText.textContent = conversation.title;
+      convoTitleText.textContent = formatTitle(conversation.title);
       convoPinIcon.innerHTML = icon(conversation.pinned ? "pinOff" : "pin", { width: 15, height: 15 });
       convoPinLabel.textContent = conversation.pinned ? "Unpin" : "Pin";
       menuAnchor.style.display = "inline-flex";
