@@ -72,14 +72,16 @@ _REASONING_PUZZLE = re.compile(
     r"\b(puzzles?|riddles?|brain\s*teasers?|sudoku|crosswords?|anagrams?|rebus)\b"
     r"|\b(logic(al)?|spatial|deductive|analytical|lateral\s+thinking)\s+(reasoning|puzzle|riddle|problem|question|task|game|test|challenge)\b"
     r"|\b(solve|figure\s+out|answer)\s+(this\s+)?(logic(al)?|spatial|puzzle|riddle|brain\s*teaser|word\s+problem)\b"
-    r"|\b(knights?\s+and\s+knaves?|river\s+crossing|cross\s+a\s+river|monty\s+hall|tower\s+of\s+hanoi|zebra\s+puzzle|einstein(\x27s)?\s+puzzle)\b",
+    r"|\b(knights?\s+and\s+knaves?|river\s+crossing|cross\s+a\s+river|monty\s+hall|tower\s+of\s+hanoi|zebra\s+puzzle|einstein(\x27s)?\s+puzzle)\b"
+    r"|\b(lined\s+up\s+in\s+a\s+row|in\s+positions?\s+\d|final\s+order\s+of\s+the|initial\s+rules?:|perform\s+the\s+following\s+operations)\b",
     re.IGNORECASE,
 )
 
 _RECENCY = re.compile(
-    r"\b(today|tonight|yesterday|tomorrow|right now|just now|current|currently|latest|newest|"
-    r"most recent|recently|breaking|live|so far|as of|up to date|updated|happening|going on|"
-    r"this (morning|afternoon|evening|week|month|year)|last (night|week|month))\b",
+    r"\b(today|tonight|yesterday|tomorrow|right now|just now|latest|newest|"
+    r"most recent|breaking news?|up to date|"
+    r"this (morning|afternoon|evening|week|month|year)|last (night|week|month))\b"
+    r"|\b(current\s+(price|prices|stock|stocks|share|shares|rate|rates|score|scores|weather|temperature|news|headlines|event|events|status|situation|standing|standings|champion|champions|president|ceo|prime\s+minister|leader|time|date|version|release|update|updates|inflation)|(who|what|where)\s+(is|are)\s+(the\s+)?current|currently\s+(priced|valued|costing|trading|leading|ranked|playing|happening|ongoing))\b",
     re.IGNORECASE,
 )
 _LIVE_TOPIC = re.compile(
