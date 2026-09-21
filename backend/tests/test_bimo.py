@@ -461,6 +461,13 @@ def test_iter_response_thinking_toggle_for_deepseek(monkeypatch):
     assert captured["extra_body"]["chat_template_kwargs"]["thinking"] is True
     assert captured["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
     assert captured["extra_body"]["chat_template_kwargs"]["reasoning_effort"] == "high"
+    assert "low_effort" not in captured["extra_body"]["chat_template_kwargs"]
+
+    # Nemotron-3-Super in low effort mode omits directive and enables low_effort in chat_template_kwargs
+    list(nvidia_client.iter_response([{"role": "user", "content": "quick question"}],
+                                     model="nvidia/nemotron-3-super-120b-a12b", thinking=True,
+                                     reasoning_effort="low"))
+    assert captured["extra_body"]["chat_template_kwargs"]["low_effort"] is True
 
     # GPT-OSS supports reasoning_effort
     list(nvidia_client.iter_response([{"role": "user", "content": "hard problem"}],

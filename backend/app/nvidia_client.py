@@ -721,14 +721,16 @@ def iter_response(
             kwargs["top_p"] = 0.95
 
         if thinking:
+            chat_template_kwargs = {
+                "thinking": True,
+                "enable_thinking": True,
+                "reasoning_effort": effort,
+            }
+            if effort == "low":
+                chat_template_kwargs["low_effort"] = True
             kwargs["reasoning_effort"] = effort
             kwargs["extra_body"] = {
-                "chat_template_kwargs": {
-                    "thinking": True,
-                    "enable_thinking": True,
-                    "low_effort": (effort == "low"),
-                    "reasoning_effort": effort,
-                }
+                "chat_template_kwargs": chat_template_kwargs,
             }
         else:
             kwargs["extra_body"] = {
