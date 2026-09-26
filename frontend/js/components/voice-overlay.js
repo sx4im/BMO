@@ -130,10 +130,34 @@ export const VOICE_LANGUAGES = [
  * @param {()=>void} [ctx.onClose] - called when the overlay closes.
  * @returns {{ close: ()=>void }}
  */
-export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
+export function openVoiceOverlay({ token, sendTurn, cancelPrevious, onClose } = {}) {
   let active = true;
   let state = "idle";
   let turnInFlight = false;
+  let activeTurnId = 0;
+
+  function interruptPreviousTurn() {
+    activeTurnId++;
+    turnInFlight = false;
+    if (speechSilenceTimer) {
+      clearTimeout(speechSilenceTimer);
+      speechSilenceTimer = null;
+    }
+    if (activeSpeech) {
+      try { activeSpeech.cancel(); } catch {}
+      activeSpeech = null;
+    }
+    stopMeter();
+    if (ttsSource) {
+      try { ttsSource.onended = null; ttsSource.stop(); } catch {}
+      ttsSource = null;
+    }
+    try {
+      cancelPrevious?.();
+    } catch (e) {
+      console.warn("[bimo-voice] cancelPrevious error:", e);
+    }
+  }
 
   let mediaRecorder = null;
   let mediaStream = null;
@@ -663,6 +687,25 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
           );
         }
 
+        if (state === "speaking" || activeSpeech) {
+          if (level >= enterAt) {
+            loudFrames += 1;
+            if (loudFrames >= VAD_ENTER_FRAMES) {
+              console.info("[bimo-voice] VAD barge-in detected");
+              interruptPreviousTurn();
+              audioChunks = [];
+              recordStartedAt = performance.now();
+              setState("listening", "Listening… speak now");
+              micBtn.classList.add("active");
+              loudFrames = 0;
+            }
+          } else {
+            loudFrames = 0;
+          }
+          vadRaf = requestAnimationFrame(tickVAD);
+          return;
+        }
+
         if (!speaking) {
           if (level >= enterAt) {
             loudFrames += 1;
@@ -948,11 +991,13 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         audioCtx.resume().catch(() => {});
       }
       if (state !== "speaking") {
-        stopRecognition();
-        stopRecorder();
         micBtn.classList.remove("active");
         setState("speaking", "Speaking…");
-        startBargeInDetector();
+        if (speechRecSupported && !isBraveBrowser) {
+          if (!recognition) startSpeechRecognition();
+        } else {
+          if (!mediaRecorder || mediaRecorder.state === "inactive") startRecorder();
+        }
       }
 
       const source = audioCtx.createBufferSource();
@@ -1110,7 +1155,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         if (cancelled || !active) { resolveDone(); return; }
 
         setState("speaking", "Speaking…");
-        startBargeInDetector();
+        if (speechRecSupported && !isBraveBrowser) {
+          if (!recognition) startSpeechRecognition();
+        } else {
+          if (!mediaRecorder || mediaRecorder.state === "inactive") startRecorder();
+        }
         const source = audioCtx.createBufferSource();
         source.buffer = decoded;
         const analyser = audioCtx.createAnalyser();
@@ -1158,177 +1207,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     globe.style.removeProperty("--amp");
   }
 
-  // ---------- barge-in interruption listener (full-duplex voice) ----------
-  let bargeInStream = null;
-  let bargeInSource = null;
-  let bargeInAnalyser = null;
-  let bargeInRaf = null;
-  let bargeInRecognition = null;
-
-  function stopBargeInDetector() {
-    if (bargeInRaf) {
-      cancelAnimationFrame(bargeInRaf);
-      bargeInRaf = null;
-    }
-    if (bargeInSource) {
-      try { bargeInSource.disconnect(); } catch {}
-      bargeInSource = null;
-    }
-    bargeInAnalyser = null;
-    if (bargeInStream) {
-      try { bargeInStream.getTracks().forEach((t) => t.stop()); } catch {}
-      bargeInStream = null;
-    }
-    if (bargeInRecognition) {
-      try {
-        bargeInRecognition.onresult = null;
-        bargeInRecognition.onspeechstart = null;
-        bargeInRecognition.onerror = null;
-        bargeInRecognition.stop();
-      } catch {}
-      bargeInRecognition = null;
-    }
-  }
-
-  function bargeIn(initialTranscript = "") {
-    if (!active || (state !== "speaking" && !activeSpeech && !turnInFlight)) return;
-    console.info("[bimo-voice] Barge-in triggered: interrupting speech to listen to user");
-    stopBargeInDetector();
-    stopSpeaking();
-    if (initialTranscript) {
-      setTranscript(initialTranscript);
-    }
-    startListening();
-  }
-
-  async function startBargeInDetector() {
-    if (!active || state !== "speaking") return;
-    stopBargeInDetector();
-
-    // Mode 1: Web Speech Recognition barge-in
-    if (speechRecSupported && !isBraveBrowser) {
-      try {
-        bargeInRecognition = new SpeechRec();
-        bargeInRecognition.continuous = true;
-        bargeInRecognition.interimResults = true;
-        bargeInRecognition.maxAlternatives = 1;
-        bargeInRecognition.lang = getLangConfig().recLang;
-
-        bargeInRecognition.onresult = (event) => {
-          if (!active || state !== "speaking") return;
-          const text = extractCleanTranscript(event.results);
-          if (text && text.trim().length > 1) {
-            bargeIn(text);
-          }
-        };
-
-        bargeInRecognition.onspeechstart = () => {
-          if (!active || state !== "speaking") return;
-          setTimeout(() => {
-            if (active && state === "speaking") bargeIn();
-          }, 180);
-        };
-
-        bargeInRecognition.onerror = () => {
-          startVADBargeIn();
-        };
-
-        bargeInRecognition.start();
-        return;
-      } catch {
-        // Fallback to VAD below
-      }
-    }
-
-    startVADBargeIn();
-  }
-
-  async function startVADBargeIn() {
-    if (!active || state !== "speaking") return;
-    if (!navigator.mediaDevices?.getUserMedia) return;
-
-    try {
-      bargeInStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: false,
-        },
-      });
-    } catch {
-      return;
-    }
-
-    if (!active || state !== "speaking") {
-      stopBargeInDetector();
-      return;
-    }
-
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      const vadCtx = audioCtx || new Ctx();
-      bargeInSource = vadCtx.createMediaStreamSource(bargeInStream);
-      bargeInAnalyser = vadCtx.createAnalyser();
-      bargeInAnalyser.fftSize = 512;
-      bargeInAnalyser.smoothingTimeConstant = 0.2;
-      bargeInSource.connect(bargeInAnalyser);
-      const bins = new Uint8Array(bargeInAnalyser.frequencyBinCount);
-      const hzPerBin = vadCtx.sampleRate / bargeInAnalyser.fftSize;
-      const loBin = Math.max(1, Math.round(200 / hzPerBin));
-      const hiBin = Math.min(bins.length - 1, Math.round(3500 / hzPerBin));
-
-      let loudTicks = 0;
-      let noiseFloor = 0;
-      const startedAt = performance.now();
-
-      const tick = () => {
-        if (!active || state !== "speaking") {
-          stopBargeInDetector();
-          return;
-        }
-        bargeInAnalyser.getByteFrequencyData(bins);
-        let sum = 0;
-        for (let i = loBin; i <= hiBin; i++) sum += bins[i];
-        const level = sum / (hiBin - loBin + 1) / 255;
-        const now = performance.now();
-
-        if (!noiseFloor) noiseFloor = level;
-        else if (level < noiseFloor) noiseFloor = noiseFloor * 0.7 + level * 0.3;
-        else noiseFloor = noiseFloor * 0.995 + level * 0.005;
-
-        // Give 350ms grace to ignore initial speaker activation pop
-        if (now - startedAt > 350) {
-          const threshold = Math.max(noiseFloor * 2.2, 0.015);
-          if (level >= threshold) {
-            loudTicks++;
-            if (loudTicks >= 3) {
-              bargeIn();
-              return;
-            }
-          } else {
-            loudTicks = 0;
-          }
-        }
-        bargeInRaf = requestAnimationFrame(tick);
-      };
-      bargeInRaf = requestAnimationFrame(tick);
-    } catch {
-      stopBargeInDetector();
-    }
-  }
-
   function stopSpeaking() {
-    stopBargeInDetector();
-    if (activeSpeech) {
-      try { activeSpeech.cancel(); } catch {}
-      activeSpeech = null;
-    }
-    stopMeter();
-    if (ttsSource) {
-      try { ttsSource.onended = null; ttsSource.stop(); } catch { /* ignore */ }
-      ttsSource = null;
-    }
-    turnInFlight = false;
+    interruptPreviousTurn();
     setState("idle", "");
   }
 
