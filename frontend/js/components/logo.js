@@ -9,6 +9,10 @@ export function brandMark() {
   return MARK_SVG;
 }
 
+export function brandLogo() {
+  return MARK_SVG;
+}
+
 // Kept as alias for legacy imports; same mark.
 export function spikeMark() {
   return MARK_SVG;

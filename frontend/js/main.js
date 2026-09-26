@@ -7,7 +7,7 @@ import { renderChat } from "./pages/chat.js?v=167";
 import { renderFeedback } from "./pages/feedback.js?v=70";
 import { renderSettings } from "./pages/settings.js?v=73";
 import { renderNotFound } from "./pages/not-found.js?v=54";
-import { renderSharedChat } from "./pages/shared-chat.js?v=1";
+import { renderSharedChat } from "./pages/shared-chat.js?v=2";
 import { bootVersionGuard } from "./version-guard.js?v=1";
 
 

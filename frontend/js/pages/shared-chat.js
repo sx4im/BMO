@@ -5,7 +5,7 @@
 
 import { el, clear, formatTitle } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=72";
-import { brandLogo } from "../components/logo.js?v=31";
+import { brandMark, logo } from "../components/logo.js?v=32";
 import { messageBubble } from "../components/message.js?v=36";
 import { whenMarkdownReady } from "../components/markdown.js?v=33";
 import { navigate } from "../router.js?v=31";
@@ -28,7 +28,7 @@ export async function renderSharedChat({ shareId } = {}) {
       onclick: () => navigate("#/"),
       title: "BMO Home",
     },
-    [brandLogo(26)]
+    [el("span", { class: "mark", html: brandMark() })]
   );
 
   const titleText = el("h1", { class: "shared-header-title", text: "Loading shared chat…" });
