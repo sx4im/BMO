@@ -130,34 +130,10 @@ export const VOICE_LANGUAGES = [
  * @param {()=>void} [ctx.onClose] - called when the overlay closes.
  * @returns {{ close: ()=>void }}
  */
-export function openVoiceOverlay({ token, sendTurn, cancelPrevious, onClose } = {}) {
+export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   let active = true;
   let state = "idle";
   let turnInFlight = false;
-  let activeTurnId = 0;
-
-  function interruptPreviousTurn() {
-    activeTurnId++;
-    turnInFlight = false;
-    if (speechSilenceTimer) {
-      clearTimeout(speechSilenceTimer);
-      speechSilenceTimer = null;
-    }
-    if (activeSpeech) {
-      try { activeSpeech.cancel(); } catch {}
-      activeSpeech = null;
-    }
-    stopMeter();
-    if (ttsSource) {
-      try { ttsSource.onended = null; ttsSource.stop(); } catch {}
-      ttsSource = null;
-    }
-    try {
-      cancelPrevious?.();
-    } catch (e) {
-      console.warn("[bimo-voice] cancelPrevious error:", e);
-    }
-  }
 
   let mediaRecorder = null;
   let mediaStream = null;
@@ -687,25 +663,6 @@ export function openVoiceOverlay({ token, sendTurn, cancelPrevious, onClose } = 
           );
         }
 
-        if (state === "speaking" || activeSpeech) {
-          if (level >= enterAt) {
-            loudFrames += 1;
-            if (loudFrames >= VAD_ENTER_FRAMES) {
-              console.info("[bimo-voice] VAD barge-in detected");
-              interruptPreviousTurn();
-              audioChunks = [];
-              recordStartedAt = performance.now();
-              setState("listening", "Listening… speak now");
-              micBtn.classList.add("active");
-              loudFrames = 0;
-            }
-          } else {
-            loudFrames = 0;
-          }
-          vadRaf = requestAnimationFrame(tickVAD);
-          return;
-        }
-
         if (!speaking) {
           if (level >= enterAt) {
             loudFrames += 1;
@@ -861,7 +818,6 @@ export function openVoiceOverlay({ token, sendTurn, cancelPrevious, onClose } = 
   }
 
   function afterSpeaking() {
-    stopBargeInDetector();
     if (!active) return;
     turnInFlight = false;
     activeSpeech = null;
@@ -991,13 +947,10 @@ export function openVoiceOverlay({ token, sendTurn, cancelPrevious, onClose } = 
         audioCtx.resume().catch(() => {});
       }
       if (state !== "speaking") {
+        stopRecognition();
+        stopRecorder();
         micBtn.classList.remove("active");
         setState("speaking", "Speaking…");
-        if (speechRecSupported && !isBraveBrowser) {
-          if (!recognition) startSpeechRecognition();
-        } else {
-          if (!mediaRecorder || mediaRecorder.state === "inactive") startRecorder();
-        }
       }
 
       const source = audioCtx.createBufferSource();
@@ -1155,11 +1108,6 @@ export function openVoiceOverlay({ token, sendTurn, cancelPrevious, onClose } = 
         if (cancelled || !active) { resolveDone(); return; }
 
         setState("speaking", "Speaking…");
-        if (speechRecSupported && !isBraveBrowser) {
-          if (!recognition) startSpeechRecognition();
-        } else {
-          if (!mediaRecorder || mediaRecorder.state === "inactive") startRecorder();
-        }
         const source = audioCtx.createBufferSource();
         source.buffer = decoded;
         const analyser = audioCtx.createAnalyser();
@@ -1208,7 +1156,16 @@ export function openVoiceOverlay({ token, sendTurn, cancelPrevious, onClose } = 
   }
 
   function stopSpeaking() {
-    interruptPreviousTurn();
+    if (activeSpeech) {
+      try { activeSpeech.cancel(); } catch {}
+      activeSpeech = null;
+    }
+    stopMeter();
+    if (ttsSource) {
+      try { ttsSource.onended = null; ttsSource.stop(); } catch { /* ignore */ }
+      ttsSource = null;
+    }
+    turnInFlight = false;
     setState("idle", "");
   }
 
@@ -1256,7 +1213,6 @@ export function openVoiceOverlay({ token, sendTurn, cancelPrevious, onClose } = 
     if (!active) return;
     active = false;
     document.removeEventListener("keydown", onKey);
-    stopBargeInDetector();
     stopRecognition();
     stopRecorder();
     stopSpeaking();
