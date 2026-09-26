@@ -149,3 +149,68 @@ def patch_conversation(user, conversation_id):
     if not convo:
         return bad_request("conversation not found", 404)
     return jsonify(convo)
+
+
+# ---------- Shared Conversations ----------
+
+@user_bp.post("/conversations/<conversation_id>/share")
+@require_user
+def share_conversation(user, conversation_id):
+    try:
+        shared = store.create_or_update_shared_conversation(conversation_id, user.id)
+        return jsonify({
+            "success": True,
+            "share_id": shared.get("id"),
+            "title": shared.get("title"),
+            "model": shared.get("model"),
+            "created_at": shared.get("created_at"),
+            "updated_at": shared.get("updated_at"),
+        })
+    except PermissionError:
+        return bad_request("conversation not found", 404)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("share_conversation failed for conv=%s user=%s: %s", conversation_id, user.id, exc)
+        return bad_request(f"Could not create share link: {friendly_error(exc)}", 500)
+
+
+@user_bp.get("/conversations/<conversation_id>/share")
+@require_user
+def get_conversation_share(user, conversation_id):
+    try:
+        shared = store.get_shared_conversation_meta(conversation_id, user.id)
+        if not shared:
+            return jsonify({"shared": False})
+        return jsonify({
+            "shared": True,
+            "share_id": shared.get("id"),
+            "title": shared.get("title"),
+            "model": shared.get("model"),
+            "created_at": shared.get("created_at"),
+            "updated_at": shared.get("updated_at"),
+        })
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("get_conversation_share failed for conv=%s user=%s: %s", conversation_id, user.id, exc)
+        return bad_request("Could not read share info", 500)
+
+
+@user_bp.delete("/conversations/<conversation_id>/share")
+@require_user
+def delete_conversation_share(user, conversation_id):
+    try:
+        deleted = store.delete_shared_conversation(conversation_id, user.id)
+        return jsonify({"success": True, "deleted": deleted})
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("delete_conversation_share failed for conv=%s user=%s: %s", conversation_id, user.id, exc)
+        return bad_request("Could not delete share link", 500)
+
+
+@user_bp.get("/share/<share_id>")
+def public_shared_conversation(share_id):
+    try:
+        shared = store.get_public_shared_conversation(share_id)
+        if not shared:
+            return bad_request("Shared conversation not found", 404)
+        return jsonify(shared)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("public_shared_conversation failed for share_id=%s: %s", share_id, exc)
+        return bad_request("Could not load shared conversation", 500)

@@ -3,6 +3,8 @@ import { icon } from "../icons.js?v=71";
 import { avatar } from "./avatar.js?v=30";
 import { getRoute, navigate } from "../router.js?v=31";
 import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=58";
+import { openShareModal } from "./share-modal.js?v=1";
+import { getAuth } from "../auth.js?v=31";
 
 const NAV = [
   { hash: "#/app/chat", label: "Chats", icon: "messageCircleMore" },
@@ -81,6 +83,16 @@ function buildConvoItem(c, { activeId, onSelectConversation, onCloseMobile, onPi
 
 
   const menu = el("div", { class: "sidebar-convo-menu", role: "menu" }, [
+    menuItem({
+      label: "Share",
+      iconName: "share",
+      onClick: () => {
+        const { auth } = getAuth();
+        if (auth?.token) {
+          openShareModal({ conversation: c, token: auth.token });
+        }
+      },
+    }),
     menuItem({
       label: c.pinned ? "Unpin" : "Pin",
       iconName: c.pinned ? "pinOff" : "pin",

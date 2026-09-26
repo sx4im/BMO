@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import uuid
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -525,3 +526,111 @@ def delete_auth_user(user_id: str) -> None:
     this as best-effort: data is already gone by the time we reach here.
     """
     supabase().auth.admin.delete_user(user_id)
+
+
+# ---------- Shared Conversations (Public Snapshots) ----------
+
+def create_or_update_shared_conversation(conversation_id: str, user_id: str) -> dict:
+    """Create or update a public read-only snapshot of a conversation."""
+    convo = get_conversation(conversation_id, user_id)
+    if not convo:
+        raise PermissionError("conversation not found")
+    messages = get_messages(conversation_id)
+    clean_messages = [
+        {
+            "id": m.get("id"),
+            "role": m.get("role"),
+            "content": m.get("content"),
+            "reasoning": m.get("reasoning"),
+            "attachments": m.get("attachments"),
+            "created_at": m.get("created_at"),
+        }
+        for m in messages
+    ]
+    now = _now_iso()
+    existing = _execute(
+        supabase()
+        .table("shared_conversations")
+        .select("id")
+        .eq("conversation_id", conversation_id)
+        .eq("user_id", user_id)
+    )
+    if existing.data:
+        share_id = existing.data[0]["id"]
+        res = _execute(
+            supabase()
+            .table("shared_conversations")
+            .update({
+                "title": convo.get("title") or "Shared conversation",
+                "model": convo.get("model"),
+                "snapshot": clean_messages,
+                "updated_at": now,
+            })
+            .eq("id", share_id)
+            .eq("user_id", user_id)
+        )
+        return res.data[0] if res.data else {"id": share_id, "title": convo.get("title"), "created_at": now}
+
+    res = _execute(
+        supabase()
+        .table("shared_conversations")
+        .insert({
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+            "title": convo.get("title") or "Shared conversation",
+            "model": convo.get("model"),
+            "snapshot": clean_messages,
+            "created_at": now,
+            "updated_at": now,
+        })
+    )
+    return res.data[0] if res.data else {"title": convo.get("title"), "created_at": now}
+
+
+def get_shared_conversation_meta(conversation_id: str, user_id: str) -> Optional[dict]:
+    """Retrieve existing share metadata for the conversation owner."""
+    res = _execute(
+        supabase()
+        .table("shared_conversations")
+        .select("id, conversation_id, title, model, created_at, updated_at")
+        .eq("conversation_id", conversation_id)
+        .eq("user_id", user_id)
+    )
+    return res.data[0] if res.data else None
+
+
+def delete_shared_conversation(conversation_id: str, user_id: str) -> bool:
+    """Revoke public share link for a conversation."""
+    res = _execute(
+        supabase()
+        .table("shared_conversations")
+        .delete()
+        .eq("conversation_id", conversation_id)
+        .eq("user_id", user_id)
+    )
+    return bool(res.data)
+
+
+def get_public_shared_conversation(share_id: str) -> Optional[dict]:
+    """Retrieve public shared conversation snapshot (unauthenticated)."""
+    try:
+        uuid.UUID(str(share_id).strip())
+    except (ValueError, TypeError, AttributeError):
+        return None
+    res = _execute(
+        supabase()
+        .table("shared_conversations")
+        .select("id, title, model, snapshot, created_at, updated_at")
+        .eq("id", share_id)
+    )
+    if not res.data:
+        return None
+    row = res.data[0]
+    return {
+        "id": row.get("id"),
+        "title": row.get("title"),
+        "model": row.get("model"),
+        "messages": row.get("snapshot") or [],
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }

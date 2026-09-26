@@ -10,6 +10,7 @@ import { navigate } from "../router.js?v=31";
 import { mountAppShell } from "../app-shell.js?v=72";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
+import { openShareModal } from "../components/share-modal.js?v=1";
 import { whenMarkdownReady } from "../components/markdown.js?v=33";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=54";
 import * as api from "../api.js?v=61";
@@ -196,7 +197,27 @@ export async function renderChat({ id, incognito }) {
     el("span", { class: "menu-label", text: "Delete" }),
   ]);
 
+  const shareItem = el("button", {
+    type: "button",
+    class: "chat-topbar-menu-item",
+    onclick: (e) => {
+      e.stopPropagation();
+      closeConvoMenu();
+      if (!conversation?.id) return;
+      openShareModal({
+        conversation,
+        token: auth.token,
+        onShared: () => syncTopBarActions(),
+        onUnshared: () => syncTopBarActions(),
+      });
+    },
+  }, [
+    el("span", { class: "menu-icon", html: icon("share", { width: 15, height: 15 }) }),
+    el("span", { class: "menu-label", text: "Share" }),
+  ]);
+
   const convoMenu = el("div", { class: "chat-topbar-menu", role: "menu" }, [
+    shareItem,
     pinItem,
     renameItem,
     deleteItem,
@@ -248,6 +269,7 @@ export async function renderChat({ id, incognito }) {
   document.addEventListener("click", onDocClickConvoMenu);
 
   function updateTopBarTitle() {
+    syncTopBarActions();
     if (incognito) {
       convoTitleText.textContent = "Incognito chat";
       menuAnchor.style.display = "none";
@@ -269,10 +291,40 @@ export async function renderChat({ id, incognito }) {
     }
   }
 
+  const shareBtn = el("button", {
+    type: "button",
+    class: "chat-topbar-share-btn",
+    title: "Share chat",
+    "aria-label": "Share chat",
+    style: "display: none;",
+    onclick: () => {
+      if (conversation?.id) {
+        openShareModal({
+          conversation,
+          token: auth.token,
+          onShared: () => syncTopBarActions(),
+          onUnshared: () => syncTopBarActions(),
+        });
+      }
+    },
+    html: `${icon("share", { width: 14, height: 14 })}<span>Share</span>`,
+  });
+
+  function syncTopBarActions() {
+    const isSavedChat = Boolean(id && !incognito && (messages.length > 0 || (conversation && !conversation._new)));
+    if (isSavedChat) {
+      incognitoBtn.style.display = "none";
+      shareBtn.style.display = "inline-flex";
+    } else {
+      incognitoBtn.style.display = "inline-flex";
+      shareBtn.style.display = "none";
+    }
+  }
+
   const header = el("header", { class: "chat-topbar" }, [
     el("div", { class: "inner" }, [
       titleWrap,
-      el("div", { class: "chat-topbar-actions" }, [incognitoBtn]),
+      el("div", { class: "chat-topbar-actions" }, [shareBtn, incognitoBtn]),
     ]),
   ]);
 
@@ -493,6 +545,7 @@ export async function renderChat({ id, incognito }) {
   shell.setIncognitoActive?.(Boolean(incognito));
 
   function renderUI(opts = {}) {
+    syncTopBarActions();
     const initial = Boolean(opts?.initial);
 
     if (loading) {

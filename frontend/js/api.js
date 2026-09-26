@@ -93,6 +93,28 @@ export async function updateConversation(token, conversationId, patch) {
   });
 }
 
+export async function shareConversation(token, conversationId) {
+  return request(`/conversations/${conversationId}/share`, {
+    method: "POST",
+    token,
+  });
+}
+
+export async function getConversationShare(token, conversationId) {
+  return request(`/conversations/${conversationId}/share`, { token });
+}
+
+export async function deleteConversationShare(token, conversationId) {
+  return request(`/conversations/${conversationId}/share`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function getPublicShare(shareId) {
+  return request(`/share/${shareId}`);
+}
+
 // ---------- chat (streaming) ----------
 
 /**
