@@ -148,6 +148,20 @@ export async function mountAppShell() {
   const sidebarMobile = el("aside", { class: "sidebar mobile", "aria-label": "Navigation (mobile)" });
   const backdrop = el("div", { class: "sidebar-backdrop", onclick: closeMobile, "aria-hidden": "true" });
 
+  const mobileShareBtn = el("button", {
+    type: "button",
+    class: "chat-topbar-share-btn mobile-share-btn",
+    title: "Share chat",
+    "aria-label": "Share chat",
+    style: "display: none;",
+    onclick: () => {
+      if (typeof state.onShare === "function") {
+        state.onShare();
+      }
+    },
+    text: "Share",
+  });
+
   const mobileIncognitoBtn = el("button", {
     type: "button",
     class: "mobile-bar-incognito",
@@ -170,6 +184,7 @@ export async function mountAppShell() {
       html: icon("menu", { width: 24, height: 24 }),
     }),
     el("span", { class: "mobile-bar-spacer", "aria-hidden": "true" }),
+    mobileShareBtn,
     mobileIncognitoBtn,
   ]);
 
@@ -201,7 +216,7 @@ export async function mountAppShell() {
 
   root.append(layout);
 
-  nodes = { sidebarDesktop, sidebarMobile, backdrop, content, mobileIncognitoBtn };
+  nodes = { sidebarDesktop, sidebarMobile, backdrop, content, mobileIncognitoBtn, mobileShareBtn };
 
   renderSidebars();
   // Fire off background fetch for usage stats so they're ready for Settings
@@ -224,6 +239,19 @@ function shellApi() {
         window.dispatchEvent(
           new CustomEvent("bmo:conversations-updated", { detail: state.conversations })
         );
+      }
+    },
+    setShareActive(canShare, onShareHandler) {
+      const shareBtn = nodes?.mobileShareBtn;
+      const incogBtn = nodes?.mobileIncognitoBtn;
+      state.onShare = onShareHandler || null;
+      if (!shareBtn || !incogBtn) return;
+      if (canShare) {
+        shareBtn.style.display = "inline-flex";
+        incogBtn.style.display = "none";
+      } else {
+        shareBtn.style.display = "none";
+        incogBtn.style.display = "grid";
       }
     },
     setIncognitoActive(active) {

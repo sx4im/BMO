@@ -7,7 +7,7 @@ import { el, clear, formatTitle } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=71";
 import { getAuth } from "../auth.js?v=31";
 import { navigate } from "../router.js?v=31";
-import { mountAppShell } from "../app-shell.js?v=72";
+import { mountAppShell } from "../app-shell.js?v=73";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { openShareModal } from "../components/share-modal.js?v=2";
@@ -315,9 +315,20 @@ export async function renderChat({ id, incognito }) {
     if (isSavedChat) {
       incognitoBtn.style.display = "none";
       shareBtn.style.display = "inline-flex";
+      shell.setShareActive?.(true, () => {
+        if (conversation?.id) {
+          openShareModal({
+            conversation,
+            token: auth.token,
+            onShared: () => syncTopBarActions(),
+            onUnshared: () => syncTopBarActions(),
+          });
+        }
+      });
     } else {
       incognitoBtn.style.display = "inline-flex";
       shareBtn.style.display = "none";
+      shell.setShareActive?.(false);
     }
   }
 

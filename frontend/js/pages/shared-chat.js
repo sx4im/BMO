@@ -32,7 +32,6 @@ export async function renderSharedChat({ shareId } = {}) {
   );
 
   const titleText = el("h1", { class: "shared-header-title", text: "Loading shared chat…" });
-  const modelBadge = el("span", { class: "shared-header-model", style: "display: none;" });
 
   const ctaBtn = el(
     "button",
@@ -49,7 +48,6 @@ export async function renderSharedChat({ shareId } = {}) {
       el("div", { class: "shared-topbar-left" }, [
         logoBtn,
         titleText,
-        modelBadge,
       ]),
       el("div", { class: "shared-topbar-right" }, [ctaBtn]),
     ]),
@@ -84,10 +82,6 @@ export async function renderSharedChat({ shareId } = {}) {
     }
 
     titleText.textContent = formatTitle(data.title || "Shared conversation");
-    if (data.model) {
-      modelBadge.textContent = data.model === "thinking" ? "Stanza 2.5" : (data.model === "deep" ? "Nexos 3.0" : data.model);
-      modelBadge.style.display = "inline-block";
-    }
 
     const renderMessages = () => {
       clear(feedContainer);
@@ -109,18 +103,7 @@ export async function renderSharedChat({ shareId } = {}) {
     renderMessages();
     whenMarkdownReady(renderMessages);
 
-    // Inviting footer banner
-    const footerBanner = el("div", { class: "shared-chat-footer" }, [
-      el("div", { class: "shared-footer-content" }, [
-        el("p", { class: "shared-footer-text", text: "Chat with BMO — real-time streaming, deep reasoning, and voice interaction." }),
-        el("button", {
-          type: "button",
-          class: "shared-footer-btn",
-          onclick: () => navigate("#/app/chat"),
-        }, ["Try BMO free", el("span", { html: icon("arrowRight", { width: 14, height: 14 }) })]),
-      ]),
-    ]);
-    page.appendChild(footerBanner);
+    // Footer removed per user design specifications
 
   } catch (err) {
     titleText.textContent = "Chat not found";
