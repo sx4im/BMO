@@ -10589,12 +10589,12 @@ em {
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 500;
-  padding: 5px 13px;
-  border-radius: var(--r-sm);
+  padding: 6px 14px;
+  border-radius: 8px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   line-height: 1.2;
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
@@ -10610,14 +10610,14 @@ em {
 }
 
 :root[data-theme="dark"] .chat-topbar-share-btn {
-  background: #232322;
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #e5e5e3;
+  background: #282826;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f0ede6;
 }
 
 :root[data-theme="dark"] .chat-topbar-share-btn:hover {
-  background: #2d2d2b;
-  border-color: rgba(255, 255, 255, 0.22);
+  background: #343431;
+  border-color: rgba(255, 255, 255, 0.16);
   color: #ffffff;
 }
 
@@ -10630,7 +10630,12 @@ em {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.share-modal-header .confirm-modal-title {
+  margin: 0;
+  line-height: 1.2;
 }
 
 .share-modal-close-btn {
@@ -10640,10 +10645,12 @@ em {
   color: var(--muted);
   cursor: pointer;
   padding: 4px;
-  border-radius: var(--r-sm);
-  display: flex;
+  margin: 0;
+  border-radius: 6px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
   transition: color 140ms ease, background 140ms ease;
 }
 

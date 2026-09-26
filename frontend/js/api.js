@@ -6,6 +6,7 @@
 
 import { config } from "./config.js?v=30";
 import { getAuth, refreshSession } from "./auth.js?v=31";
+import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js?v=30";
 
 function authHeaders(token) {
   const t = getAuth().auth?.token || token;
@@ -94,25 +95,161 @@ export async function updateConversation(token, conversationId, patch) {
 }
 
 export async function shareConversation(token, conversationId) {
-  return request(`/conversations/${conversationId}/share`, {
-    method: "POST",
-    token,
-  });
+  try {
+    return await request(`/conversations/${conversationId}/share`, {
+      method: "POST",
+      token,
+    });
+  } catch (err) {
+    if (isSupabaseConfigured()) {
+      try {
+        const client = supabaseClient();
+        const { auth } = getAuth();
+        const userId = auth?.user?.id;
+
+        const { data: conv, error: convErr } = await client
+          .from("conversations")
+          .select("id, title, model")
+          .eq("id", conversationId)
+          .single();
+        if (convErr || !conv) throw err;
+
+        const { data: msgs, error: msgErr } = await client
+          .from("messages")
+          .select("id, role, content, reasoning, attachments, created_at")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: true });
+        if (msgErr) throw err;
+
+        const cleanMsgs = (msgs || []).map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          reasoning: m.reasoning,
+          attachments: m.attachments,
+          created_at: m.created_at,
+        }));
+
+        const now = new Date().toISOString();
+        const { data: shared, error: shareErr } = await client
+          .from("shared_conversations")
+          .upsert(
+            {
+              conversation_id: conversationId,
+              user_id: userId,
+              title: conv.title || "Shared conversation",
+              model: conv.model,
+              snapshot: cleanMsgs,
+              updated_at: now,
+            },
+            { onConflict: "conversation_id" }
+          )
+          .select("id, title, model, created_at, updated_at")
+          .single();
+
+        if (shareErr || !shared) throw err;
+        return {
+          success: true,
+          share_id: shared.id,
+          title: shared.title,
+          model: shared.model,
+          created_at: shared.created_at,
+          updated_at: shared.updated_at,
+        };
+      } catch (fallbackErr) {
+        console.warn("[bimo-api] Direct Supabase share fallback:", fallbackErr);
+        throw err;
+      }
+    }
+    throw err;
+  }
 }
 
 export async function getConversationShare(token, conversationId) {
-  return request(`/conversations/${conversationId}/share`, { token });
+  try {
+    return await request(`/conversations/${conversationId}/share`, { token });
+  } catch (err) {
+    if (isSupabaseConfigured()) {
+      try {
+        const client = supabaseClient();
+        const { data, error } = await client
+          .from("shared_conversations")
+          .select("id, conversation_id, title, model, created_at, updated_at")
+          .eq("conversation_id", conversationId)
+          .maybeSingle();
+
+        if (!error && data) {
+          return {
+            shared: true,
+            share_id: data.id,
+            title: data.title,
+            model: data.model,
+            created_at: data.created_at,
+            updated_at: data.updated_at,
+          };
+        }
+        return { shared: false };
+      } catch {
+        return { shared: false };
+      }
+    }
+    return { shared: false };
+  }
 }
 
 export async function deleteConversationShare(token, conversationId) {
-  return request(`/conversations/${conversationId}/share`, {
-    method: "DELETE",
-    token,
-  });
+  try {
+    return await request(`/conversations/${conversationId}/share`, {
+      method: "DELETE",
+      token,
+    });
+  } catch (err) {
+    if (isSupabaseConfigured()) {
+      try {
+        const client = supabaseClient();
+        await client
+          .from("shared_conversations")
+          .delete()
+          .eq("conversation_id", conversationId);
+        return { success: true, deleted: true };
+      } catch {
+        throw err;
+      }
+    }
+    throw err;
+  }
 }
 
 export async function getPublicShare(shareId) {
-  return request(`/share/${shareId}`);
+  try {
+    return await request(`/share/${shareId}`);
+  } catch (err) {
+    if (isSupabaseConfigured()) {
+      try {
+        const client = supabaseClient();
+        const { data, error } = await client
+          .from("shared_conversations")
+          .select("id, title, model, snapshot, created_at, updated_at")
+          .eq("id", shareId)
+          .single();
+
+        if (error || !data) {
+          throw new Error("Shared conversation not found");
+        }
+        return {
+          id: data.id,
+          title: data.title,
+          model: data.model,
+          messages: data.snapshot || [],
+          created_at: data.created_at,
+          updated_at: data.updated_at,
+        };
+      } catch (fallbackErr) {
+        throw fallbackErr;
+      }
+    }
+    throw err;
+  }
 }
 
 // ---------- chat (streaming) ----------

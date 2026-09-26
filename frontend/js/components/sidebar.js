@@ -3,7 +3,7 @@ import { icon } from "../icons.js?v=71";
 import { avatar } from "./avatar.js?v=30";
 import { getRoute, navigate } from "../router.js?v=31";
 import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=58";
-import { openShareModal } from "./share-modal.js?v=1";
+import { openShareModal } from "./share-modal.js?v=2";
 import { getAuth } from "../auth.js?v=31";
 
 const NAV = [

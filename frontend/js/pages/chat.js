@@ -10,7 +10,7 @@ import { navigate } from "../router.js?v=31";
 import { mountAppShell } from "../app-shell.js?v=72";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
-import { openShareModal } from "../components/share-modal.js?v=1";
+import { openShareModal } from "../components/share-modal.js?v=2";
 import { whenMarkdownReady } from "../components/markdown.js?v=33";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=54";
 import * as api from "../api.js?v=61";
@@ -307,7 +307,7 @@ export async function renderChat({ id, incognito }) {
         });
       }
     },
-    html: `${icon("share", { width: 14, height: 14 })}<span>Share</span>`,
+    text: "Share",
   });
 
   function syncTopBarActions() {

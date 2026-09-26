@@ -144,20 +144,9 @@ export async function openShareModal({ conversation, token, onShared, onUnshared
     ["Delete link"]
   );
 
-  const doneBtn = el(
-    "button",
-    {
-      type: "button",
-      class: "confirm-modal-btn cancel",
-      onclick: close,
-    },
-    ["Done"]
-  );
-
-  const actionsRow = el("div", { class: "confirm-modal-actions share-modal-actions" }, [
+  const actionsRow = el("div", { class: "confirm-modal-actions share-modal-actions", style: "display: none;" }, [
     deleteBtn,
     updateBtn,
-    doneBtn,
   ]);
 
   const card = el(
@@ -194,6 +183,7 @@ export async function openShareModal({ conversation, token, onShared, onUnshared
       copyBtn.disabled = false;
       updateBtn.style.display = "inline-block";
       deleteBtn.style.display = "inline-block";
+      actionsRow.style.display = "flex";
       statusNote.textContent = "This chat is publicly accessible via the link above.";
     } else {
       // Auto-create snapshot upon opening share dialog
@@ -204,6 +194,7 @@ export async function openShareModal({ conversation, token, onShared, onUnshared
       copyBtn.disabled = false;
       updateBtn.style.display = "inline-block";
       deleteBtn.style.display = "inline-block";
+      actionsRow.style.display = "flex";
       statusNote.textContent = "Link created! Anyone with this link can view this chat.";
       onShared?.(created);
     }
