@@ -38,7 +38,7 @@ The browser client uses HTML, CSS, and plain ES modules without build tools, fra
 - **Document parsing**: Drop in PDF, DOCX, XLSX, PPTX, or ZIP files to extract text and analyze contents.
 - **Vision processing**: Attach images to route prompts to a vision model.
 - **Autonomous web search**: Bmo decides on its own when a question needs live results and searches via TinyFish. A search card above the answer shows the query it ran, the pages it read with their freshness, and how long the search took. Full page scraping for pasted URLs.
-- **Voice assistant**: Speech to text and text to speech powered by NVIDIA Riva.
+- **Voice assistant**: Speech to text via NVIDIA Riva, text to speech via Deepgram.
 - **Server cancellation**: Stopping a response halts generation on the server immediately using an internal stream registry.
 
 ## System architecture
@@ -67,15 +67,16 @@ The browser client uses HTML, CSS, and plain ES modules without build tools, fra
 ## Quick start
 
 ### Prerequisites
-Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (powers Stanza 2.5 with `ministral-8b-2512`), and an NVIDIA API key (powers Nexos 3.0, Vision, and TTS).
+Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (powers Stanza 2.5 with `ministral-8b-2512`), an NVIDIA API key (powers Nexos 3.0 and Vision), and a Deepgram API key (powers text to speech).
 
 ### 1. Database setup
-Run the SQL scripts in `backend/migrations/` in numerical order inside your Supabase project SQL editor (`0001_init.sql` → `0005_conversation_pinned.sql`):
+Run the SQL scripts in `backend/migrations/` in numerical order inside your Supabase project SQL editor (`0001_init.sql` → `0006_shared_conversations.sql`):
 1. `0001_init.sql` — base schema (profiles, conversations, messages, feedback, storage bucket, RLS)
 2. `0002_message_reasoning.sql` — adds `reasoning` column to messages
 3. `0003_usage_events.sql` — token metering and usage tracking
 4. `0004_onboarding.sql` — onboarding surveys and profile flags
 5. `0005_conversation_pinned.sql` — pinned conversation support
+6. `0006_shared_conversations.sql` — public shared conversation snapshots
 
 ### 2. Start the backend
 ```bash
@@ -106,7 +107,7 @@ Bmo/
 │   │   ├── mistral_client.py      Mistral AI client for Stanza 2.5
 │   │   ├── nvidia_client.py       Inference wrapper for OpenAI SDK and NIM
 │   │   ├── riva_transcribe.py     Riva speech-to-text integration
-│   │   ├── riva_tts.py            Riva text-to-speech integration
+│   │   ├── deepgram_tts.py        Deepgram text-to-speech integration
 │   │   ├── document_processor.py  File parser for PDF, DOCX, XLSX, PPTX, ZIP
 │   │   └── analytics.py           Usage metrics calculation
 │   ├── migrations/                SQL schema and security policies

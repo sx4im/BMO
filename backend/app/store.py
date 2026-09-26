@@ -454,6 +454,31 @@ def delete_all_user_data(user_id: str) -> None:
 
 # ---------- storage / attachments ----------
 
+def _extract_signed_url(signed) -> Optional[str]:
+    """Pull the URL string out of a create_signed_url response, whatever shape it has."""
+    if isinstance(signed, dict):
+        return signed.get("signedURL") or signed.get("signed_url") or signed.get("signedUrl")
+    return getattr(signed, "signed_url", None) or getattr(signed, "signedURL", None)
+
+
+def signed_url_for_path(path: str, expires_in: int = 3600) -> Optional[str]:
+    """Mint a fresh short-lived signed URL for a storage path.
+
+    Used when serving public shared snapshots: the URL embedded in a snapshot
+    at share time may be long-lived (generated images get a 7-day TTL) and
+    cannot be revoked when the share is deleted, so we re-sign at view time
+    with a short TTL and never persist the result.
+    """
+    if not path:
+        return None
+    try:
+        signed = supabase().storage.from_(attachments_bucket()).create_signed_url(path, expires_in)
+        return _extract_signed_url(signed)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not sign URL for shared attachment path %r: %s", path, exc)
+        return None
+
+
 def download_attachment(path: str, user_id: str) -> bytes:
     """Pull an attachment's raw bytes back out of Supabase Storage.
 
@@ -498,10 +523,7 @@ def upload_attachment_for_user(
         file_options={"content-type": content_type, "upsert": "false"},
     )
     signed = sb.storage.from_(bucket).create_signed_url(path, expires_in)
-    if isinstance(signed, dict):
-        url = signed.get("signedURL") or signed.get("signed_url") or signed.get("signedUrl")
-    else:
-        url = getattr(signed, "signed_url", None) or getattr(signed, "signedURL", None)
+    url = _extract_signed_url(signed)
     if not url:
         # Different supabase-py versions return the signed URL under different
         # keys; if we still have nothing, log the shape so we can add the new
@@ -536,13 +558,30 @@ def create_or_update_shared_conversation(conversation_id: str, user_id: str) -> 
     if not convo:
         raise PermissionError("conversation not found")
     messages = get_messages(conversation_id)
+
+    def _snapshot_attachments(attachments):
+        """Keep only non-secret attachment metadata. Signed URLs are never
+        persisted in a public snapshot: fresh short-lived URLs are minted at
+        share-view time (see get_public_shared_conversation)."""
+        clean = []
+        for a in attachments or []:
+            if not isinstance(a, dict):
+                continue
+            clean.append({
+                "path": a.get("path"),
+                "filename": a.get("filename"),
+                "content_type": a.get("content_type"),
+                "size": a.get("size"),
+            })
+        return clean
+
     clean_messages = [
         {
             "id": m.get("id"),
             "role": m.get("role"),
             "content": m.get("content"),
             "reasoning": m.get("reasoning"),
-            "attachments": m.get("attachments"),
+            "attachments": _snapshot_attachments(m.get("attachments")),
             "created_at": m.get("created_at"),
         }
         for m in messages
@@ -612,7 +651,13 @@ def delete_shared_conversation(conversation_id: str, user_id: str) -> bool:
 
 
 def get_public_shared_conversation(share_id: str) -> Optional[dict]:
-    """Retrieve public shared conversation snapshot (unauthenticated)."""
+    """Retrieve public shared conversation snapshot (unauthenticated).
+
+    Attachment URLs are re-signed at view time with a short (1h) TTL: the
+    snapshot row itself only ever persists ``path``/``filename``, never a
+    bearer URL, so nothing long-lived leaks through a public share link and
+    revoking the share stops working URLs within the hour.
+    """
     try:
         uuid.UUID(str(share_id).strip())
     except (ValueError, TypeError, AttributeError):
@@ -626,11 +671,26 @@ def get_public_shared_conversation(share_id: str) -> Optional[dict]:
     if not res.data:
         return None
     row = res.data[0]
+    messages = row.get("snapshot") or []
+    for msg in messages:
+        attachments = msg.get("attachments")
+        if not isinstance(attachments, list):
+            continue
+        for att in attachments:
+            if not isinstance(att, dict):
+                continue
+            # Never serve the URL persisted in the snapshot (stale / long-lived):
+            # re-sign from the stored path with a short TTL.
+            fresh_url = signed_url_for_path(att.get("path")) if att.get("path") else None
+            if fresh_url:
+                att["url"] = fresh_url
+            else:
+                att.pop("url", None)
     return {
         "id": row.get("id"),
         "title": row.get("title"),
         "model": row.get("model"),
-        "messages": row.get("snapshot") or [],
+        "messages": messages,
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }

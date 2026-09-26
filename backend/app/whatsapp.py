@@ -20,6 +20,7 @@ from openai import OpenAI
 
 from . import nvidia_client
 from .config import DEFAULT_GROQ_BASE_URL, get_aeon_model, get_stanza_model
+from .limiter import limiter
 from .prompts import WHATSAPP_SYSTEM_PROMPT
 
 from collections import deque
@@ -34,6 +35,69 @@ WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "").strip()
 WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "").strip()
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "").strip()
+# Comma-separated E.164 numbers allowed to chat with the bot over WhatsApp.
+# Empty = deny all incoming messages (fail closed; see _sender_allowed).
+# Max inbound messages per sender per rolling 24h window.
+WHATSAPP_DAILY_LIMIT = int(os.getenv("WHATSAPP_DAILY_LIMIT", "100") or 100)
+
+_logged_whatsapp_config_warning = False
+
+
+def _sender_log_id(phone: str) -> str:
+    """Stable, non-reversible identifier for logs — never log raw phone numbers."""
+    return hashlib.sha256(phone.encode("utf-8")).hexdigest()[:12]
+
+
+def _normalize_phone(phone: str) -> str:
+    return re.sub(r"[^\d]", "", phone or "")
+
+
+def _whatsapp_allowlist() -> set[str]:
+    # Re-read at request time so tests (and config reloads) can monkeypatch the env.
+    return {
+        re.sub(r"[^\d]", "", n)
+        for n in os.getenv("WHATSAPP_ALLOWED_NUMBERS", "").split(",")
+        if re.sub(r"[^\d]", "", n)
+    }
+
+
+def _sender_allowed(sender_phone: str) -> bool:
+    """True only if the normalized sender is on the allowlist. Fail closed."""
+    normalized = _normalize_phone(sender_phone)
+    if not normalized:
+        return False
+    return normalized in _whatsapp_allowlist()
+
+
+def _warn_allowlist_unset() -> None:
+    global _logged_whatsapp_config_warning
+    if _logged_whatsapp_config_warning:
+        return
+    _logged_whatsapp_config_warning = True
+    logger.error(
+        "WHATSAPP_ALLOWED_NUMBERS is not set — rejecting all incoming WhatsApp "
+        "messages. Set it to a comma-separated list of E.164 numbers."
+    )
+
+
+def _sender_message_count_24h(phone: str) -> int:
+    """Count inbound turns from a sender in the last 24h (usage metering)."""
+    cutoff = time.time() - _HISTORY_TTL_SECONDS
+    with _db_lock:
+        try:
+            conn = sqlite3.connect(_DB_PATH, timeout=10.0)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM whatsapp_messages "
+                "WHERE phone = ? AND role = 'user' AND created_at >= ?",
+                (phone, cutoff),
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return int(row[0]) if row else 0
+        except Exception as exc:
+            logger.warning("Error counting WhatsApp usage for %s: %s", _sender_log_id(phone), exc)
+            return 0
 
 
 def _resolve_whatsapp_db_path() -> str:
@@ -120,7 +184,7 @@ def _get_phone_history(phone: str) -> list[dict]:
             # Reverse so it's in chronological order
             return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
         except Exception as exc:
-            logger.warning("Error reading WhatsApp history for %s: %s", phone, exc)
+            logger.warning("Error reading WhatsApp history for %s: %s", _sender_log_id(phone), exc)
             return []
 
 
@@ -144,7 +208,7 @@ def _append_phone_history(phone: str, role: str, content: str) -> None:
             conn.commit()
             conn.close()
         except Exception as exc:
-            logger.warning("Error saving WhatsApp message for %s: %s", phone, exc)
+            logger.warning("Error saving WhatsApp message for %s: %s", _sender_log_id(phone), exc)
 
 
 def _clear_phone_history(phone: str) -> None:
@@ -156,7 +220,7 @@ def _clear_phone_history(phone: str) -> None:
             conn.commit()
             conn.close()
         except Exception as exc:
-            logger.warning("Error clearing WhatsApp history for %s: %s", phone, exc)
+            logger.warning("Error clearing WhatsApp history for %s: %s", _sender_log_id(phone), exc)
 
 
 def get_graph_url() -> str:
@@ -233,7 +297,7 @@ def send_whatsapp_message(to_phone: str, message_text: str) -> bool:
 
     clean_phone = re.sub(r"[^\d]", "", to_phone)
     if not clean_phone:
-        logger.error("Invalid recipient phone number: %s", to_phone)
+        logger.error("Invalid recipient phone number: %s", _sender_log_id(to_phone))
         return False
 
     headers = {
@@ -256,12 +320,12 @@ def send_whatsapp_message(to_phone: str, message_text: str) -> bool:
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=15)
             if resp.status_code not in (200, 201):
-                logger.error("WhatsApp API error (%d) for %s: %s", resp.status_code, clean_phone, resp.text)
+                logger.error("WhatsApp API error (%d) for %s: %s", resp.status_code, _sender_log_id(clean_phone), resp.text)
                 success = False
             else:
-                logger.info("Successfully sent WhatsApp reply to %s", clean_phone)
+                logger.info("Successfully sent WhatsApp reply to %s", _sender_log_id(clean_phone))
         except Exception as exc:
-            logger.exception("Failed to send WhatsApp message to %s: %s", clean_phone, exc)
+            logger.exception("Failed to send WhatsApp message to %s: %s", _sender_log_id(clean_phone), exc)
             success = False
     return success
 
@@ -291,8 +355,8 @@ def _process_and_reply_async(sender_phone: str, user_prompt: str) -> None:
         messages.append({"role": "user", "content": user_prompt})
 
         logger.info(
-            "Processing WhatsApp query for %s using Aeon model (%s, context_turns=%d)",
-            sender_phone, model_id, len(prior_turns),
+            "Processing WhatsApp query for %s using Aeon model (%s, context_turns=%d, prompt_chars=%d)",
+            _sender_log_id(sender_phone), model_id, len(prior_turns), len(user_prompt),
         )
 
         raw_reply = ""
@@ -333,7 +397,7 @@ def _process_and_reply_async(sender_phone: str, user_prompt: str) -> None:
         formatted_reply = format_for_whatsapp(raw_reply)
         send_whatsapp_message(sender_phone, formatted_reply)
     except Exception as exc:
-        logger.exception("Error processing WhatsApp message for %s: %s", sender_phone, exc)
+        logger.exception("Error processing WhatsApp message for %s: %s", _sender_log_id(sender_phone), exc)
         send_whatsapp_message(
             sender_phone,
             "Sorry, Bmo encountered an issue while generating a response. Please try again in a moment."
@@ -352,7 +416,7 @@ def verify_webhook():
     expected_verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", WHATSAPP_VERIFY_TOKEN).strip()
     if not expected_verify_token:
         logger.warning("WhatsApp webhook verification failed: WHATSAPP_VERIFY_TOKEN is not configured.")
-        return jsonify({"error": "Webhook verification not configured"}), 503
+        return jsonify({"error": "Verification token mismatch"}), 403
 
     if mode == "subscribe" and token and token == expected_verify_token:
         logger.info("WhatsApp webhook verified successfully!")
@@ -363,6 +427,7 @@ def verify_webhook():
 
 
 @whatsapp_bp.post("/api/whatsapp/webhook")
+@limiter.limit("30 per minute")
 def handle_incoming_message():
     """Receives incoming message events from Meta (POST) with HMAC-SHA256 signature verification."""
     raw_data = request.get_data()
@@ -372,7 +437,7 @@ def handle_incoming_message():
         return jsonify({"error": "Invalid signature"}), 403
 
     data = request.get_json(silent=True) or {}
-    
+
     # Meta webhook payloads contain an 'entry' array
     entries = data.get("entry", [])
     if not entries:
@@ -390,6 +455,23 @@ def handle_incoming_message():
                 if not sender_phone:
                     continue
 
+                # Sender allowlist: reject anyone not explicitly configured.
+                if not _sender_allowed(sender_phone):
+                    _warn_allowlist_unset()
+                    logger.warning(
+                        "Rejected WhatsApp message from unauthorized sender %s",
+                        _sender_log_id(sender_phone),
+                    )
+                    continue
+
+                # Simple per-sender usage cap (rolling 24h).
+                if _sender_message_count_24h(sender_phone) >= WHATSAPP_DAILY_LIMIT:
+                    logger.warning(
+                        "WhatsApp usage cap reached for %s (%d/24h)",
+                        _sender_log_id(sender_phone), WHATSAPP_DAILY_LIMIT,
+                    )
+                    continue
+
                 if msg_type == "text":
                     body = msg.get("text", {}).get("body", "").strip()
                     if body:
@@ -399,7 +481,10 @@ def handle_incoming_message():
                             send_whatsapp_message(sender_phone, "Conversation context reset. What would you like to discuss?")
                             continue
 
-                        logger.info("Received WhatsApp message from %s: '%s'", sender_phone, body)
+                        logger.info(
+                            "Received WhatsApp message from %s (chars=%d)",
+                            _sender_log_id(sender_phone), len(body),
+                        )
                         # Spawn background thread so Webhook responds 200 OK immediately to Meta
                         threading.Thread(
                             target=_process_and_reply_async,

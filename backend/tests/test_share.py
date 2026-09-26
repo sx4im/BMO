@@ -124,3 +124,200 @@ def test_get_and_delete_share_endpoint(client):
         )
         assert res.status_code == 200
         assert res.get_json()["deleted"] is True
+
+
+def test_public_share_route_is_rate_limited(client):
+    """The unauthenticated share endpoint must have a per-minute cap (60/min)."""
+    with patch("app.store.get_public_shared_conversation", return_value=None):
+        statuses = [
+            client.get("/share/rate-limit-probe").status_code for _ in range(61)
+        ]
+    assert all(s == 404 for s in statuses[:-1])
+    assert statuses[-1] == 429
+
+
+def _fake_storage(fresh_url):
+    storage = MagicMock()
+    storage.from_.return_value.create_signed_url.return_value = {
+        "signedURL": fresh_url
+    }
+    sb = MagicMock()
+    sb.storage = storage
+    return sb
+
+
+def test_public_share_resigns_attachment_urls_at_view_time():
+    """Stale/long-lived signed URLs in the snapshot must be replaced with
+    fresh short-lived ones; the raw path is preserved."""
+    from types import SimpleNamespace
+
+    import app.store as store
+
+    row = {
+        "id": "share-1",
+        "title": "t",
+        "model": "thinking",
+        "snapshot": [
+            {
+                "role": "assistant",
+                "content": "img",
+                "attachments": [
+                    {
+                        "path": "u1/x/a.png",
+                        "filename": "a.png",
+                        "content_type": "image/png",
+                        "size": 10,
+                        "url": "https://STALE-7-day-signed-url",
+                    }
+                ],
+            }
+        ],
+        "created_at": "x",
+        "updated_at": "y",
+    }
+    sb = _fake_storage("https://fresh-1h-url")
+    with patch.object(store, "_execute", return_value=SimpleNamespace(data=[row])), patch.object(
+        store, "supabase", return_value=sb
+    ):
+        out = store.get_public_shared_conversation("12345678-1234-5678-1234-567812345678")
+    att = out["messages"][0]["attachments"][0]
+    assert att["url"] == "https://fresh-1h-url"
+    assert "STALE" not in att["url"]
+    assert att["path"] == "u1/x/a.png"
+    assert att["filename"] == "a.png"
+
+
+def test_public_share_drops_url_when_resign_fails():
+    """If re-signing fails, no URL (stale or otherwise) is served."""
+    from types import SimpleNamespace
+
+    import app.store as store
+
+    row = {
+        "id": "share-1",
+        "title": "t",
+        "model": "thinking",
+        "snapshot": [
+            {
+                "role": "assistant",
+                "content": "img",
+                "attachments": [
+                    {
+                        "path": "u1/x/a.png",
+                        "filename": "a.png",
+                        "content_type": "image/png",
+                        "size": 10,
+                        "url": "https://STALE-7-day-signed-url",
+                    }
+                ],
+            }
+        ],
+        "created_at": "x",
+        "updated_at": "y",
+    }
+    sb = MagicMock()
+    sb.storage.from_.return_value.create_signed_url.side_effect = RuntimeError("boom")
+    with patch.object(store, "_execute", return_value=SimpleNamespace(data=[row])), patch.object(
+        store, "supabase", return_value=sb
+    ):
+        out = store.get_public_shared_conversation("12345678-1234-5678-1234-567812345678")
+    att = out["messages"][0]["attachments"][0]
+    assert "url" not in att
+    assert att["path"] == "u1/x/a.png"
+
+
+def test_create_share_snapshot_never_persists_signed_urls():
+    """The snapshot row written to shared_conversations must not contain
+    bearer signed URLs — only path/filename metadata."""
+    from types import SimpleNamespace
+
+    import app.store as store
+
+    messages = [
+        {
+            "id": "m1",
+            "role": "assistant",
+            "content": "hi",
+            "reasoning": None,
+            "attachments": [
+                {
+                    "path": "u1/x/a.png",
+                    "filename": "a.png",
+                    "content_type": "image/png",
+                    "size": 10,
+                    "url": "https://STALE-7-day-signed-url",
+                }
+            ],
+            "created_at": "x",
+        }
+    ]
+    captured = {}
+
+    class FakeTable:
+        def select(self, *a, **k):
+            return self
+
+        def eq(self, *a, **k):
+            return self
+
+        def insert(self, payload):
+            captured.update(payload)
+            return self
+
+        def update(self, payload):
+            captured.update(payload)
+            return self
+
+    sb = MagicMock()
+    sb.table.return_value = FakeTable()
+    with patch.object(store, "get_conversation", return_value={"title": "t", "model": "thinking"}), patch.object(
+        store, "get_messages", return_value=messages
+    ), patch.object(store, "_execute", return_value=SimpleNamespace(data=[])), patch.object(
+        store, "supabase", return_value=sb
+    ):
+        store.create_or_update_shared_conversation("conv-1", "user-1")
+
+    snap = captured["snapshot"]
+    assert len(snap) == 1
+    for att in snap[0]["attachments"]:
+        assert "url" not in att
+        assert att["path"] == "u1/x/a.png"
+        assert att["filename"] == "a.png"
+
+
+def test_limiter_honors_redis_url_env(monkeypatch):
+    """REDIS_URL is honored as a fallback storage backend for the limiter."""
+    import app.limiter as limiter_mod
+
+    monkeypatch.delenv("RATELIMIT_STORAGE_URI", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    assert limiter_mod.resolve_storage_uri() == "memory://"
+
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    assert limiter_mod.resolve_storage_uri() == "redis://localhost:6379/0"
+
+    monkeypatch.setenv("RATELIMIT_STORAGE_URI", "redis://other:6379/0")
+    assert limiter_mod.resolve_storage_uri() == "redis://other:6379/0"
+
+
+def test_rate_limit_key_stashes_verified_user_for_require_user(client):
+    """A single JWT decode should serve both the limiter pass and @require_user."""
+    import app.auth as auth_mod
+    import app.limiter as limiter_mod
+
+    token = make_token("user-xyz")
+    calls = {"n": 0}
+    real_decode = auth_mod.user_from_token
+
+    def counting_decode(t):
+        calls["n"] += 1
+        return real_decode(t)
+
+    # limiter.py binds user_from_token by name at import; patch both namespaces.
+    with patch.object(auth_mod, "user_from_token", side_effect=counting_decode), patch.object(
+        limiter_mod, "user_from_token", side_effect=counting_decode
+    ):
+        res = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 200
+    assert res.get_json()["id"] == "user-xyz"
+    assert calls["n"] == 1

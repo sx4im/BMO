@@ -62,6 +62,11 @@ def _bearer_token() -> Optional[str]:
     return None
 
 
+def bearer_token() -> Optional[str]:
+    """Public accessor for the current request's bearer token."""
+    return _bearer_token()
+
+
 def _jwks_url() -> Optional[str]:
     base = os.environ.get("SUPABASE_URL", "").rstrip("/")
     if not base:
@@ -254,7 +259,9 @@ def auth_diagnostics() -> dict:
 def require_user(handler):
     @wraps(handler)
     def wrapper(*args, **kwargs):
-        user = user_from_token(_bearer_token())
+        # rate_limit_key may have already decoded + verified this token during
+        # the limiter pass; reuse it instead of decoding the JWT twice.
+        user = current_authenticated_user() or user_from_token(bearer_token())
         if not user:
             body = {"detail": "Authentication required"}
             if _debug_enabled():
