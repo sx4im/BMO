@@ -37,7 +37,7 @@ from .config import (
     upload_magic_ok,
     upload_type_allowed,
 )
-from .limiter import limiter, rate_limit_key
+from .limiter import limiter, rate_limit_key, resolve_storage_uri
 from .routes import analytics_bp, chat_bp, export_bp, media_bp, user_bp
 from .routes.helpers import (
     friendly_error,
@@ -81,7 +81,7 @@ def create_app() -> Flask:
     # ---------- Rate Limiting ----------
     app.config["RATELIMIT_ENABLED"] = os.getenv("RATELIMIT_ENABLED", "1") == "1"
     app.config["RATELIMIT_HEADERS_ENABLED"] = True
-    app.config["RATELIMIT_STORAGE_URI"] = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
+    app.config["RATELIMIT_STORAGE_URI"] = resolve_storage_uri()
     limiter.init_app(app)
     app.extensions["bmo_limiter"] = limiter
 

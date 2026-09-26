@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request
 from .. import store
 from ..auth import auth_diagnostics, require_user
 from ..config import KNOWN_MODEL_IDS, UI_MODELS
+from ..limiter import limiter
 from .helpers import bad_request, friendly_error, get_usage_status
 
 logger = logging.getLogger("bmo.routes.user")
@@ -76,8 +77,8 @@ def delete_me(user):
 def auth_debug():
     if os.environ.get("DEBUG_AUTH") != "1":
         return jsonify({"detail": "auth debug disabled"}), 404
-    from ..auth import _bearer_token, _decode_with_diagnostics
-    token = _bearer_token()
+    from ..auth import _decode_with_diagnostics, bearer_token
+    token = bearer_token()
     payload, err = (None, None)
     if token:
         payload, err = _decode_with_diagnostics(token)
@@ -205,6 +206,7 @@ def delete_conversation_share(user, conversation_id):
 
 
 @user_bp.get("/share/<share_id>")
+@limiter.limit("60 per minute")
 def public_shared_conversation(share_id):
     try:
         shared = store.get_public_shared_conversation(share_id)

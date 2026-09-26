@@ -708,9 +708,10 @@ def test_whatsapp_webhook_verification_security(client, monkeypatch):
     from app import whatsapp
     monkeypatch.setattr(whatsapp, "WHATSAPP_VERIFY_TOKEN", "")
 
-    # When unconfigured, GET verification should return 503
+    # When unconfigured, GET verification returns 403 (same as a token
+    # mismatch) so the endpoint doesn't leak whether a verify token is set.
     resp = client.get("/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=bimo_whatsapp_verify_token_2026&hub.challenge=test_challenge")
-    assert resp.status_code == 503
+    assert resp.status_code == 403
 
     # When configured with a secret, wrong token returns 403, correct returns 200
     monkeypatch.setenv("WHATSAPP_VERIFY_TOKEN", "super_secret_token_123")
