@@ -108,7 +108,7 @@ export async function renderChat({ id, incognito }) {
     onclick: () => {
       navigate(incognito ? "#/app/chat" : "#/app/chat/incognito");
     },
-    html: icon(incognito ? "x" : "incognito", { width: 20, height: 20 }),
+    html: icon(incognito ? "x" : "incognito", { width: 21, height: 21 }),
   });
 
   const convoTitleText = el("span", {
