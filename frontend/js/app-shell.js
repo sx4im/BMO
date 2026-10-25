@@ -172,7 +172,7 @@ export async function mountAppShell() {
       const active = mobileIncognitoBtn.classList.contains("active");
       navigate(active ? "#/app/chat" : "#/app/chat/incognito");
     },
-    html: icon("incognito", { width: 20, height: 20 }),
+    html: icon("incognito", { width: 24, height: 24 }),
   });
 
   const mobileBar = el("header", { class: "mobile-bar" }, [
@@ -264,8 +264,8 @@ function shellApi() {
       btn.setAttribute("aria-label", on ? "Exit incognito" : "Start incognito");
       // Ghost to enter; clear X while active so quitting is obvious.
       btn.innerHTML = on
-        ? icon("x", { width: 20, height: 20 })
-        : icon("incognito", { width: 20, height: 20 });
+        ? icon("x", { width: 24, height: 24 })
+        : icon("incognito", { width: 24, height: 24 });
     },
     refresh: loadConversations,
   };

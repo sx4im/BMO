@@ -3329,12 +3329,20 @@ button:hover .icon-dislike,
   font-size: calc(24px * 1.05);
 }
 
+.sidebar.mobile .sidebar-nav {
+  gap: calc(2px * 0.98);
+}
+
 .sidebar.mobile .sidebar-nav a,
-.sidebar.mobile .sidebar-nav-new,
+.sidebar.mobile .sidebar-nav-new {
+  font-size: calc(14px * 1.03);
+  gap: 10px;
+  padding: calc(8px * 0.98) calc(12px * 1.03);
+}
+
 .sidebar.mobile .sidebar-nav-label {
   font-size: calc(14px * 1.03);
-  gap: 6px;
-  padding: calc(8px * 1.03) calc(12px * 1.03);
+  padding: 0;
 }
 
 .sidebar.mobile .sidebar-nav-icon,
@@ -3492,8 +3500,8 @@ button:hover .icon-dislike,
   appearance: none;
   background: transparent;
   border: 0;
-  width: 34px;
-  height: 34px;
+  width: calc(34px * 1.05);
+  height: calc(34px * 1.05);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3519,8 +3527,8 @@ button:hover .icon-dislike,
 }
 
 .mobile-bar-incognito svg {
-  width: 20px;
-  height: 20px;
+  width: calc(24px * 1.05);
+  height: calc(24px * 1.05);
   display: block;
   flex-shrink: 0;
 }
