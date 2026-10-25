@@ -3330,14 +3330,14 @@ button:hover .icon-dislike,
 }
 
 .sidebar.mobile .sidebar-nav {
-  gap: calc(2px * 0.98);
+  gap: calc(3px * 1.02);
 }
 
 .sidebar.mobile .sidebar-nav a,
 .sidebar.mobile .sidebar-nav-new {
   font-size: calc(14px * 1.03);
   gap: 10px;
-  padding: calc(8px * 0.98) calc(12px * 1.03);
+  padding: calc(8.5px * 1.02) calc(12px * 1.03);
 }
 
 .sidebar.mobile .sidebar-nav-label {
