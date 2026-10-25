@@ -10,6 +10,8 @@
   --canvas: #faf9f5;
   --surface-soft: #f5f0e8;
   --surface-card: #efe9de;
+  --surface-active: #e8e0d2;
+  --surface-active-hover: #ded6c5;
   --input-bar: #ffffff;
   /* message input bar — distinct from the page bg */
   --landing-nav-bg: rgba(250, 249, 245, 0.88);
@@ -97,6 +99,7 @@
   /* panels sit FLAT on the page bg; borders define them */
   --surface-active: #3d3d3a;
   /* active/open item highlight (brighter, cleaner version) */
+  --surface-active-hover: #464643;
   --input-bar: #20201f;
   /* message input bar — one step above canvas (claude.ai) */
   --landing-nav-bg: rgba(17, 17, 17, 0.85);
@@ -174,6 +177,7 @@
 :root[data-theme="dark"] .attachment-menu,
 :root[data-theme="dark"] .effort-dropdown,
 :root[data-theme="dark"] .sidebar-convo-menu,
+:root[data-theme="dark"] .chat-topbar-menu,
 :root[data-theme="dark"] .doc-card-dl-menu,
 :root[data-theme="dark"] .doc-modal-dl-menu,
 :root[data-theme="dark"] .confirm-modal-card,
@@ -2954,6 +2958,11 @@ button:hover .icon-dislike,
   background: var(--surface-active, var(--surface-card));
 }
 
+.sidebar-nav a.active:hover,
+.sidebar-nav-new.active:hover {
+  background: var(--surface-active-hover, var(--surface-soft));
+}
+
 .sidebar-section-head,
 .sidebar-recent-head {
   margin: 14px 18px 8px;
@@ -3041,7 +3050,7 @@ button:hover .icon-dislike,
 
 .sidebar-convo-lists .item.active:hover button.entry,
 .sidebar-recent .item.active:hover button.entry {
-  background: #464643;
+  background: var(--surface-active-hover, var(--surface-soft));
   color: var(--ink);
 }
 
@@ -3069,7 +3078,7 @@ button:hover .icon-dislike,
   display: grid;
   place-items: center;
   border-radius: var(--r-sm);
-  color: var(--muted-soft);
+  color: var(--muted);
   opacity: 0;
   transition: opacity 150ms ease, color 150ms ease, background 150ms ease;
 }
@@ -3085,16 +3094,25 @@ button:hover .icon-dislike,
 }
 
 .sidebar-convo-lists .item .item-menu:hover,
-.sidebar-recent .item .item-menu:hover {
+.sidebar-recent .item .item-menu:hover,
+.sidebar-convo-lists .item .item-menu[aria-expanded="true"],
+.sidebar-recent .item .item-menu[aria-expanded="true"] {
   color: var(--ink);
-  background: var(--surface-soft);
+  background: rgba(20, 20, 19, 0.08);
+}
+
+:root[data-theme="dark"] .sidebar-convo-lists .item .item-menu:hover,
+:root[data-theme="dark"] .sidebar-recent .item .item-menu:hover,
+:root[data-theme="dark"] .sidebar-convo-lists .item .item-menu[aria-expanded="true"],
+:root[data-theme="dark"] .sidebar-recent .item .item-menu[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .sidebar-convo-lists .item .item-menu svg,
 .sidebar-recent .item .item-menu svg {
   width: 16px;
   height: 16px;
-  color: var(--muted);
+  color: currentColor;
 }
 
 /* Conversation row context menu (Pin / Rename / Delete) */
@@ -3474,10 +3492,14 @@ button:hover .icon-dislike,
   appearance: none;
   background: transparent;
   border: 0;
-  width: calc(34px * 1.05);
-  height: calc(34px * 1.05);
-  display: grid;
-  place-items: center;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  line-height: 0;
   border-radius: var(--r-sm);
   color: var(--muted);
   cursor: pointer;
@@ -3497,8 +3519,9 @@ button:hover .icon-dislike,
 }
 
 .mobile-bar-incognito svg {
-  width: calc(26px * 1.05);
-  height: calc(24px * 1.05);
+  width: 20px;
+  height: 20px;
+  display: block;
   flex-shrink: 0;
 }
 
@@ -3586,7 +3609,7 @@ button:hover .icon-dislike,
 
 .chat-topbar-chevron-btn:hover,
 .chat-topbar-chevron-btn[aria-expanded="true"] {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-soft);
   color: var(--ink);
 }
 
@@ -3607,14 +3630,18 @@ button:hover .icon-dislike,
   right: 0;
   z-index: 100;
   min-width: 175px;
-  background: var(--surface-dark-elevated, var(--canvas));
+  background: var(--canvas);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--r-md);
   padding: 5px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 12px 32px -8px rgba(20, 20, 19, 0.16), 0 2px 8px -2px rgba(20, 20, 19, 0.06);
   display: none;
   flex-direction: column;
   gap: 2px;
+}
+
+:root[data-theme="dark"] .chat-topbar-menu {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .chat-topbar-menu.open {
@@ -3659,15 +3686,19 @@ button:hover .icon-dislike,
 }
 
 .chat-topbar-menu-item.danger {
-  color: var(--error, #e24b4a);
+  color: var(--error);
 }
 
 .chat-topbar-menu-item.danger .menu-icon {
-  color: var(--error, #e24b4a);
+  color: var(--error);
 }
 
 .chat-topbar-menu-item.danger:hover {
-  background: rgba(226, 75, 74, 0.12);
+  background: rgba(198, 69, 69, 0.08);
+}
+
+:root[data-theme="dark"] .chat-topbar-menu-item.danger:hover {
+  background: rgba(226, 75, 74, 0.14);
 }
 
 .chat-topbar .title-block {
@@ -3789,11 +3820,14 @@ button:hover .icon-dislike,
   appearance: none;
   background: transparent;
   border: 0;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 34px;
   height: 34px;
   padding: 0;
+  margin: 0;
+  line-height: 0;
   color: var(--muted);
   cursor: pointer;
   border-radius: var(--r-sm);
@@ -3812,8 +3846,9 @@ button:hover .icon-dislike,
 }
 
 .chat-topbar-incognito svg {
-  width: 26px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
+  display: block;
   flex-shrink: 0;
 }
 
@@ -8153,12 +8188,13 @@ em {
   font-size: 0.92em;
 }
 
-/* Code block card: header bar (language + copy) fused to the code surface */
+/* Code block card: transparent light surface matching Claude official web app */
 .markdown-body .code-block {
-  margin: 12px 0;
+  margin: 14px 0;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: var(--surface-dark);
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
 }
 
 .markdown-body .code-block-head {
@@ -8166,17 +8202,17 @@ em {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 10px 6px 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 12px 6px 14px;
+  background: transparent;
+  border-bottom: 1px solid var(--hairline-soft);
 }
 
 .markdown-body .code-lang {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
+  text-transform: lowercase;
+  color: var(--muted);
 }
 
 .markdown-body .code-copy {
@@ -8187,30 +8223,31 @@ em {
   border-radius: var(--r-sm);
   font-family: var(--font-sans);
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
   background: transparent;
   transition: color 150ms ease, background 150ms ease;
 }
 
 .markdown-body .code-copy:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  background: var(--surface-soft);
 }
 
 .markdown-body .code-copy.copied {
-  color: #9ee6a6;
+  color: var(--success);
 }
 
 .markdown-body .code-copy svg {
   width: 13px;
   height: 13px;
+  color: currentColor;
 }
 
 .markdown-body .code-block pre {
   background: transparent;
-  color: var(--on-dark);
+  color: var(--ink);
   border-radius: 0;
-  padding: 14px 16px;
+  padding: 12px 14px 14px;
   overflow-x: auto;
   margin: 0;
   font-size: 13px;
@@ -8220,8 +8257,9 @@ em {
 
 /* Standalone <pre> not wrapped in a code-block (e.g. math fallback) */
 .markdown-body pre {
-  background: var(--surface-dark);
-  color: var(--on-dark);
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+  color: var(--ink);
   border-radius: var(--r-md);
   padding: 14px 16px;
   overflow-x: auto;
@@ -8232,7 +8270,7 @@ em {
 
 .markdown-body pre code {
   font-family: var(--font-mono);
-  color: var(--on-dark);
+  color: var(--ink);
   background: transparent;
   padding: 0;
   border-radius: 0;
@@ -8274,9 +8312,9 @@ em {
   font-family: KaTeX_Main, "Times New Roman", serif;
 }
 
-/* highlight.js — warm-leaning palette on the dark code surface */
+/* highlight.js — clean light theme palette (matching Claude official web app) */
 .hljs {
-  color: var(--on-dark);
+  color: var(--ink);
   background: transparent;
 }
 
@@ -8284,49 +8322,49 @@ em {
 .hljs-built_in,
 .hljs-type,
 .hljs-selector-tag {
-  color: #f0b48b;
+  color: #0969da;
   font-weight: 500;
 }
 
 .hljs-string,
 .hljs-doctag,
 .hljs-template-string {
-  color: #b6d7a8;
+  color: #1a7f37;
 }
 
 .hljs-comment,
 .hljs-quote {
-  color: #8a8783;
+  color: #6e7781;
   font-style: italic;
 }
 
 .hljs-number,
 .hljs-literal,
 .hljs-symbol {
-  color: #a3c2c2;
+  color: #953800;
 }
 
 .hljs-title,
 .hljs-title.function_,
 .hljs-class {
-  color: #f4d27d;
+  color: #8250df;
 }
 
 .hljs-attr,
 .hljs-name,
 .hljs-tag,
 .hljs-attribute {
-  color: #f9c8a4;
+  color: #116329;
 }
 
 .hljs-meta,
 .hljs-variable,
 .hljs-link {
-  color: #cdcdcd;
+  color: #0550ae;
 }
 
 .hljs-section {
-  color: #f4d27d;
+  color: #0969da;
   font-weight: 600;
 }
 
@@ -8336,6 +8374,96 @@ em {
 
 .hljs-strong {
   font-weight: 700;
+}
+
+/* Dark theme code block & syntax overrides */
+:root[data-theme="dark"] .markdown-body .code-block {
+  background: var(--surface-dark);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .markdown-body .code-block-head {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .markdown-body .code-lang {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+:root[data-theme="dark"] .markdown-body .code-copy {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:root[data-theme="dark"] .markdown-body .code-copy:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .markdown-body .code-copy.copied {
+  color: #9ee6a6;
+}
+
+:root[data-theme="dark"] .markdown-body .code-block pre,
+:root[data-theme="dark"] .markdown-body pre,
+:root[data-theme="dark"] .markdown-body pre code {
+  color: var(--on-dark);
+}
+
+:root[data-theme="dark"] .markdown-body pre {
+  background: var(--surface-dark);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .hljs {
+  color: var(--on-dark);
+}
+
+:root[data-theme="dark"] .hljs-keyword,
+:root[data-theme="dark"] .hljs-built_in,
+:root[data-theme="dark"] .hljs-type,
+:root[data-theme="dark"] .hljs-selector-tag {
+  color: #f0b48b;
+}
+
+:root[data-theme="dark"] .hljs-string,
+:root[data-theme="dark"] .hljs-doctag,
+:root[data-theme="dark"] .hljs-template-string {
+  color: #b6d7a8;
+}
+
+:root[data-theme="dark"] .hljs-comment,
+:root[data-theme="dark"] .hljs-quote {
+  color: #8a8783;
+}
+
+:root[data-theme="dark"] .hljs-number,
+:root[data-theme="dark"] .hljs-literal,
+:root[data-theme="dark"] .hljs-symbol {
+  color: #a3c2c2;
+}
+
+:root[data-theme="dark"] .hljs-title,
+:root[data-theme="dark"] .hljs-title.function_,
+:root[data-theme="dark"] .hljs-class {
+  color: #f4d27d;
+}
+
+:root[data-theme="dark"] .hljs-attr,
+:root[data-theme="dark"] .hljs-name,
+:root[data-theme="dark"] .hljs-tag,
+:root[data-theme="dark"] .hljs-attribute {
+  color: #f9c8a4;
+}
+
+:root[data-theme="dark"] .hljs-meta,
+:root[data-theme="dark"] .hljs-variable,
+:root[data-theme="dark"] .hljs-link {
+  color: #cdcdcd;
+}
+
+:root[data-theme="dark"] .hljs-section {
+  color: #f4d27d;
 }
 
 /* Streaming meta: rotating phrase + elapsed-seconds timer */
