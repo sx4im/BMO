@@ -3823,8 +3823,8 @@ button:hover .icon-dislike,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: calc(34px * 1.05);
-  height: calc(34px * 1.05);
+  width: calc(34px * 1.07);
+  height: calc(34px * 1.07);
   padding: 0;
   margin: 0;
   line-height: 0;
@@ -3846,8 +3846,8 @@ button:hover .icon-dislike,
 }
 
 .chat-topbar-incognito svg {
-  width: calc(20px * 1.05);
-  height: calc(20px * 1.05);
+  width: calc(20px * 1.07);
+  height: calc(20px * 1.07);
   display: block;
   flex-shrink: 0;
 }
