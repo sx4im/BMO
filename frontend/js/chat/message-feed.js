@@ -16,7 +16,7 @@
 import { el, clear } from "../utils.js?v=30";
 import { readingOrb } from "../components/orb.js?v=3";
 import { searchCard } from "../components/search-card.js?v=3";
-import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=33";
+import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=34";
 import { messageBubble, reasoningDetails } from "../components/message.js?v=73";
 import { EXPORT_FORMATS, downloadBlob } from "../export.js?v=4";
 import { StreamingRenderer } from "./stream-renderer.js?v=13";

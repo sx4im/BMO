@@ -3,7 +3,7 @@ import { thoughtOrb } from "./orb.js?v=3";
 import { searchCard } from "./search-card.js?v=3";
 import { icon } from "../icons.js?v=30";
 import { avatar } from "./avatar.js?v=30";
-import { renderMarkdown } from "./markdown.js?v=33";
+import { renderMarkdown } from "./markdown.js?v=34";
 import { openImageModal } from "./image-modal.js?v=30";
 
 export function reasoningDetails({ reasoning, durationText = "", live = false, hasAnswerText = false, open = false }) {

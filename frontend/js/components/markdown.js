@@ -39,12 +39,15 @@ function ensureCodeCopyHandler() {
     if (!code) return;
     try {
       await navigator.clipboard.writeText(code.textContent || "");
-      const label = btn.querySelector(".code-copy-label");
+      if (btn._copyTimeout) clearTimeout(btn._copyTimeout);
       btn.classList.add("copied");
-      if (label) label.textContent = "Copied";
-      setTimeout(() => {
+      btn.setAttribute("aria-label", "Copied");
+      btn.innerHTML = `${icon("check", { width: 13, height: 13 })}<span class="code-copy-label">Copied</span>`;
+      btn._copyTimeout = setTimeout(() => {
         btn.classList.remove("copied");
-        if (label) label.textContent = "Copy";
+        btn.setAttribute("aria-label", "Copy code");
+        btn.innerHTML = `${icon("copy", { width: 13, height: 13 })}<span class="code-copy-label">Copy</span>`;
+        btn._copyTimeout = null;
       }, 1400);
     } catch {
       /* clipboard unavailable — ignore */

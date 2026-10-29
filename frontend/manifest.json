@@ -13,8 +13,8 @@
   "theme_color": "#faf9f5",
   "icons": [
     {
-      "src": "/assets/favicon.png",
-      "type": "image/png",
+      "src": "/assets/favicon.jpeg",
+      "type": "image/jpeg",
       "sizes": "819x819",
       "purpose": "any"
     },

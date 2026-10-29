@@ -11,7 +11,7 @@ import { mountAppShell } from "../app-shell.js?v=74";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { openShareModal } from "../components/share-modal.js?v=2";
-import { whenMarkdownReady } from "../components/markdown.js?v=33";
+import { whenMarkdownReady } from "../components/markdown.js?v=34";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=55";
 import * as api from "../api.js?v=61";
 
