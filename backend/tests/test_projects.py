@@ -312,7 +312,8 @@ def test_moving_conversation_between_projects(client, monkeypatch):
         "project_id": None,
     }
 
-    valid_projects = {"proj_valid": {"id": "proj_valid", "user_id": user_id}}
+    valid_proj_id = "11111111-1111-4111-8111-111111111111"
+    valid_projects = {valid_proj_id: {"id": valid_proj_id, "user_id": user_id}}
 
     def mock_get_project(pid, uid):
         p = valid_projects.get(pid)
@@ -330,12 +331,12 @@ def test_moving_conversation_between_projects(client, monkeypatch):
     headers = {"Authorization": f"Bearer {token}"}
 
     # 1. Move chat into project
-    resp = client.patch("/conversations/c_move_1", headers=headers, json={"project_id": "proj_valid"})
+    resp = client.patch("/conversations/c_move_1", headers=headers, json={"project_id": valid_proj_id})
     assert resp.status_code == 200
-    assert resp.get_json()["project_id"] == "proj_valid"
+    assert resp.get_json()["project_id"] == valid_proj_id
 
     # 2. Try moving chat into a nonexistent/unauthorized project
-    resp_invalid = client.patch("/conversations/c_move_1", headers=headers, json={"project_id": "proj_nonexistent"})
+    resp_invalid = client.patch("/conversations/c_move_1", headers=headers, json={"project_id": "22222222-2222-4222-8222-222222222222"})
     assert resp_invalid.status_code == 404
 
     # 3. Move chat out of project (project_id = null)
@@ -434,3 +435,39 @@ def test_file_upload_and_delete_flow(client, monkeypatch):
     assert del_resp.status_code == 200
     assert del_resp.get_json()["status"] == "deleted"
     assert len(stored_files) == 0
+
+
+def test_chat_invalid_and_foreign_project_id(client, monkeypatch):
+    """POST /chat with foreign or nonexistent project_id returns 404 and does not create conversation."""
+    user_id = "user_chat_test"
+    token = _make_jwt(user_id=user_id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    convo_created = []
+
+    def mock_create_conversation(cid, uid, **kwargs):
+        convo_created.append((cid, uid))
+        return {"id": cid, "user_id": uid, **kwargs}
+
+    monkeypatch.setattr(store, "create_conversation", mock_create_conversation)
+    monkeypatch.setattr(store, "get_project", lambda pid, uid: None)
+
+    # 1. Non-existent / foreign valid UUID project_id
+    foreign_uuid = "99999999-9999-4999-8999-999999999999"
+    resp = client.post("/chat", headers=headers, json={
+        "message": "Hello project",
+        "project_id": foreign_uuid,
+    })
+    assert resp.status_code == 404
+    assert resp.get_json()["detail"] == "project not found"
+    assert len(convo_created) == 0
+
+    # 2. Malformed non-UUID project_id
+    resp_malformed = client.post("/chat", headers=headers, json={
+        "message": "Hello project",
+        "project_id": "not-a-valid-uuid",
+    })
+    assert resp_malformed.status_code == 404
+    assert resp_malformed.get_json()["detail"] == "project not found"
+    assert len(convo_created) == 0
+

@@ -41,6 +41,7 @@ from .helpers import (
     is_trivial_prompt,
     sse_event,
     user_owns_path,
+    validate_project_id,
 )
 
 logger = logging.getLogger("bmo.routes.chat")
@@ -297,6 +298,10 @@ def chat(user):
         return bad_request("force_search must be a boolean", 422)
     if project_id is not None and not isinstance(project_id, str):
         return bad_request("project_id must be a string", 422)
+    if project_id is not None:
+        _, err = validate_project_id(project_id, user.id)
+        if err:
+            return err
     if stream_id is not None and (not isinstance(stream_id, str) or len(stream_id) > 100):
         return bad_request("stream_id must be a short string", 422)
     if not isinstance(attachments, list) or not all(isinstance(a, dict) for a in attachments):
