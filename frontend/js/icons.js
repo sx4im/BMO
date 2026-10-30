@@ -24,6 +24,7 @@ const PATHS = {
   globe: `<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>`,
 
   // Sections / navigation / identity
+  search: `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
   messageSquare: `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>`,
   messageText: `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M7 9h10"/><path d="M7 13h6"/>`,
   messageCircleMore: `<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h.01" class="dot dot-1"/><path d="M12 12h.01" class="dot dot-2"/><path d="M16 12h.01" class="dot dot-3"/>`,
