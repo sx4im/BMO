@@ -25,6 +25,10 @@ const PATHS = {
 
   // Sections / navigation / identity
   search: `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
+  galleryVerticalEnd: `<path class="gallery-line gallery-line-1" d="M7 2h10"/><path class="gallery-line gallery-line-2" d="M5 6h14"/><rect class="gallery-rect" width="18" height="12" x="3" y="10" rx="2"/>`,
+  projects: `<path class="gallery-line gallery-line-1" d="M7 2h10"/><path class="gallery-line gallery-line-2" d="M5 6h14"/><rect class="gallery-rect" width="18" height="12" x="3" y="10" rx="2"/>`,
+  folder: `<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>`,
+  plus: `<path d="M5 12h14"/><path d="M12 5v14"/>`,
   messageSquare: `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>`,
   messageText: `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M7 9h10"/><path d="M7 13h6"/>`,
   messageCircleMore: `<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h.01" class="dot dot-1"/><path d="M12 12h.01" class="dot dot-2"/><path d="M16 12h.01" class="dot dot-3"/>`,

@@ -11,6 +11,7 @@ import { mountAppShell } from "../app-shell.js?v=75";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { openShareModal } from "../components/share-modal.js?v=2";
+import { openMoveChatModal } from "./projects.js";
 import { whenMarkdownReady } from "../components/markdown.js?v=34";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=55";
 import * as api from "../api.js?v=61";
@@ -95,6 +96,14 @@ export async function renderChat({ id, incognito }) {
   let activeVoiceOnDelta = null;
   let unmounted = false;
   let reconciling = false;
+
+  let activeProjectId = null;
+  const hashParts = (location.hash || "").split("?");
+  if (hashParts.length > 1) {
+    const params = new URLSearchParams(hashParts[1]);
+    activeProjectId = params.get("project_id") || null;
+  }
+  let projectMeta = null;
 
   const page = el("div", { class: `chat-page${incognito ? " incognito-mode" : ""}` });
 
@@ -216,10 +225,34 @@ export async function renderChat({ id, incognito }) {
     el("span", { class: "menu-label", text: "Share" }),
   ]);
 
+  const moveItem = el("button", {
+    type: "button",
+    class: "chat-topbar-menu-item",
+    onclick: (e) => {
+      e.stopPropagation();
+      closeConvoMenu();
+      if (!conversation?.id) return;
+      openMoveChatModal({
+        auth,
+        conversation,
+        onMoved: async (newProjId) => {
+          activeProjectId = newProjId;
+          projectMeta = null;
+          updateTopBarTitle();
+          loadConversations();
+        },
+      });
+    },
+  }, [
+    el("span", { class: "menu-icon", html: icon("galleryVerticalEnd", { width: 15, height: 15 }) }),
+    el("span", { class: "menu-label", text: "Move to project" }),
+  ]);
+
   const convoMenu = el("div", { class: "chat-topbar-menu", role: "menu" }, [
     shareItem,
     pinItem,
     renameItem,
+    moveItem,
     deleteItem,
   ]);
 
@@ -268,8 +301,46 @@ export async function renderChat({ id, incognito }) {
   };
   document.addEventListener("click", onDocClickConvoMenu);
 
+  const projectBadgeIcon = el("span", {
+    class: "project-badge-icon",
+    html: icon("galleryVerticalEnd", { width: 13, height: 13 }),
+  });
+  const projectBadgeText = el("span", { class: "project-badge-name", text: "Project" });
+  const projectBadgeLink = el(
+    "a",
+    {
+      class: "chat-topbar-project-badge",
+      href: "#/app/projects",
+      style: "display: none;",
+      title: "Go to project workspace",
+    },
+    [projectBadgeIcon, projectBadgeText]
+  );
+
   function updateTopBarTitle() {
     syncTopBarActions();
+    if (activeProjectId && !incognito) {
+      projectBadgeLink.href = `#/app/projects/${activeProjectId}`;
+      projectBadgeLink.style.display = "inline-flex";
+      if (!projectMeta) {
+        api
+          .getProject(auth.token, activeProjectId)
+          .then((p) => {
+            if (p && p.name) {
+              projectMeta = p;
+              projectBadgeText.textContent = p.name;
+            }
+          })
+          .catch(() => {
+            projectBadgeText.textContent = "Project";
+          });
+      } else {
+        projectBadgeText.textContent = projectMeta.name;
+      }
+    } else {
+      projectBadgeLink.style.display = "none";
+    }
+
     if (incognito) {
       convoTitleText.textContent = "Incognito chat";
       menuAnchor.style.display = "none";
@@ -334,7 +405,10 @@ export async function renderChat({ id, incognito }) {
 
   const header = el("header", { class: "chat-topbar" }, [
     el("div", { class: "inner" }, [
-      titleWrap,
+      el("div", { class: "chat-topbar-left" }, [
+        projectBadgeLink,
+        titleWrap,
+      ]),
       el("div", { class: "chat-topbar-actions" }, [shareBtn, incognitoBtn]),
     ]),
   ]);
@@ -406,6 +480,9 @@ export async function renderChat({ id, incognito }) {
     getAuthToken: () => auth.token,
     onConversation: (convo) => {
       conversation = convo;
+      if (convo?.project_id) {
+        activeProjectId = convo.project_id;
+      }
       const cid = convo?.id ? String(convo.id) : "";
       const isRealId = cid && !cid.startsWith("pending_") && !cid.startsWith("incognito_");
       if (!incognito && !id && isRealId) {
@@ -682,6 +759,9 @@ export async function renderChat({ id, incognito }) {
     try {
       const data = await api.getMessages(auth.token, id);
       conversation = data?.conversation || null;
+      if (conversation?.project_id) {
+        activeProjectId = conversation.project_id;
+      }
       messages = Array.isArray(data?.messages) ? data.messages : [];
       if (conversation?.model) {
         composer.currentModel = conversation.model;
@@ -799,6 +879,7 @@ export async function renderChat({ id, incognito }) {
           message: text,
           augmented_message: llmMessage !== text ? llmMessage : undefined,
           conversation_id: (!incognito && id) ? id : undefined,
+          project_id: (!incognito && activeProjectId) ? activeProjectId : undefined,
           attachments,
           model: activeModel,
           system_prompt: studyMode ? STUDY_SYSTEM_PROMPT : (conversation?.system_prompt || undefined),
@@ -854,6 +935,7 @@ export async function renderChat({ id, incognito }) {
       const res = await api.generateImage(auth.token, {
         prompt: text,
         conversation_id: id || undefined,
+        project_id: (!incognito && activeProjectId) ? activeProjectId : undefined,
         attachments,
       }, controller.signal);
 

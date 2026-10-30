@@ -16,6 +16,7 @@ import { applyTheme } from "./prefs.js?v=32";
 
 let state = {
   conversations: null,
+  projects: null,
   activeId: null,
   pageRefresh: null,
   usage: null,
@@ -43,6 +44,22 @@ export async function loadConversations() {
   }
 }
 
+export async function loadProjects() {
+  const { auth } = getAuth();
+  if (!auth) return;
+  try {
+    state.projects = await api.listProjects(auth.token);
+    if (nodes) renderSidebars();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bmo:projects-updated", { detail: state.projects })
+      );
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+}
+
 export async function loadUsage() {
   const { auth } = getAuth();
   if (!auth) return;
@@ -58,12 +75,15 @@ function renderSidebars() {
   const props = {
     user: auth?.user,
     conversations: state.conversations,
+    projects: state.projects,
     activeId: state.activeId,
     onNewChat: () => navigate("#/app/chat"),
     onSelectConversation: (id) => navigate(`#/app/chat/${id}`),
     onDeleteConversation: handleDelete,
     onRenameConversation: handleRename,
     onPinConversation: handlePin,
+    onRefreshConversations: loadConversations,
+    onRefreshProjects: loadProjects,
     onLogout: handleLogout,
     onCloseMobile: closeMobile,
     onOpenSearch: () => openChatSearch({
@@ -222,6 +242,7 @@ export async function mountAppShell() {
   // Fire off background fetch for usage stats so they're ready for Settings
   loadUsage();
   loadConversations();
+  loadProjects();
   return shellApi();
 }
 
