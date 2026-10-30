@@ -8,6 +8,7 @@ import { renderFeedback } from "./pages/feedback.js?v=70";
 import { renderSettings } from "./pages/settings.js?v=73";
 import { renderNotFound } from "./pages/not-found.js?v=54";
 import { renderSharedChat } from "./pages/shared-chat.js?v=2";
+import { renderProjects } from "./pages/projects.js";
 import { bootVersionGuard } from "./version-guard.js?v=1";
 
 
@@ -43,6 +44,8 @@ defineRoute("#/", publicOnly(renderLanding));
 defineRoute("#/app/chat", requireAuth(renderChat));
 defineRoute("#/app/chat/incognito", requireAuth(() => renderChat({ incognito: true })));
 defineRoute("#/app/chat/:id", requireAuth(renderChat));
+defineRoute("#/app/projects", requireAuth(renderProjects));
+defineRoute("#/app/projects/:id", requireAuth(renderProjects));
 defineRoute("#/app/feedback", requireAuth(renderFeedback));
 defineRoute("#/app/settings", renderSettings);
 defineRoute("#/share/:shareId", renderSharedChat);

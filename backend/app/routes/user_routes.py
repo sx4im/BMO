@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request
 from .. import store
 from ..auth import auth_diagnostics, require_user
 from ..config import KNOWN_MODEL_IDS, UI_MODELS
-from .helpers import bad_request, friendly_error, get_usage_status
+from .helpers import bad_request, friendly_error, get_usage_status, validate_project_id
 
 logger = logging.getLogger("bmo.routes.user")
 
@@ -139,6 +139,13 @@ def patch_conversation(user, conversation_id):
             return bad_request(f"{key} must be a string", 422)
     if "pinned" in payload and not isinstance(payload["pinned"], bool):
         return bad_request("pinned must be a boolean", 422)
+    if "project_id" in payload:
+        pid = payload["project_id"]
+        if pid is not None and not isinstance(pid, str):
+            return bad_request("project_id must be a string or null", 422)
+        _, err = validate_project_id(pid, user.id)
+        if err:
+            return err
     if payload.get("model") and payload["model"] not in KNOWN_MODEL_IDS:
         return bad_request("unknown model", 422)
     if payload.get("title") and len(payload["title"]) > 120:

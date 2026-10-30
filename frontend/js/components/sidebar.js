@@ -4,10 +4,12 @@ import { avatar } from "./avatar.js?v=30";
 import { getRoute, navigate } from "../router.js?v=31";
 import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=58";
 import { openShareModal } from "./share-modal.js?v=2";
+import { openMoveChatModal, openProjectModal } from "../pages/projects.js";
 import { getAuth } from "../auth.js?v=31";
 
 const NAV = [
   { hash: "#/app/chat", label: "Search", icon: "search" },
+  { hash: "#/app/projects", label: "Projects", icon: "projects" },
   { hash: "#/app/feedback", label: "Support", icon: "circleHelp" },
   { hash: "#/app/settings", label: "Settings", icon: "settings" },
 ];
@@ -89,7 +91,7 @@ function toggleConvoMenu(id, menu, trigger) {
   positionConvoMenu(menu, trigger);
 }
 
-function buildConvoItem(c, { activeId, onSelectConversation, onCloseMobile, onPinConversation, onRenameConversation, onDeleteConversation }) {
+function buildConvoItem(c, { activeId, onSelectConversation, onCloseMobile, onPinConversation, onRenameConversation, onDeleteConversation, onRefreshConversations }) {
 
 
   const menu = el("div", { class: "sidebar-convo-menu", role: "menu" }, [
@@ -120,6 +122,22 @@ function buildConvoItem(c, { activeId, onSelectConversation, onCloseMobile, onPi
             if (val !== c.title) await onRenameConversation(c.id, val);
           }
         });
+      },
+    }),
+    menuItem({
+      label: "Move to project",
+      iconName: "galleryVerticalEnd",
+      onClick: () => {
+        const { auth } = getAuth();
+        if (auth?.token) {
+          openMoveChatModal({
+            auth,
+            conversation: c,
+            onMoved: () => {
+              onRefreshConversations && onRefreshConversations();
+            },
+          });
+        }
       },
     }),
     menuItem({
@@ -178,12 +196,15 @@ export function renderSidebar(container, props) {
   const {
     user,
     conversations,
+    projects,
     activeId,
     onNewChat,
     onSelectConversation,
     onDeleteConversation,
     onRenameConversation,
     onPinConversation,
+    onRefreshConversations,
+    onRefreshProjects,
     onLogout,
     onCloseMobile,
     onOpenSearch,
@@ -198,6 +219,7 @@ export function renderSidebar(container, props) {
     onPinConversation,
     onRenameConversation,
     onDeleteConversation,
+    onRefreshConversations,
   };
 
   const pinned = conversations ? conversations.filter((c) => c.pinned) : [];
@@ -260,6 +282,58 @@ export function renderSidebar(container, props) {
   }
 
   const listsWrap = el("div", { class: "sidebar-convo-lists" });
+
+  if (projects && projects.length > 0) {
+    const projectList = el("ul", { class: "sidebar-project-list" });
+    for (const p of projects) {
+      const isProjActive = currentHash === `#/app/projects/${p.id}`;
+      projectList.append(
+        el("li", { class: `item${isProjActive ? " active" : ""}` }, [
+          el(
+            "button",
+            {
+              type: "button",
+              class: "entry project-entry",
+              onclick: () => {
+                navigate(`#/app/projects/${p.id}`);
+                onCloseMobile && onCloseMobile();
+              },
+            },
+            [
+              el("span", { class: "project-icon", html: icon("galleryVerticalEnd", { width: 14, height: 14 }) }),
+              el("span", { class: "title", text: p.name }),
+            ]
+          ),
+        ])
+      );
+    }
+    listsWrap.append(
+      el("div", { class: "sidebar-convo-section projects-section" }, [
+        el("div", { class: "sidebar-section-head" }, [
+          el("span", { text: "Projects" }),
+          el("button", {
+            type: "button",
+            class: "sidebar-section-action",
+            title: "New project",
+            "aria-label": "New project",
+            onclick: () => {
+              const { auth } = getAuth();
+              if (auth) {
+                openProjectModal({
+                  auth,
+                  onCreated: () => {
+                    onRefreshProjects && onRefreshProjects();
+                  },
+                });
+              }
+            },
+            html: icon("plus", { width: 14, height: 14 }),
+          }),
+        ]),
+        projectList,
+      ])
+    );
+  }
 
   if (pinned.length) {
     const pinnedList = el("ul", {});

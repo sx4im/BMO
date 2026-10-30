@@ -505,9 +505,11 @@ def build_messages_for_vision(
     history: Iterable[dict],
     user_content,
     *,
+    system_prompt: Optional[str] = None,
     history_limit: int = 24,
 ) -> list[dict]:
-    out: list[dict] = [{"role": "system", "content": VISION_SYSTEM_PROMPT}]
+    sys_content = f"{system_prompt}\n\n{VISION_SYSTEM_PROMPT}" if system_prompt else VISION_SYSTEM_PROMPT
+    out: list[dict] = [{"role": "system", "content": sys_content}]
     history = [m for m in history if m.get("role") in {"user", "assistant"}]
     for m in history[-history_limit:]:
         role = m["role"]

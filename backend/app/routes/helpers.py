@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -147,6 +148,27 @@ def user_owns_path(user_id: str, path: str) -> bool:
     if ".." in path or path.startswith("/") or "\\" in path:
         return False
     return path.startswith(f"{user_id}/")
+
+
+def validate_project_id(project_id: Optional[str], user_id: str) -> tuple[Optional[dict], Optional[tuple]]:
+    """Validate project_id is a valid UUID and owned by user.
+
+    Returns (project, None) on success.
+    If project_id is None, returns (None, None).
+    On error, returns (None, (error_response, status_code)).
+    """
+    if project_id is None:
+        return None, None
+    if not isinstance(project_id, str):
+        return None, bad_request("project_id must be a string", 422)
+    try:
+        val = uuid.UUID(str(project_id))
+    except (ValueError, AttributeError, TypeError):
+        return None, bad_request("project not found", 404)
+    project = store.get_project(str(val), user_id)
+    if not project:
+        return None, bad_request("project not found", 404)
+    return project, None
 
 
 _TRIVIAL_PHRASES = {

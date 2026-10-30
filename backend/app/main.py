@@ -38,7 +38,7 @@ from .config import (
     upload_type_allowed,
 )
 from .limiter import limiter, rate_limit_key
-from .routes import analytics_bp, chat_bp, export_bp, media_bp, user_bp
+from .routes import analytics_bp, chat_bp, export_bp, media_bp, project_bp, user_bp
 from .routes.helpers import (
     friendly_error,
     get_usage_status,
@@ -121,6 +121,7 @@ def create_app() -> Flask:
     app.register_blueprint(chat_bp)
     app.register_blueprint(export_bp)
     app.register_blueprint(media_bp)
+    app.register_blueprint(project_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(whatsapp.whatsapp_bp)
 

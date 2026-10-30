@@ -30,6 +30,11 @@ IMAGE_MODEL_ID = "image"
 AEON_MODEL_ID = "aeon"
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "openai/whisper-large-v3")
 
+# Projects & Knowledge budget
+PROJECT_KNOWLEDGE_BUDGET_TOKENS = int(os.getenv("PROJECT_KNOWLEDGE_BUDGET_TOKENS", "100000"))
+PROJECT_KNOWLEDGE_DIRECT_TOKENS = int(os.getenv("PROJECT_KNOWLEDGE_DIRECT_TOKENS", "25000"))
+MAX_PROJECT_FILE_SIZE = int(os.getenv("MAX_PROJECT_FILE_SIZE", str(10 * 1024 * 1024)))
+
 
 def get_mistral_model() -> str:
     return os.getenv("MISTRAL_MODEL", DEFAULT_MISTRAL_MODEL).strip()
