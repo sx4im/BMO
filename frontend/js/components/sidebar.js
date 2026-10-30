@@ -43,7 +43,7 @@ if (typeof document !== "undefined") {
   });
 }
 
-function menuItem({ label, iconName, danger = false, onClick }) {
+function menuItem({ label, iconName, iconSize = 16, danger = false, onClick }) {
   return el("button", {
     type: "button",
     class: `sidebar-convo-menu-item${danger ? " danger" : ""}`,
@@ -60,7 +60,7 @@ function menuItem({ label, iconName, danger = false, onClick }) {
       e.stopPropagation();
     },
   }, [
-    el("span", { class: "sidebar-convo-menu-icon", html: icon(iconName, { width: 16, height: 16 }) }),
+    el("span", { class: "sidebar-convo-menu-icon", html: icon(iconName, { width: iconSize, height: iconSize }) }),
     el("span", { class: "sidebar-convo-menu-label", text: label }),
   ]);
 }
@@ -108,6 +108,7 @@ function buildConvoItem(c, { activeId, onSelectConversation, onCloseMobile, onPi
     menuItem({
       label: c.pinned ? "Unpin" : "Pin",
       iconName: c.pinned ? "pinOff" : "pin",
+      iconSize: 18,
       onClick: () => onPinConversation(c.id, !c.pinned),
     }),
     menuItem({

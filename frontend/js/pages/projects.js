@@ -283,7 +283,7 @@ async function renderProjectWorkspace(host, auth, projectId) {
       onclick: () => {
         openConfirmModal({
           title: "Delete project",
-          message: `Are you sure you want to delete "${project.name}"? Knowledge files will be permanently removed. Project chats will be kept as regular chats.`,
+          message: `Permanently delete "${project.name}"? Knowledge files will be removed. Chats will be kept as regular chats.`,
           confirmText: "Delete project",
           cancelText: "Cancel",
           danger: true,
@@ -517,12 +517,6 @@ function renderFilesCard(project, auth) {
   function renderFileList() {
     clear(fileListEl);
     if (!files.length) {
-      fileListEl.append(
-        el("li", {
-          class: "file-list-empty",
-          text: "No reference files added yet. Upload files to provide ground-truth knowledge for conversations in this project.",
-        })
-      );
       return;
     }
     for (const file of files) {

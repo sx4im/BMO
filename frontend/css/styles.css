@@ -8622,7 +8622,7 @@ body:has(.chat-page.is-empty) .tools-menu,
 
   /* Sidebar drawer width */
   .sidebar {
-    width: min(86vw, 320px);
+    width: min(88vw, 320px);
   }
 
   /* Delete button is hover-revealed on desktop — make it visible on touch */
