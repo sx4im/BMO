@@ -706,3 +706,14 @@ def test_rank_chunks_restores_document_order():
     assert len(ranked) == 3
     assert [c["_order"] for c in ranked] == [0, 1, 2]
 
+
+def test_knowledge_context_skips_empty_files():
+    """Files with empty/whitespace-only text must not emit empty <chunk> blocks."""
+    files = [
+        {"filename": "empty.txt", "extracted_text": "   \n  ", "token_estimate": 1},
+        {"filename": "real.txt", "extracted_text": "alpha beta gamma " * 500, "token_estimate": 5000},
+    ]
+    ctx = build_knowledge_context(files, user_query="alpha", direct_token_limit=100)
+    assert "<chunk" in ctx
+    assert "empty.txt" not in ctx
+    assert "real.txt" in ctx

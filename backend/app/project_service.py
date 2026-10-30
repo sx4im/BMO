@@ -257,6 +257,8 @@ def build_knowledge_context(
     for pf in project_files:
         fname = pf.get("filename") or "file"
         text = (pf.get("extracted_text") or "").strip()
+        if not text:
+            continue
         chunks = _chunk_text(text)
         for idx, chunk in enumerate(chunks):
             all_chunks.append({
