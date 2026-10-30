@@ -183,16 +183,6 @@ export async function renderSettings() {
       el("div", { class: "settings-actions" }, [
         el("button", {
           type: "button",
-          class: "btn ghost",
-          onclick: async () => {
-            await signOut();
-            toast("Signed out", { tone: "success" });
-            window.location.hash = "#/";
-          },
-          html: `${icon("logOut", { width: 14, height: 14 })} <span>Sign out</span>`,
-        }),
-        el("button", {
-          type: "button",
           class: "btn danger",
           onclick: () => {
             openConfirmModal({
