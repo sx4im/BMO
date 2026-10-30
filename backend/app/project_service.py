@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import io
 import logging
 import os
@@ -194,6 +195,19 @@ def _rank_chunks(chunks_with_meta: list[dict], query: str, top_k: int = 15) -> l
     return [item for _, item in scored[:top_k]]
 
 
+_DELIMITER_TAG_RE = re.compile(r"</?\s*(?:file|chunk|project_knowledge)\b[^>]*>", re.IGNORECASE)
+
+
+def _sanitize_knowledge(filename: str, text: str) -> tuple[str, str]:
+    """Escape filename for XML attribute and neutralize delimiter tags in untrusted content."""
+    safe_name = html.escape(filename or "file", quote=True)
+    safe_text = _DELIMITER_TAG_RE.sub(
+        lambda m: m.group(0).replace("<", "&lt;").replace(">", "&gt;"),
+        text or "",
+    )
+    return safe_name, safe_text
+
+
 def build_knowledge_context(
     project_files: list[dict],
     user_query: str = "",
@@ -224,7 +238,8 @@ def build_knowledge_context(
             fname = pf.get("filename") or "file"
             text = (pf.get("extracted_text") or "").strip()
             if text:
-                file_blocks.append(f'<file name="{fname}">\n{text}\n</file>')
+                safe_fname, safe_text = _sanitize_knowledge(fname, text)
+                file_blocks.append(f'<file name="{safe_fname}">\n{safe_text}\n</file>')
         if not file_blocks:
             return ""
         return header + "\n\n".join(file_blocks) + "\n" + footer
@@ -246,9 +261,10 @@ def build_knowledge_context(
     top_chunks = _rank_chunks(all_chunks, user_query, top_k=20)
     chunk_blocks = []
     for c in top_chunks:
+        safe_fname, safe_text = _sanitize_knowledge(c["filename"], c["text"])
         chunk_blocks.append(
-            f'<chunk file="{c["filename"]}" part="{c["chunk_idx"]}/{c["total_chunks"]}">\n'
-            f'{c["text"]}\n'
+            f'<chunk file="{safe_fname}" part="{c["chunk_idx"]}/{c["total_chunks"]}">\n'
+            f'{safe_text}\n'
             f'</chunk>'
         )
 
