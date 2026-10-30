@@ -2165,20 +2165,19 @@ button:hover .icon-messageCircleMore .dot-3,
   animation-delay: 0.36s;
 }
 
-/* Animated Search (Search chats) - spin in fixed position */
-@keyframes searchSpin {
+/* Animated Search (Search chats) - 3D Earth-like spin in fixed place */
+@keyframes searchSpin3D {
   0% {
-    transform: rotate(0deg);
+    transform: perspective(300px) rotateY(0deg);
   }
 
   100% {
-    transform: rotate(360deg);
+    transform: perspective(300px) rotateY(360deg);
   }
 }
 
 .icon-search {
   transform-origin: center;
-  transform-box: view-box;
   transition: transform 0.2s ease;
 }
 
@@ -2186,7 +2185,7 @@ button:hover .icon-messageCircleMore .dot-3,
 .sidebar-nav a:focus-visible .icon-search,
 button:hover .icon-search,
 .icon-search:hover {
-  animation: searchSpin 0.55s cubic-bezier(0.25, 1, 0.5, 1);
+  animation: searchSpin3D 0.65s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Circle Help (Support) */
