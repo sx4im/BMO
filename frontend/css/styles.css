@@ -4741,10 +4741,14 @@ button:hover .icon-dislike,
   border-top: none;
 }
 
-/* Hide footer while on new/empty chat screen (composer is in center) */
-body:has(.chat-page.is-empty) .app-footer,
-.app-shell:has(.chat-page.is-empty) .app-footer {
+/* Footer ("Built by Saim Shafique") shows only on active chat pages */
+.app-footer {
   display: none;
+}
+
+body:has(.chat-page:not(.is-empty)) .app-footer,
+.app-shell:has(.chat-page:not(.is-empty)) .app-footer {
+  display: block;
 }
 
 /* =============================================================
@@ -6000,7 +6004,7 @@ body:has(.chat-page.is-empty) .tools-menu,
   position: fixed;
   bottom: calc(28px + env(safe-area-inset-bottom, 0px));
   right: 28px;
-  z-index: 60;
+  z-index: 30;
   border-radius: 999px;
   height: auto;
   padding: 14px 22px;
