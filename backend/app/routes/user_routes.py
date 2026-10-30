@@ -139,6 +139,12 @@ def patch_conversation(user, conversation_id):
             return bad_request(f"{key} must be a string", 422)
     if "pinned" in payload and not isinstance(payload["pinned"], bool):
         return bad_request("pinned must be a boolean", 422)
+    if "project_id" in payload:
+        pid = payload["project_id"]
+        if pid is not None and not isinstance(pid, str):
+            return bad_request("project_id must be a string or null", 422)
+        if pid is not None and not store.get_project(pid, user.id):
+            return bad_request("project not found", 404)
     if payload.get("model") and payload["model"] not in KNOWN_MODEL_IDS:
         return bad_request("unknown model", 422)
     if payload.get("title") and len(payload["title"]) > 120:

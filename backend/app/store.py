@@ -144,6 +144,7 @@ def create_conversation(
     first_message: str,
     model: Optional[str] = None,
     system_prompt: Optional[str] = None,
+    project_id: Optional[str] = None,
 ) -> dict:
     title = (first_message or "New conversation").strip().replace("\n", " ")[:80] or "New conversation"
     payload = {
@@ -152,6 +153,8 @@ def create_conversation(
         "model": model,
         "system_prompt": system_prompt,
     }
+    if project_id:
+        payload["project_id"] = project_id
     res = _execute(supabase().table("conversations").insert(payload))
     if not res.data:
         raise RuntimeError("Could not create conversation")
@@ -159,7 +162,7 @@ def create_conversation(
 
 
 def update_conversation(conversation_id: str, user_id: str, patch: dict) -> Optional[dict]:
-    allowed = {k: v for k, v in patch.items() if k in {"title", "model", "system_prompt", "pinned"}}
+    allowed = {k: v for k, v in patch.items() if k in {"title", "model", "system_prompt", "pinned", "project_id"}}
     if not allowed:
         return get_conversation(conversation_id, user_id)
     allowed["updated_at"] = _now_iso()
@@ -640,3 +643,176 @@ def get_public_shared_conversation(share_id: str) -> Optional[dict]:
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
+
+
+# ---------- Projects ----------
+
+def list_projects(user_id: str, *, include_archived: bool = False) -> list[dict]:
+    query = supabase().table("projects").select("*").eq("user_id", user_id)
+    if not include_archived:
+        query = query.eq("archived", False)
+    res = _execute(query.order("updated_at", desc=True))
+    return res.data or []
+
+
+def get_project(project_id: str, user_id: str) -> Optional[dict]:
+    res = _execute(
+        supabase()
+        .table("projects")
+        .select("*")
+        .eq("id", project_id)
+        .eq("user_id", user_id)
+        .limit(1)
+    )
+    return (res.data or [None])[0]
+
+
+def create_project(
+    user_id: str,
+    *,
+    name: str,
+    description: str = "",
+    instructions: str = "",
+) -> dict:
+    payload = {
+        "user_id": user_id,
+        "name": (name or "Untitled Project").strip()[:100] or "Untitled Project",
+        "description": (description or "").strip()[:500],
+        "instructions": (instructions or "").strip()[:8000],
+    }
+    res = _execute(supabase().table("projects").insert(payload))
+    if not res.data:
+        raise RuntimeError("Could not create project")
+    return res.data[0]
+
+
+def update_project(project_id: str, user_id: str, patch: dict) -> Optional[dict]:
+    allowed = {k: v for k, v in patch.items() if k in {"name", "description", "instructions", "archived"}}
+    if not allowed:
+        return get_project(project_id, user_id)
+    allowed["updated_at"] = _now_iso()
+    res = _execute(
+        supabase()
+        .table("projects")
+        .update(allowed)
+        .eq("id", project_id)
+        .eq("user_id", user_id)
+    )
+    return (res.data or [None])[0]
+
+
+def delete_project(project_id: str, user_id: str) -> bool:
+    project = get_project(project_id, user_id)
+    if not project:
+        return False
+    files = list_project_files(project_id, user_id)
+    paths = [f["storage_path"] for f in files if f.get("storage_path")]
+    _delete_storage_paths(paths)
+
+    res = _execute(
+        supabase()
+        .table("projects")
+        .delete()
+        .eq("id", project_id)
+        .eq("user_id", user_id)
+    )
+    return bool(res.data)
+
+
+# ---------- Project Files ----------
+
+def list_project_files(project_id: str, user_id: str) -> list[dict]:
+    if not get_project(project_id, user_id):
+        return []
+    res = _execute(
+        supabase()
+        .table("project_files")
+        .select("*")
+        .eq("project_id", project_id)
+        .eq("user_id", user_id)
+        .order("created_at", desc=False)
+    )
+    return res.data or []
+
+
+def get_project_file(file_id: str, user_id: str) -> Optional[dict]:
+    res = _execute(
+        supabase()
+        .table("project_files")
+        .select("*")
+        .eq("id", file_id)
+        .eq("user_id", user_id)
+        .limit(1)
+    )
+    return (res.data or [None])[0]
+
+
+def add_project_file(
+    project_id: str,
+    user_id: str,
+    *,
+    filename: str,
+    mime_type: str,
+    size_bytes: int,
+    storage_path: str,
+    extracted_text: str = "",
+    token_estimate: int = 0,
+) -> dict:
+    if not get_project(project_id, user_id):
+        raise PermissionError("project not found")
+    payload = {
+        "project_id": project_id,
+        "user_id": user_id,
+        "filename": filename,
+        "mime_type": mime_type,
+        "size_bytes": size_bytes,
+        "storage_path": storage_path,
+        "extracted_text": extracted_text,
+        "token_estimate": token_estimate,
+    }
+    res = _execute(supabase().table("project_files").insert(payload))
+    if not res.data:
+        raise RuntimeError("Could not insert project file")
+    _execute(
+        supabase()
+        .table("projects")
+        .update({"updated_at": _now_iso()})
+        .eq("id", project_id)
+        .eq("user_id", user_id)
+    )
+    return res.data[0]
+
+
+def delete_project_file(file_id: str, user_id: str) -> bool:
+    pf = get_project_file(file_id, user_id)
+    if not pf:
+        return False
+    path = pf.get("storage_path")
+    if path:
+        _delete_storage_paths([path])
+    res = _execute(
+        supabase()
+        .table("project_files")
+        .delete()
+        .eq("id", file_id)
+        .eq("user_id", user_id)
+    )
+    return bool(res.data)
+
+
+def get_project_token_usage(project_id: str, user_id: str) -> int:
+    files = list_project_files(project_id, user_id)
+    return sum(f.get("token_estimate", 0) for f in files)
+
+
+def list_project_conversations(project_id: str, user_id: str) -> list[dict]:
+    res = _execute(
+        supabase()
+        .table("conversations")
+        .select("*")
+        .eq("project_id", project_id)
+        .eq("user_id", user_id)
+        .order("updated_at", desc=True)
+    )
+    return res.data or []
+

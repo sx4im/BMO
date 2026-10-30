@@ -13,7 +13,7 @@ import uuid
 
 from flask import Blueprint, Response, request, stream_with_context
 
-from .. import document_processor, nvidia_client, search_router, store
+from .. import document_processor, nvidia_client, project_service, search_router, store
 from ..auth import require_user
 from ..config import (
     ALL_VALID_MODEL_IDS,
@@ -25,6 +25,7 @@ from ..config import (
 from ..limiter import limiter
 from ..prompts import (
     AEON_SYSTEM_PROMPT,
+    DEFAULT_SYSTEM_PROMPT,
     earlier_attachment_note,
     image_settings_reply,
     wrap_attachment_content,
@@ -284,6 +285,7 @@ def chat(user):
     model = payload.get("model")
     system_prompt = payload.get("system_prompt")
     conversation_id = payload.get("conversation_id")
+    project_id = payload.get("project_id")
     augmented_message = payload.get("augmented_message")
     stream_id = payload.get("stream_id")
     auto_search = payload.get("auto_search", True)
@@ -293,6 +295,8 @@ def chat(user):
         return bad_request("auto_search must be a boolean", 422)
     if not isinstance(force_search, bool):
         return bad_request("force_search must be a boolean", 422)
+    if project_id is not None and not isinstance(project_id, str):
+        return bad_request("project_id must be a string", 422)
     if stream_id is not None and (not isinstance(stream_id, str) or len(stream_id) > 100):
         return bad_request("stream_id must be a short string", 422)
     if not isinstance(attachments, list) or not all(isinstance(a, dict) for a in attachments):
@@ -360,6 +364,8 @@ def chat(user):
                 convo_patch["model"] = model
             if system_prompt is not None and system_prompt != convo.get("system_prompt"):
                 convo_patch["system_prompt"] = system_prompt
+            if project_id is not None and project_id != convo.get("project_id"):
+                convo_patch["project_id"] = project_id
             if convo_patch:
                 convo = store.update_conversation(conversation_id, user.id, convo_patch) or convo
 
@@ -377,6 +383,7 @@ def chat(user):
                 "id": f"pending_{uuid.uuid4().hex[:8]}",
                 "model": model or "thinking",
                 "system_prompt": system_prompt,
+                "project_id": project_id,
                 "title": title_seed,
                 "_new": True,
             }
@@ -538,6 +545,7 @@ def chat(user):
                         first_message=message_text or "Image conversation",
                         model=convo.get("model") or model,
                         system_prompt=convo.get("system_prompt"),
+                        project_id=convo.get("project_id"),
                     )
                     real_msg = store.add_message(
                         real["id"],
@@ -655,26 +663,36 @@ def chat(user):
                     break
                 is_first_batch = batch_idx == 0
                 if is_first_batch:
-                    if conversation_is_visual:
-                        messages_payload = nvidia_client.build_messages_for_vision(
-                            model_history, batch_content,
+                    active_project_id = convo.get("project_id")
+                    project = store.get_project(active_project_id, user.id) if active_project_id else None
+                    project_files = store.list_project_files(active_project_id, user.id) if project else None
+
+                    base_sys = AEON_SYSTEM_PROMPT if chosen_friendly == "aeon" else DEFAULT_SYSTEM_PROMPT
+                    if project or project_files:
+                        assembled_base = project_service.assemble_project_system_prompt(
+                            project=project,
+                            base_system_prompt=base_sys,
+                            project_files=project_files,
+                            user_query=message_text,
                         )
                     else:
-                        if chosen_friendly == "aeon":
-                            extra_sys = convo.get("system_prompt")
-                            messages_payload = nvidia_client.build_messages(
-                                model_history,
-                                batch_content,
-                                base_system_prompt=AEON_SYSTEM_PROMPT,
-                                system_prompt=extra_sys,
-                            )
-                        else:
-                            active_sys_prompt = convo.get("system_prompt")
-                            messages_payload = nvidia_client.build_messages(
-                                model_history,
-                                batch_content,
-                                system_prompt=active_sys_prompt,
-                            )
+                        assembled_base = base_sys
+
+                    extra_sys = convo.get("system_prompt")
+
+                    if conversation_is_visual:
+                        messages_payload = nvidia_client.build_messages_for_vision(
+                            model_history,
+                            batch_content,
+                            system_prompt=assembled_base if (project or project_files) else None,
+                        )
+                    else:
+                        messages_payload = nvidia_client.build_messages(
+                            model_history,
+                            batch_content,
+                            base_system_prompt=assembled_base,
+                            system_prompt=extra_sys,
+                        )
                 else:
                     messages_payload = nvidia_client.build_continuation_messages(
                         model_history, batch_content,
