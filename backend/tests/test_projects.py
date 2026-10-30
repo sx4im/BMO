@@ -256,6 +256,7 @@ def test_project_crud_lifecycle(client, monkeypatch):
     monkeypatch.setattr(store, "get_project_token_usage", lambda pid, uid: 0)
     monkeypatch.setattr(store, "list_project_files", lambda pid, uid, **k: [])
     monkeypatch.setattr(store, "get_projects_file_stats", lambda uid: {})
+    monkeypatch.setattr(store, "get_projects_chat_stats", lambda uid: {})
     monkeypatch.setattr(store, "list_project_conversations", lambda pid, uid: [])
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -486,6 +487,63 @@ def test_file_upload_and_delete_flow(client, monkeypatch):
     assert del_resp.status_code == 200
     assert del_resp.get_json()["status"] == "deleted"
     assert len(stored_files) == 0
+
+
+def test_file_preview_endpoint(client, monkeypatch):
+    """GET /projects/<id>/files/<file_id> returns extracted text preview."""
+    user_id = "user_preview_test"
+    token = _make_jwt(user_id)
+    proj = {"id": "proj_preview", "user_id": user_id, "name": "Preview Project"}
+    long_text = "lorem ipsum " * 5000  # > 20k chars, exercises truncation
+    file_rec = {
+        "id": "file_preview_1",
+        "project_id": "proj_preview",
+        "user_id": user_id,
+        "filename": "notes.txt",
+        "token_estimate": 1200,
+        "extracted_text": long_text,
+    }
+
+    monkeypatch.setattr(store, "get_project", lambda pid, uid: proj if (pid == "proj_preview" and uid == user_id) else None)
+    monkeypatch.setattr(store, "get_project_file", lambda fid, uid: file_rec if (fid == "file_preview_1" and uid == user_id) else None)
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.get("/projects/proj_preview/files/file_preview_1", headers=headers)
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["filename"] == "notes.txt"
+    assert data["token_estimate"] == 1200
+    assert len(data["preview"]) == 20000
+    assert data["truncated"] is True
+
+    # Unknown file -> 404
+    resp404 = client.get("/projects/proj_preview/files/nope", headers=headers)
+    assert resp404.status_code == 404
+
+    # Foreign project -> 404
+    resp403 = client.get("/projects/other_proj/files/file_preview_1", headers=headers)
+    assert resp403.status_code == 404
+
+
+def test_list_projects_includes_chat_count(client, monkeypatch):
+    """GET /projects includes chat_count per project."""
+    user_id = "user_chat_count_test"
+    token = _make_jwt(user_id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    monkeypatch.setattr(store, "list_projects", lambda uid, include_archived=False: [
+        {"id": "p1", "user_id": uid, "name": "One"},
+        {"id": "p2", "user_id": uid, "name": "Two"},
+    ])
+    monkeypatch.setattr(store, "get_projects_file_stats", lambda uid: {})
+    monkeypatch.setattr(store, "get_projects_chat_stats", lambda uid: {"p1": 3})
+
+    resp = client.get("/projects", headers=headers)
+    assert resp.status_code == 200
+    data = {p["id"]: p for p in resp.get_json()}
+    assert data["p1"]["chat_count"] == 3
+    assert data["p2"]["chat_count"] == 0
 
 
 def test_chat_invalid_and_foreign_project_id(client, monkeypatch):

@@ -6000,6 +6000,58 @@ body:has(.chat-page.is-empty) .tools-menu,
   gap: 18px;
 }
 
+.projects-search-wrap {
+  position: relative;
+  margin-bottom: 20px;
+  max-width: 420px;
+}
+
+.projects-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  display: inline-flex;
+  pointer-events: none;
+}
+
+.projects-search {
+  width: 100%;
+  height: 44px;
+  padding: 0 16px 0 40px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--hairline);
+  background: var(--surface-card);
+  color: var(--ink);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.projects-search::placeholder {
+  color: var(--muted-soft);
+}
+
+.projects-search:focus {
+  border-color: var(--primary);
+}
+
+.projects-no-results {
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 32px 0;
+  margin: 0;
+}
+
+.project-card-chats {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .projects-fab {
   position: fixed;
   bottom: calc(28px + env(safe-area-inset-bottom, 0px));
@@ -6389,6 +6441,94 @@ body:has(.chat-page.is-empty) .tools-menu,
   background: var(--primary);
   border-radius: 3px;
   transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.upload-progress-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.upload-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.upload-progress-name {
+  font-size: 13px;
+  color: var(--body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+  flex-shrink: 0;
+}
+
+.upload-progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-active);
+  overflow: hidden;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.15s ease;
+}
+
+.budget-hint {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 10px 0 0;
+  line-height: 1.5;
+}
+
+.budget-hint-file {
+  color: var(--body-strong);
+  font-weight: 500;
+}
+
+.project-file-item.file-previewable {
+  cursor: pointer;
+}
+
+.project-file-item.file-previewable:hover {
+  background: var(--surface-soft);
+}
+
+.file-preview-card {
+  max-width: 640px;
+  width: calc(100vw - 48px);
+}
+
+.file-preview-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 4px 0 12px;
+}
+
+.file-preview-body {
+  max-height: 50vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--body);
+  background: var(--surface-soft);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  padding: 14px;
+  margin: 0 0 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .token-meter-fill.warning {
