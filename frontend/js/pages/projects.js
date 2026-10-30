@@ -62,6 +62,7 @@ export async function renderProjects({ id } = {}) {
  * ---------------------------------------------------------------------------
  */
 async function renderProjectsList(host, auth) {
+  clear(host);
   const page = el("div", { class: "page-shell projects-page" });
   host.append(page);
 
@@ -70,22 +71,18 @@ async function renderProjectsList(host, auth) {
       el("h1", { text: "Projects" }),
       el("p", { text: "Curate instructions and reference documents to focus your chats." }),
     ]),
-    el(
-      "button",
-      {
-        type: "button",
-        class: "btn primary create-project-btn",
-        onclick: () => openProjectModal({ auth, onCreated: () => renderProjectsList(host, auth) }),
-      },
-      [
-        el("span", { class: "btn-ic", html: icon("plus", { width: 16, height: 16 }) }),
-        el("span", { text: "New project" }),
-      ]
-    ),
   ]);
   page.append(head);
 
   const loadingSpinner = el("div", { class: "blade-spinner center" }, [
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
     el("div", { class: "spinner-blade" }),
     el("div", { class: "spinner-blade" }),
     el("div", { class: "spinner-blade" }),
@@ -188,6 +185,14 @@ async function renderProjectWorkspace(host, auth, projectId) {
   host.append(page);
 
   const loadingSpinner = el("div", { class: "blade-spinner center" }, [
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
+    el("div", { class: "spinner-blade" }),
     el("div", { class: "spinner-blade" }),
     el("div", { class: "spinner-blade" }),
     el("div", { class: "spinner-blade" }),
