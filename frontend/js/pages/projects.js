@@ -74,6 +74,21 @@ async function renderProjectsList(host, auth) {
   ]);
   page.append(head);
 
+  const fab = el(
+    "button",
+    {
+      type: "button",
+      class: "btn primary projects-fab",
+      "aria-label": "New project",
+      onclick: () => openProjectModal({ auth, onCreated: () => renderProjectsList(host, auth) }),
+    },
+    [
+      el("span", { class: "btn-ic", html: icon("plus", { width: 18, height: 18 }) }),
+      el("span", { text: "New project" }),
+    ]
+  );
+  page.append(fab);
+
   const loadingSpinner = el("div", { class: "blade-spinner center" }, [
     el("div", { class: "spinner-blade" }),
     el("div", { class: "spinner-blade" }),
