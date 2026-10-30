@@ -270,6 +270,9 @@ def build_knowledge_context(
             })
             chunk_order += 1
 
+    if not all_chunks:
+        return ""
+
     top_chunks = _rank_chunks(all_chunks, user_query, top_k=20)
     chunk_blocks = []
     for c in top_chunks:
