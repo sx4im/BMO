@@ -83,7 +83,7 @@ async function renderProjectsList(host, auth) {
       onclick: () => openProjectModal({ auth, onCreated: () => renderProjectsList(host, auth) }),
     },
     [
-      el("span", { class: "btn-ic", html: icon("plus", { width: 18, height: 18 }) }),
+      el("span", { class: "btn-ic", html: icon("plus", { width: 22, height: 22 }) }),
       el("span", { text: "New project" }),
     ]
   );
