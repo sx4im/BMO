@@ -670,7 +670,7 @@ def chat(user):
                 if is_first_batch:
                     active_project_id = convo.get("project_id")
                     project = store.get_project(active_project_id, user.id) if active_project_id else None
-                    project_files = store.list_project_files(active_project_id, user.id) if project else None
+                    project_files = store.list_project_files(active_project_id, user.id, include_text=True) if project else None
 
                     base_sys = AEON_SYSTEM_PROMPT if chosen_friendly == "aeon" else DEFAULT_SYSTEM_PROMPT
                     if project or project_files:

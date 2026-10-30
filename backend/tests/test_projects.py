@@ -254,7 +254,8 @@ def test_project_crud_lifecycle(client, monkeypatch):
     monkeypatch.setattr(store, "update_project", mock_update_project)
     monkeypatch.setattr(store, "delete_project", mock_delete_project)
     monkeypatch.setattr(store, "get_project_token_usage", lambda pid, uid: 0)
-    monkeypatch.setattr(store, "list_project_files", lambda pid, uid: [])
+    monkeypatch.setattr(store, "list_project_files", lambda pid, uid, **k: [])
+    monkeypatch.setattr(store, "get_projects_file_stats", lambda uid: {})
     monkeypatch.setattr(store, "list_project_conversations", lambda pid, uid: [])
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -325,7 +326,7 @@ def test_tenant_isolation_projects_and_files(client, monkeypatch):
 
     monkeypatch.setattr(store, "get_project", mock_get_project)
     monkeypatch.setattr(store, "get_project_token_usage", lambda pid, uid: 0)
-    monkeypatch.setattr(store, "list_project_files", lambda pid, uid: [])
+    monkeypatch.setattr(store, "list_project_files", lambda pid, uid, **k: [])
     monkeypatch.setattr(store, "list_project_conversations", lambda pid, uid: [])
 
     # Alpha tries to read Beta's project

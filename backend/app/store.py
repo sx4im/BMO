@@ -721,13 +721,15 @@ def delete_project(project_id: str, user_id: str) -> bool:
 
 # ---------- Project Files ----------
 
-def list_project_files(project_id: str, user_id: str) -> list[dict]:
-    if not get_project(project_id, user_id):
-        return []
+_FILE_LIST_COLUMNS = "id, project_id, filename, mime_type, size_bytes, token_estimate, created_at"
+
+
+def list_project_files(project_id: str, user_id: str, *, include_text: bool = False) -> list[dict]:
+    cols = "*" if include_text else _FILE_LIST_COLUMNS
     res = _execute(
         supabase()
         .table("project_files")
-        .select("*")
+        .select(cols)
         .eq("project_id", project_id)
         .eq("user_id", user_id)
         .order("created_at", desc=False)
@@ -801,8 +803,33 @@ def delete_project_file(file_id: str, user_id: str) -> bool:
 
 
 def get_project_token_usage(project_id: str, user_id: str) -> int:
-    files = list_project_files(project_id, user_id)
-    return sum(f.get("token_estimate", 0) for f in files)
+    res = _execute(
+        supabase()
+        .table("project_files")
+        .select("token_estimate")
+        .eq("project_id", project_id)
+        .eq("user_id", user_id)
+    )
+    return sum((row.get("token_estimate") or 0) for row in (res.data or []))
+
+
+def get_projects_file_stats(user_id: str) -> dict[str, dict[str, int]]:
+    """Return {project_id: {"file_count": int, "tokens_used": int}} for all files owned by user."""
+    res = _execute(
+        supabase()
+        .table("project_files")
+        .select("project_id, token_estimate")
+        .eq("user_id", user_id)
+    )
+    stats: dict[str, dict[str, int]] = {}
+    for row in (res.data or []):
+        pid = row.get("project_id")
+        if not pid:
+            continue
+        cur = stats.setdefault(pid, {"file_count": 0, "tokens_used": 0})
+        cur["file_count"] += 1
+        cur["tokens_used"] += (row.get("token_estimate") or 0)
+    return stats
 
 
 def list_project_conversations(project_id: str, user_id: str) -> list[dict]:

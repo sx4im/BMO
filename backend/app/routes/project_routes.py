@@ -30,14 +30,14 @@ project_bp = Blueprint("project_routes", __name__)
 def list_projects_endpoint(user):
     include_archived = request.args.get("archived", "false").lower() == "true"
     projects = store.list_projects(user.id, include_archived=include_archived)
-    # Include file count and token usage per project
+    stats = store.get_projects_file_stats(user.id)
     result = []
     for p in projects:
-        files = store.list_project_files(p["id"], user.id)
+        p_stats = stats.get(p["id"], {"file_count": 0, "tokens_used": 0})
         result.append({
             **p,
-            "file_count": len(files),
-            "tokens_used": sum(f.get("token_estimate", 0) for f in files),
+            "file_count": p_stats["file_count"],
+            "tokens_used": p_stats["tokens_used"],
             "token_budget": PROJECT_KNOWLEDGE_BUDGET_TOKENS,
         })
     return jsonify(result)
