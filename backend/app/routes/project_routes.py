@@ -241,7 +241,17 @@ def upload_file_endpoint(user, project_id):
             extracted_text=extracted_text,
             token_estimate=token_estimate,
         )
-        total_tokens = current_tokens + token_estimate
+        # Concurrency safety: re-check total token usage after insert
+        total_tokens = store.get_project_token_usage(project_id, user.id)
+        if total_tokens > PROJECT_KNOWLEDGE_BUDGET_TOKENS:
+            # Race condition exceeded budget: rollback inserted file and storage
+            store.delete_project_file(project_id, record["id"], user.id)
+            return bad_request(
+                f"File exceeds knowledge budget ({PROJECT_KNOWLEDGE_BUDGET_TOKENS:,} tokens). "
+                f"Current total usage is {total_tokens:,} tokens.",
+                400,
+            )
+
         return jsonify({
             "file": record,
             "tokens_used": total_tokens,
@@ -250,7 +260,7 @@ def upload_file_endpoint(user, project_id):
     except Exception as exc:
         logger.exception("Failed to insert project file record: %s", exc)
         # Clean up uploaded storage file on DB error
-        store._delete_storage_paths([safe_path])
+        store.delete_storage_paths([safe_path])
         return bad_request("Could not save file record", 500)
 
 
@@ -260,7 +270,7 @@ def delete_file_endpoint(user, project_id, file_id):
     if not store.get_project(project_id, user.id):
         return bad_request("project not found", 404)
 
-    deleted = store.delete_project_file(file_id, user.id)
+    deleted = store.delete_project_file(project_id, file_id, user.id)
     if not deleted:
         return bad_request("file not found", 404)
 

@@ -64,7 +64,10 @@ def get_mime_type(filename: str) -> str:
 
 
 def extract_text_from_file(filename: str, file_bytes: bytes) -> str:
-    """Extract readable text from supported document or code formats."""
+    """Extract readable text from supported document or code formats.
+
+    Strips NUL (\x00) bytes to prevent database text insertion errors.
+    """
     ext = os.path.splitext(filename)[1].lower()
 
     if ext == ".pdf":
@@ -77,12 +80,11 @@ def extract_text_from_file(filename: str, file_bytes: bytes) -> str:
                 if text:
                     pages.append(f"--- Page {idx + 1} ---\n{text}")
             doc.close()
-            return "\n\n".join(pages)
+            extracted = "\n\n".join(pages)
         except Exception as exc:
             logger.warning("PDF extraction failed for %s: %s", filename, exc)
-            return "[PDF contains no extractable text]"
-
-    if ext == ".docx":
+            extracted = "[PDF contains no extractable text]"
+    elif ext == ".docx":
         try:
             from docx import Document
             doc = Document(io.BytesIO(file_bytes))
@@ -97,19 +99,21 @@ def extract_text_from_file(filename: str, file_bytes: bytes) -> str:
                     rows.append(" | ".join(c.text.strip() for c in row.cells))
                 if rows:
                     lines.append("\n" + "\n".join(rows))
-            return "\n\n".join(lines)
+            extracted = "\n\n".join(lines)
         except Exception as exc:
             logger.warning("DOCX extraction failed for %s: %s", filename, exc)
-            return "[DOCX contains no extractable text]"
-
-    # Default text / code decode
-    try:
-        return file_bytes.decode("utf-8")
-    except UnicodeDecodeError:
+            extracted = "[DOCX contains no extractable text]"
+    else:
+        # Default text / code decode
         try:
-            return file_bytes.decode("latin-1")
-        except Exception:
-            return "[Non-text binary content]"
+            extracted = file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                extracted = file_bytes.decode("latin-1")
+            except Exception:
+                extracted = "[Non-text binary content]"
+
+    return extracted.replace("\x00", "")
 
 
 def validate_and_process_upload(
@@ -175,7 +179,7 @@ def _chunk_text(text: str, chunk_size: int = 1400, overlap: int = 200) -> list[s
 
 
 def _rank_chunks(chunks_with_meta: list[dict], query: str, top_k: int = 15) -> list[dict]:
-    """Simple term-frequency chunk ranking without heavy external dependencies."""
+    """Rank chunks by keyword relevance, returning top_k restored to document order."""
     keywords = set(re.findall(r"\w{3,}", query.lower()))
     if not keywords:
         return chunks_with_meta[:top_k]
@@ -190,9 +194,12 @@ def _rank_chunks(chunks_with_meta: list[dict], query: str, top_k: int = 15) -> l
             score += 3
         scored.append((score, item))
 
-    # Sort descending by score, then by original file order
+    # Sort descending by score to pick the top_k most relevant chunks
     scored.sort(key=lambda s: s[0], reverse=True)
-    return [item for _, item in scored[:top_k]]
+    selected = [item for _, item in scored[:top_k]]
+    # Restore original document sequence order
+    selected.sort(key=lambda item: item.get("_order", 0))
+    return selected
 
 
 _DELIMITER_TAG_RE = re.compile(r"</?\s*(?:file|chunk|project_knowledge)\b[^>]*>", re.IGNORECASE)
@@ -246,17 +253,20 @@ def build_knowledge_context(
 
     # Fallback to chunking + keyword retrieval
     all_chunks = []
+    chunk_order = 0
     for pf in project_files:
         fname = pf.get("filename") or "file"
         text = (pf.get("extracted_text") or "").strip()
         chunks = _chunk_text(text)
         for idx, chunk in enumerate(chunks):
             all_chunks.append({
+                "_order": chunk_order,
                 "filename": fname,
                 "chunk_idx": idx + 1,
                 "total_chunks": len(chunks),
                 "text": chunk,
             })
+            chunk_order += 1
 
     top_chunks = _rank_chunks(all_chunks, user_query, top_k=20)
     chunk_blocks = []

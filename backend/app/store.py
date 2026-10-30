@@ -196,7 +196,7 @@ def _attachment_paths(messages: list) -> list[str]:
     return paths
 
 
-def _delete_storage_paths(paths: list[str]) -> None:
+def delete_storage_paths(paths: list[str]) -> None:
     """Best-effort removal from Supabase Storage."""
     if not paths:
         return
@@ -205,6 +205,9 @@ def _delete_storage_paths(paths: list[str]) -> None:
         supabase().storage.from_(bucket).remove(paths)
     except Exception:
         logger.warning("storage cleanup failed for %d paths", len(paths), exc_info=True)
+
+
+_delete_storage_paths = delete_storage_paths
 
 
 def delete_conversation(conversation_id: str, user_id: str) -> bool:
@@ -707,8 +710,8 @@ def delete_project(project_id: str, user_id: str) -> bool:
         return False
     files = list_project_files(project_id, user_id)
     paths = [f["storage_path"] for f in files if f.get("storage_path")]
-    _delete_storage_paths(paths)
 
+    # Delete DB row first
     res = _execute(
         supabase()
         .table("projects")
@@ -716,7 +719,16 @@ def delete_project(project_id: str, user_id: str) -> bool:
         .eq("id", project_id)
         .eq("user_id", user_id)
     )
-    return bool(res.data)
+    deleted = bool(res.data)
+
+    # Storage cleanup is best-effort (log failure, do not raise)
+    if deleted and paths:
+        try:
+            delete_storage_paths(paths)
+        except Exception:
+            logger.warning("Storage cleanup failed after deleting project %s", project_id, exc_info=True)
+
+    return deleted
 
 
 # ---------- Project Files ----------
@@ -785,21 +797,31 @@ def add_project_file(
     return res.data[0]
 
 
-def delete_project_file(file_id: str, user_id: str) -> bool:
+def delete_project_file(project_id: str, file_id: str, user_id: str) -> bool:
     pf = get_project_file(file_id, user_id)
-    if not pf:
+    if not pf or pf.get("project_id") != project_id:
         return False
     path = pf.get("storage_path")
-    if path:
-        _delete_storage_paths([path])
+
+    # Delete DB row first
     res = _execute(
         supabase()
         .table("project_files")
         .delete()
         .eq("id", file_id)
+        .eq("project_id", project_id)
         .eq("user_id", user_id)
     )
-    return bool(res.data)
+    deleted = bool(res.data)
+
+    # Storage cleanup is best-effort (log failure, do not raise)
+    if deleted and path:
+        try:
+            delete_storage_paths([path])
+        except Exception:
+            logger.warning("Storage cleanup failed after deleting file %s", file_id, exc_info=True)
+
+    return deleted
 
 
 def get_project_token_usage(project_id: str, user_id: str) -> int:

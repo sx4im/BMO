@@ -673,12 +673,19 @@ def chat(user):
                     project_files = store.list_project_files(active_project_id, user.id, include_text=True) if project else None
 
                     base_sys = AEON_SYSTEM_PROMPT if chosen_friendly == "aeon" else DEFAULT_SYSTEM_PROMPT
-                    if project or project_files:
+                    if project:
+                        past_user_texts = [
+                            m.get("content", "")
+                            for m in model_history
+                            if m.get("role") == "user" and isinstance(m.get("content"), str)
+                        ]
+                        retrieval_query = "\n".join([t for t in (past_user_texts[-2:] + [message_text]) if t])
+
                         assembled_base = project_service.assemble_project_system_prompt(
                             project=project,
                             base_system_prompt=base_sys,
                             project_files=project_files,
-                            user_query=message_text,
+                            user_query=retrieval_query,
                         )
                     else:
                         assembled_base = base_sys
@@ -689,7 +696,7 @@ def chat(user):
                         messages_payload = nvidia_client.build_messages_for_vision(
                             model_history,
                             batch_content,
-                            system_prompt=assembled_base if (project or project_files) else None,
+                            system_prompt=assembled_base if project else None,
                         )
                     else:
                         messages_payload = nvidia_client.build_messages(

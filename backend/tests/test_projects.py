@@ -437,9 +437,9 @@ def test_file_upload_and_delete_flow(client, monkeypatch):
                 return f
         return None
 
-    def mock_delete_project_file(fid, uid):
+    def mock_delete_project_file(pid, fid, uid):
         for f in list(stored_files):
-            if f["id"] == fid and f["user_id"] == uid:
+            if f["id"] == fid and f["project_id"] == pid and f["user_id"] == uid:
                 stored_files.remove(f)
                 return True
         return False
@@ -457,6 +457,7 @@ def test_file_upload_and_delete_flow(client, monkeypatch):
 
     monkeypatch.setattr(store, "supabase", lambda: MockClient())
     monkeypatch.setattr(store, "attachments_bucket", lambda: "test-bucket")
+    monkeypatch.setattr(store, "delete_storage_paths", lambda paths: None)
     monkeypatch.setattr(store, "_delete_storage_paths", lambda paths: None)
     monkeypatch.setattr(store, "add_project_file", mock_add_project_file)
     monkeypatch.setattr(store, "get_project_file", mock_get_project_file)
@@ -520,4 +521,188 @@ def test_chat_invalid_and_foreign_project_id(client, monkeypatch):
     assert resp_malformed.status_code == 404
     assert resp_malformed.get_json()["detail"] == "project not found"
     assert len(convo_created) == 0
+
+
+def test_extract_text_strips_nul_bytes():
+    """Verify that NUL bytes (\x00) are stripped from extracted text."""
+    content = b"first part\x00second part\x00\x00third"
+    text = extract_text_from_file("data.txt", content)
+    assert "\x00" not in text
+    assert text == "first partsecond partthird"
+
+
+def test_upload_file_with_nul_bytes_succeeds(client, monkeypatch):
+    """Uploading a file with embedded NUL bytes succeeds with NULs removed."""
+    user_id = "user_nul_test"
+    token = _make_jwt(user_id=user_id)
+    proj = {"id": "proj_nul", "user_id": user_id, "name": "NUL Project"}
+    stored = []
+
+    monkeypatch.setattr(store, "get_project", lambda pid, uid: proj if pid == "proj_nul" and uid == user_id else None)
+    monkeypatch.setattr(store, "get_project_token_usage", lambda pid, uid: 10)
+    monkeypatch.setattr(store, "delete_storage_paths", lambda paths: None)
+
+    class MockStorage:
+        def upload(self, *a, **k):
+            return True
+
+    class MockBucket:
+        def from_(self, b):
+            return MockStorage()
+
+    class MockClient:
+        storage = MockBucket()
+
+    monkeypatch.setattr(store, "supabase", lambda: MockClient())
+    monkeypatch.setattr(store, "attachments_bucket", lambda: "test-bucket")
+
+    def mock_add(project_id, user_id, **kwargs):
+        record = {"id": "f_nul_1", "project_id": project_id, "user_id": user_id, **kwargs}
+        stored.append(record)
+        return record
+
+    monkeypatch.setattr(store, "add_project_file", mock_add)
+
+    headers = {"Authorization": f"Bearer {token}"}
+    data = {
+        "file": (io.BytesIO(b"Hello\x00World\x00!"), "nul.txt")
+    }
+    resp = client.post(
+        "/projects/proj_nul/files",
+        headers=headers,
+        data=data,
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 201
+    assert len(stored) == 1
+    assert "\x00" not in stored[0]["extracted_text"]
+    assert stored[0]["extracted_text"] == "HelloWorld!"
+
+
+def test_delete_project_removes_db_rows_when_storage_fails(monkeypatch):
+    """store.delete_project deletes DB row first and does not raise if storage deletion throws."""
+    proj_id = "proj_storage_fail"
+    user_id = "user_test_sf"
+
+    deleted_rows = []
+
+    class MockTable:
+        def __init__(self, name):
+            self.name = name
+            self._filters = {}
+
+        def select(self, *a, **k):
+            return self
+
+        def delete(self):
+            return self
+
+        def eq(self, k, v):
+            self._filters[k] = v
+            return self
+
+        def order(self, *a, **k):
+            return self
+
+        def execute(self):
+            class Res:
+                data = [{"id": proj_id}]
+            deleted_rows.append(self._filters)
+            return Res()
+
+    class MockClient:
+        def table(self, name):
+            return MockTable(name)
+
+    monkeypatch.setattr(store, "supabase", lambda: MockClient())
+    monkeypatch.setattr(store, "get_project", lambda pid, uid: {"id": pid, "user_id": uid})
+    monkeypatch.setattr(store, "list_project_files", lambda pid, uid, **k: [{"storage_path": "path/1.txt"}])
+
+    def mock_delete_storage_paths(paths):
+        raise RuntimeError("Supabase storage connection failed")
+
+    monkeypatch.setattr(store, "delete_storage_paths", mock_delete_storage_paths)
+
+    result = store.delete_project(proj_id, user_id)
+    assert result is True
+    assert len(deleted_rows) == 1
+    assert deleted_rows[0]["id"] == proj_id
+    assert deleted_rows[0]["user_id"] == user_id
+
+
+def test_concurrent_upload_budget_rollback(client, monkeypatch):
+    """When a concurrent upload exceeds budget post-insert, it rolls back the inserted file."""
+    user_id = "user_concurrency"
+    token = _make_jwt(user_id=user_id)
+    proj = {"id": "proj_concurrent", "user_id": user_id, "name": "Race Project"}
+
+    stored_files = []
+    rolled_back = []
+
+    monkeypatch.setattr(store, "get_project", lambda pid, uid: proj if pid == "proj_concurrent" and uid == user_id else None)
+
+    # Pre-insert check: report project has 90,000 tokens (under 100k budget)
+    # Post-insert check: simulate concurrent upload by returning 110,000 tokens (over budget)
+    token_checks = [90000, 110000]
+
+    def mock_token_usage(pid, uid):
+        if token_checks:
+            return token_checks.pop(0)
+        return 110000
+
+    monkeypatch.setattr(store, "get_project_token_usage", mock_token_usage)
+
+    def mock_add(project_id, user_id, **kwargs):
+        rec = {"id": "f_race_1", "project_id": project_id, "user_id": user_id, **kwargs}
+        stored_files.append(rec)
+        return rec
+
+    def mock_delete_file(pid, fid, uid):
+        rolled_back.append((pid, fid, uid))
+        return True
+
+    class MockStorage:
+        def upload(self, *a, **k):
+            return True
+
+    class MockBucket:
+        def from_(self, b):
+            return MockStorage()
+
+    class MockClient:
+        storage = MockBucket()
+
+    monkeypatch.setattr(store, "supabase", lambda: MockClient())
+    monkeypatch.setattr(store, "attachments_bucket", lambda: "test-bucket")
+    monkeypatch.setattr(store, "delete_storage_paths", lambda paths: None)
+    monkeypatch.setattr(store, "add_project_file", mock_add)
+    monkeypatch.setattr(store, "delete_project_file", mock_delete_file)
+
+    headers = {"Authorization": f"Bearer {token}"}
+    data = {
+        "file": (io.BytesIO(b"Some text within budget initially." * 100), "file.txt")
+    }
+    resp = client.post(
+        "/projects/proj_concurrent/files",
+        headers=headers,
+        data=data,
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    assert "exceeds knowledge budget" in resp.get_json()["detail"]
+    assert len(rolled_back) == 1
+    assert rolled_back[0] == ("proj_concurrent", "f_race_1", user_id)
+
+
+def test_rank_chunks_restores_document_order():
+    """Verify that chunks scored by relevance are restored to natural document sequence."""
+    from app.project_service import _rank_chunks
+    chunks = [
+        {"_order": 0, "filename": "doc.txt", "chunk_idx": 1, "total_chunks": 3, "text": "Chapter 1: Intro"},
+        {"_order": 1, "filename": "doc.txt", "chunk_idx": 2, "total_chunks": 3, "text": "Chapter 2: Query Term Keyword"},
+        {"_order": 2, "filename": "doc.txt", "chunk_idx": 3, "total_chunks": 3, "text": "Chapter 3: Query Term Keyword Keyword"},
+    ]
+    ranked = _rank_chunks(chunks, query="Keyword", top_k=3)
+    assert len(ranked) == 3
+    assert [c["_order"] for c in ranked] == [0, 1, 2]
 
