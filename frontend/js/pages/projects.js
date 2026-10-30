@@ -239,86 +239,93 @@ async function renderProjectWorkspace(host, auth, projectId) {
   }
   loadingSpinner.remove();
 
-  // Top header: Breadcrumbs + Actions
+  // Top header: breadcrumbs, title + icon actions, description, primary CTA
   const breadcrumbs = el("div", { class: "workspace-breadcrumbs" }, [
     el("a", { href: "#/app/projects", class: "crumb-link", text: "Projects" }),
     el("span", { class: "crumb-sep", text: "/" }),
     el("span", { class: "crumb-current", text: project.name }),
   ]);
 
+  const titleEl = el("h1", { class: "workspace-title", text: project.name });
+
+  const editBtn = el(
+    "button",
+    {
+      type: "button",
+      class: "icon-btn",
+      title: "Edit project name or description",
+      "aria-label": "Edit project",
+      onclick: () =>
+        openProjectModal({
+          auth,
+          project,
+          onUpdated: (up) => {
+            project.name = up.name;
+            project.description = up.description;
+            titleEl.textContent = up.name;
+            const cur = breadcrumbs.querySelector(".crumb-current");
+            if (cur) cur.textContent = up.name;
+            const descNode = page.querySelector(".workspace-summary-desc");
+            if (descNode) descNode.textContent = up.description || "No description provided.";
+          },
+        }),
+    },
+    [el("span", { class: "btn-ic", html: icon("pencil", { width: 16, height: 16 }) })]
+  );
+
+  const deleteBtn = el(
+    "button",
+    {
+      type: "button",
+      class: "icon-btn danger",
+      title: "Delete project",
+      "aria-label": "Delete project",
+      onclick: () => {
+        openConfirmModal({
+          title: "Delete project",
+          message: `Are you sure you want to delete "${project.name}"? Knowledge files will be permanently removed. Project chats will be kept as regular chats.`,
+          confirmText: "Delete project",
+          cancelText: "Cancel",
+          danger: true,
+          onConfirm: async () => {
+            try {
+              await api.deleteProject(auth.token, project.id);
+              toast("Project deleted", { tone: "warning" });
+              navigate("#/app/projects");
+            } catch (delErr) {
+              toast(delErr.message || "Could not delete project", { tone: "error" });
+            }
+          },
+        });
+      },
+    },
+    [el("span", { class: "btn-ic", html: icon("trash", { width: 16, height: 16 }) })]
+  );
+
   const workspaceHead = el("header", { class: "workspace-head" }, [
     breadcrumbs,
-    el("div", { class: "workspace-actions" }, [
-      el(
-        "button",
-        {
-          type: "button",
-          class: "btn primary new-chat-btn",
-          onclick: () => navigate(`#/app/chat?project_id=${project.id}`),
-        },
-        [
-          el("span", { class: "btn-ic", html: icon("plus", { width: 16, height: 16 }) }),
-          el("span", { text: "New chat in project" }),
-        ]
-      ),
-      el(
-        "button",
-        {
-          type: "button",
-          class: "btn secondary edit-proj-btn",
-          title: "Edit project name or description",
-          onclick: () =>
-            openProjectModal({
-              auth,
-              project,
-              onUpdated: (up) => {
-                project.name = up.name;
-                project.description = up.description;
-                const cur = breadcrumbs.querySelector(".crumb-current");
-                if (cur) cur.textContent = up.name;
-                const descNode = page.querySelector(".workspace-summary-desc");
-                if (descNode) descNode.textContent = up.description || "No description provided.";
-              },
-            }),
-        },
-        [el("span", { class: "btn-ic", html: icon("pencil", { width: 14, height: 14 }) }), el("span", { text: "Edit" })]
-      ),
-      el(
-        "button",
-        {
-          type: "button",
-          class: "btn danger delete-proj-btn",
-          title: "Delete project",
-          onclick: () => {
-            openConfirmModal({
-              title: "Delete project",
-              message: `Are you sure you want to delete "${project.name}"? Knowledge files will be permanently removed. Project chats will be kept as regular chats.`,
-              confirmText: "Delete project",
-              cancelText: "Cancel",
-              danger: true,
-              onConfirm: async () => {
-                try {
-                  await api.deleteProject(auth.token, project.id);
-                  toast("Project deleted", { tone: "warning" });
-                  navigate("#/app/projects");
-                } catch (delErr) {
-                  toast(delErr.message || "Could not delete project", { tone: "error" });
-                }
-              },
-            });
-          },
-        },
-        [el("span", { class: "btn-ic", html: icon("trash", { width: 14, height: 14 }) })]
-      ),
+    el("div", { class: "workspace-title-row" }, [
+      titleEl,
+      el("div", { class: "workspace-icon-actions" }, [editBtn, deleteBtn]),
     ]),
+    el("p", {
+      class: "workspace-summary-desc",
+      text: project.description || "No description provided.",
+    }),
+    el(
+      "button",
+      {
+        type: "button",
+        class: "btn primary workspace-cta",
+        onclick: () => navigate(`#/app/chat?project_id=${project.id}`),
+      },
+      [
+        el("span", { class: "btn-ic", html: icon("plus", { width: 16, height: 16 }) }),
+        el("span", { text: "New chat in project" }),
+      ]
+    ),
   ]);
   page.append(workspaceHead);
-
-  if (project.description) {
-    page.append(
-      el("p", { class: "workspace-summary-desc", text: project.description })
-    );
-  }
 
   // Two-column layout
   const layout = el("div", { class: "workspace-layout" });

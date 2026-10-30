@@ -6182,29 +6182,85 @@ body:has(.chat-page.is-empty) .tools-menu,
 .workspace-head {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.workspace-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workspace-title {
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 0;
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.workspace-icon-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.icon-btn:hover {
+  background: var(--surface-card);
+  color: var(--ink);
+}
+
+.icon-btn.danger:hover {
+  background: rgba(198, 69, 69, 0.08);
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.icon-btn .btn-ic {
+  display: inline-flex;
+}
+
+.workspace-cta {
+  width: 100%;
+  height: 48px;
+  font-size: 15px;
 }
 
 @media (min-width: 768px) {
-  .workspace-head {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
+  .workspace-cta {
+    width: auto;
+    align-self: flex-start;
+    padding: 0 28px;
   }
-}
-
-.workspace-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .workspace-summary-desc {
   font-size: 14.5px;
   color: var(--muted);
-  margin: 0 0 24px;
+  margin: 0;
   line-height: 1.5;
   max-width: 800px;
 }
