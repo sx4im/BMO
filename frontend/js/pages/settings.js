@@ -136,9 +136,6 @@ export async function renderSettings() {
     el("div", { class: "who" }, [
       nameValue,
       el("div", { class: "email", text: auth?.user?.email || "Sign in to save your conversations." }),
-      auth
-        ? el("div", { class: "provider", text: `Signed in with ${auth.user?.provider === "google" ? "Google" : (auth.user?.provider || "OAuth")}` })
-        : null,
     ]),
   ]);
 
