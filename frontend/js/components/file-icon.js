@@ -1,23 +1,40 @@
 // FileIcon - one component for every file-type icon in the app.
 // (FileIcon(ext, size) in this codebase's string-icon idiom.)
 //
-// Design: solid filled page in the per-type accent color with a folded
-// corner, a one-color glyph and the extension label - identical in light
-// and dark mode.
+// Design: the file-type reference - a solid page in the per-type accent
+// color with a lighter folded corner, a one-color white glyph in the middle
+// and the extension label in white at the bottom. Identical in light and
+// dark mode.
 //
-// The seven icons below are from file-icon-vectors
+// Glyph artwork adapted from file-icon-vectors
 // (https://github.com/dmhendricks/file-icon-vectors) by Daniel Hendricks,
-// MIT license. They are inlined here (class attributes converted to fill
-// attributes) so no extra asset files ship with the app.
+// MIT license - recolored white and repositioned; page colors and layout
+// follow the file-type reference image.
 
-const VIVID = {
-  pdf: `<path fill="#c11e07" d="M0 2v92c0 1.1.9 2 2 2h68c1.1 0 2-.9 2-2V28H50c-1.1 0-2-.9-2-2V0H2C.9 0 0 .9 0 2z"/><path fill="#c11e07" d="M71.9 24c-.1-.4-.2-.7-.4-1L52 1.2V24h19.9z"/><path d="M6 41h60v49H6zm.6-34.6h4.5c2.6 0 4.4 2 4.4 4.9 0 2.9-1.7 5-4.4 5H9.9v4.4H6.6V6.4zm3.9 7c1 0 1.6-.9 1.6-2.1s-.7-2-1.6-2h-.6v4.1h.6zm7.9-7h4.2c3.7 0 5.9 2.6 5.9 7.1s-2.2 7.2-5.9 7.2h-4.2V6.4zm4.1 11.4c1.7 0 2.6-1.5 2.6-4.3s-1-4.2-2.6-4.2h-.8v8.5h.8zm9.1-11.4h7.1v2.9h-3.8v3.1H38v2.9h-3.1v5.4h-3.3V6.4z" fill="#fff"/><path d="M33.5 46.538c-2.3 0-4.1 1.9-4.1 4.1 0 2.8 1.6 6.3 3.2 9.6-1.3 4-2.7 8.3-4.6 11.9-3.8 1.5-7.2 2.6-9.2 4.3l-.1.1c-.7.8-1.2 1.8-1.2 2.9 0 2.3 1.9 4.1 4.1 4.1 1.1 0 2.2-.4 2.9-1.2 0 0 .1 0 .1-.1 1.5-1.8 3.3-5.1 4.9-8 3.6-1.4 7.5-2.9 11.1-3.8 2.7 2.2 6.6 3.6 9.8 3.6 2.3 0 4.1-1.9 4.1-4.1 0-2.3-1.9-4.1-4.1-4.1-2.6 0-6.3.9-9.1 1.9-2.3-2.2-4.4-4.9-6-7.8 1.1-3.4 2.4-6.7 2.4-9.3-.1-2.3-1.9-4.1-4.2-4.1zm0 2.4c.9 0 1.6.7 1.6 1.6 0 1.2-.7 3.5-1.4 5.9-1-2.4-1.9-4.7-1.9-5.9.1-.8.8-1.6 1.7-1.6zm.7 14.1c1.2 2 2.7 3.8 4.3 5.4-2.4.7-4.8 1.5-7.2 2.4 1.2-2.5 2.1-5.2 2.9-7.8zm16.2 5.3c.9 0 1.6.7 1.6 1.6 0 .9-.7 1.6-1.6 1.6-1.9 0-4.5-.8-6.6-2 2.4-.6 5.1-1.2 6.6-1.2zm-24.5 7.3c-1.2 2.1-2.3 4-3.1 5-.3.3-.6.4-1.1.4-.9 0-1.6-.7-1.6-1.6 0-.4.2-.9.4-1.1.9-.8 3-1.7 5.4-2.7z" fill="#c11e07" stroke="#c11e07" stroke-width=".75" stroke-miterlimit="10"/>`,
-  pptx: `<path fill="#f57e00" d="M0 2v92c0 1.1.9 2 2 2h68c1.1 0 2-.9 2-2V28H50c-1.1 0-2-.9-2-2V0H2C.9 0 0 .9 0 2z"/><path fill="#f57e00" d="M71.9 24c-.1-.4-.2-.7-.4-1L52 1.2V24h19.9z"/><path d="M6 41h60v49H6zm.5-34.6h4.1c2.4 0 3.9 2 3.9 4.9 0 2.9-1.6 5-3.9 5H9.5v4.4h-3V6.4zm3.5 7c.9 0 1.5-.9 1.5-2.1s-.6-2-1.4-2h-.6v4.1h.5zm5.7-7h4.1c2.4 0 3.9 2 3.9 4.9 0 2.9-1.6 5-3.9 5h-1.1v4.4h-3V6.4zm3.5 7c.9 0 1.5-.9 1.5-2.1s-.6-2-1.4-2h-.6v4.1h.5zM27 9.3h-2.8V6.4h8.6v2.9H30v11.4h-3V9.3zm9 4.3l-3.1-7.2h3.3l1 2.9c.3.9.5 1.8.5 1.8s.2-.9.5-1.8l1-2.9h3.2l-3.1 7.2 3 7.1h-3.2l-1-3c-.1-.9-.3-1.7-.3-1.7s-.2.8-.5 1.7l-1 3H33l3-7.1z" fill="#fff"/><path fill="#f57e00" d="M53 47.7H19c-1.7 0-3.1 1.4-3.1 3.1v21.8c0 1.7 1.4 3.1 3.1 3.1h14.2L31.8 81h-1.6c-.7 0-1.2.5-1.2 1.2s.5 1.2 1.2 1.2h11.5c.7 0 1.2-.5 1.2-1.2s-.5-1.2-1.2-1.2H40l-1.4-5.4H53c1.7 0 3.1-1.4 3.1-3.1V50.8c0-1.7-1.4-3.1-3.1-3.1zm.3 25.1H18.7V50.6h34.5l.1 22.2z"/><path fill="#f57e00" d="M27.6 63.9h2.8v5.6h-2.8zm4.7-1.8h2.8v7.4h-2.8zm4.6-1.9h2.8v9.3h-2.8zm4.6-1.8h2.8v11.1h-2.8zm-.2-4.1L36.4 57l-3.6-1.2-6.1 3.3.9 1 5.4-2.8 3.6 1.2 5.6-3.1.9 1 2.1-3.5-4.8.3z"/>`,
-  csv: `<path fill="#1f7244" d="M0 2v92c0 1.1.9 2 2 2h68c1.1 0 2-.9 2-2V28H50c-1.1 0-2-.9-2-2V0H2C.9 0 0 .9 0 2z"/><path fill="#1f7244" d="M71.9 24c-.1-.4-.2-.7-.4-1L52 1.2V24h19.9z"/><path d="M6 41h60v49H6zm6.5-34.9c1.3 0 2.6.4 3.6 1.2l-1.4 2.8c-.4-.5-1.3-.9-2.1-.9-2.1 0-3.2 1.9-3.2 4.2 0 2.3 1.2 4.4 3.2 4.4 1 0 1.7-.5 2.3-1l1.4 2.8c-.9.7-2 1.3-3.9 1.3-4 0-6.3-3.1-6.3-7.4-.1-4.2 2.3-7.4 6.4-7.4zm7.2 10.6c.6.6 1.4 1.2 2.3 1.2.9 0 1.3-.6 1.3-1.2 0-2-4.8-2.1-4.8-6.2 0-2.4 1.7-4.3 4.5-4.3 1.2 0 2.4.3 3.4 1l-1.2 2.9c-.5-.4-1.4-.9-2.2-.9-.9 0-1.3.6-1.3 1.2 0 2.1 4.8 2 4.8 6.1 0 2.3-1.5 4.4-4.4 4.4-1.4 0-2.9-.5-4-1.4l1.6-2.8zm8.7-10.3H32l1.6 8.1c.2.9.3 2.3.3 2.3h.1s.2-1.4.3-2.3L36 6.4h3.5l-3.9 14.3h-3.3L28.4 6.4z" fill="#fff"/><path d="M14 54h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58m-44 5.9h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58m-44 5.9h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58m-44 5.9h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58m-44 5.9h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58" fill="none" stroke="#1f7244" stroke-width="3" stroke-miterlimit="10"/>`,
-  md: `<path fill="#999" d="M0 2v92c0 1.1.9 2 2 2h68c1.1 0 2-.9 2-2V28H50c-1.1 0-2-.9-2-2V0H2C.9 0 0 .9 0 2z"/><path fill="#999" d="M71.9 24c-.1-.4-.2-.7-.4-1L52 1.2V24h19.9z"/><path d="M6 41h60v49H6zM7.1 6.4h3.6l1.3 6c.2.9.4 2.4.4 2.4h.1s.2-1.5.4-2.4l1.3-6H18l.9 14.3h-3l-.4-6.4c-.1-1.1 0-2.4 0-2.4h-.1s-.2 1.5-.4 2.4l-.9 4.1H11l-.9-4.1c-.2-.9-.4-2.4-.4-2.4h-.1s.1 1.3 0 2.4l-.4 6.4h-3l.9-14.3zm14.6 0h4.2c3.7 0 5.9 2.6 5.9 7.1s-2.2 7.2-5.9 7.2h-4.2V6.4zm4.1 11.4c1.7 0 2.6-1.5 2.6-4.3s-1-4.2-2.6-4.2H25v8.5h.8z" fill="#fff"/><path fill="#999" d="M13.5 76.4V54.6h6.4l6.4 8 6.4-8h6.4v21.8h-6.4V63.9l-6.4 8-6.4-8v12.5h-6.4zm38.4 0l-9.6-10.6h6.4V54.6h6.4v11.2h6.4l-9.6 10.6z"/>`,
-  txt: `<path fill="#666" d="M0 2v92c0 1.1.9 2 2 2h68c1.1 0 2-.9 2-2V28H50c-1.1 0-2-.9-2-2V0H2C.9 0 0 .9 0 2z"/><path fill="#666" d="M71.9 24c-.1-.4-.2-.7-.4-1L52 1.2V24h19.9z"/><path d="M6 41h60v49H6zM8.9 9.3H5.7V6.4h9.6v2.9h-3.2v11.4H8.9V9.3zm11.5 4.3L17 6.4h3.6l1.1 2.9.6 1.8s.2-.9.6-1.8l1.2-2.9h3.6l-3.4 7.2 3.3 7.1H24l-1.1-3c-.4-.9-.6-1.7-.6-1.7s-.2.8-.6 1.7l-1.1 3h-3.5l3.3-7.1zm12.1-4.3h-3.1V6.4H39v2.9h-3.2v11.4h-3.3V9.3z" fill="#fff"/><path fill="#666" d="M14.6 77.2h42.8v6.2H14.6zm0-14.8h42.8v6.2H14.6zm0-15h42.8v6.2H14.6z"/>`,
-  json: `<path fill="#999" d="M0 2v92c0 1.1.9 2 2 2h68c1.1 0 2-.9 2-2V28H50c-1.1 0-2-.9-2-2V0H2C.9 0 0 .9 0 2z"/><path fill="#999" d="M71.9 24c-.1-.4-.2-.7-.4-1L52 1.2V24h19.9z"/><path fill="#fff" d="M6 41h60v49H6V41z"/><path fill="#999" d="M16.4 67.5v-4.1c.9-.1 1.6-.2 2-.4.4-.2.8-.6 1.2-1 .4-.5.5-1.1.7-1.9.1-.6.2-1.5.2-2.8 0-2.2.1-3.7.4-4.6.2-.8.6-1.6 1.2-2 .5-.5 1.4-.9 2.5-1.2.7-.2 1.9-.4 3.5-.4h.9V53c-1.3 0-2.2.1-2.6.3s-.6.4-.9.6c-.2.3-.3.7-.3 1.5s-.1 2-.2 4.1c-.1 1.2-.2 2-.4 2.8-.3.6-.6 1.2-1 1.8-.4.4-1 .9-1.8 1.4.7.4 1.3.8 1.8 1.3s.8 1.2 1.1 1.9c.3.7.4 1.8.4 3 .1 1.9.1 3.1.1 3.6 0 .7.1 1.2.3 1.6.2.4.5.5.9.6.4.2 1.2.3 2.6.3v4.1h-1c-1.6 0-2.9-.1-3.7-.4-.9-.3-1.6-.6-2.2-1.2-.6-.6-1-1.2-1.2-2-.2-.8-.3-2.1-.3-4 0-2-.1-3.5-.3-4.1-.3-.9-.7-1.6-1.2-2-.7-.5-1.5-.7-2.7-.7zm39.1 0c-.9.1-1.6.2-2 .4-.4.2-.8.6-1.2 1-.4.5-.5 1.1-.7 1.9-.1.6-.2 1.5-.2 2.8 0 2.2-.1 3.7-.4 4.6-.2.9-.6 1.6-1.2 2-.5.5-1.4.9-2.5 1.2-.7.2-1.9.4-3.5.4h-1v-4.1c1.3 0 2.1-.1 2.6-.3s.7-.4.9-.6c.2-.3.3-.7.3-1.5 0-.6.1-2 .2-4 .1-1.2.3-2.1.5-2.8.3-.7.6-1.3 1.1-1.9.4-.5 1-.9 1.7-1.3-.9-.6-1.6-1.1-2-1.6-.5-.7-1-1.8-1.2-2.8-.2-.8-.3-2.6-.3-5.2 0-.8-.1-1.4-.3-1.8-.2-.3-.4-.5-.8-.6-.2-.3-1-.3-2.5-.3v-4h1c1.6 0 2.9.1 3.7.4.9.3 1.6.6 2.2 1.2s1 1.2 1.2 2c.2.8.4 2.1.4 4 0 2 .1 3.4.3 4.1.3.9.7 1.6 1.2 1.9.5.4 1.4.6 2.5.6.1.1 0 4.3 0 4.3z"/><path fill="#fff" d="M5.8 15.7H8v.9c0 1.9.6 2.1 1.1 2.1.6 0 1.1-.4 1.1-2.1V8.7H7.8V6.5h4.6v10c0 3.2-1.6 4.4-3.3 4.4s-3.3-1.2-3.3-4.4v-.8zm9 1.8c.6.7 1.4 1.2 2.2 1.2 1 0 1.6-.7 1.6-1.8 0-2.6-4.5-2.5-4.5-6.6 0-2.3 1.4-4 3.8-4 1 0 2 .3 2.8.9L20 9.4c-.5-.4-1.3-.8-2-.8-1.1 0-1.6.8-1.6 1.7 0 2.6 4.5 2.4 4.5 6.5 0 2.2-1.3 4.1-3.7 4.1-1.2 0-2.4-.5-3.3-1.4l.9-2zM27.1 6.2c3.2 0 5.1 3 5.1 7.3s-2 7.4-5.1 7.4c-3.2 0-5.1-3.1-5.1-7.4 0-4.2 2-7.3 5.1-7.3zm0 12.4c1.8 0 2.9-2 2.9-5.1 0-3-1.1-4.9-2.9-4.9s-2.9 1.9-2.9 4.9c0 3.1 1.1 5.1 2.9 5.1zM34 6.5h2.3l3.3 8c.3.9.6 2.2.6 2.2h.1s-.1-1.3-.1-2.2v-8h2.1v14.2H40l-3.3-8.1c-.3-.9-.6-2.2-.6-2.2H36s.1 1.3.1 2.2v8H34V6.5z"/><path fill="#999" d="M44.1 67.1c-.7-.3-1.2-.9-1.2-1.6s.5-1.4 1.2-1.6c.3-.1.4-.3.3-.5-.3-.8-.5-1.6-1-2.2-.1-.3-.4-.3-.6-.2s-.5.3-.8.3c-1 0-1.7-.8-1.7-1.7 0-.3.1-.6.3-.8.1-.3 0-.4-.2-.6-.7-.4-1.5-.7-2.2-1-.3-.1-.4.1-.5.3-.3.7-.9 1.2-1.6 1.2s-1.4-.5-1.6-1.2c-.1-.3-.3-.4-.5-.3-.8.3-1.6.5-2.2 1-.3.1-.3.4-.2.6.2.3.3.5.3.8 0 1-.8 1.7-1.7 1.7-.3 0-.6-.1-.8-.3-.3-.1-.4 0-.6.2-.4.7-.7 1.5-1 2.2-.1.3.1.4.3.5.7.3 1.2.9 1.2 1.6s-.5 1.4-1.2 1.6c-.3.1-.4.3-.3.5.3.8.5 1.6 1 2.2.1.3.4.3.6.2.3-.2.5-.3.8-.3 1 0 1.7.8 1.7 1.7 0 .3-.1.6-.3.8-.1.3 0 .4.2.6.7.4 1.5.7 2.2 1 .2 0 .4-.1.4-.3.3-.7.9-1.2 1.6-1.2s1.4.5 1.6 1.2c.1.3.3.4.5.3.8-.3 1.6-.5 2.2-1 .3-.1.3-.4.2-.6-.1-.3-.3-.5-.3-.8 0-1 .8-1.7 1.7-1.7.3 0 .6.1.8.3.3.1.4 0 .6-.2.4-.7.7-1.5 1-2.2.2-.1.1-.4-.2-.5zm-8.3 1c-1.5 0-2.7-1.2-2.7-2.7 0-1.5 1.2-2.7 2.7-2.7s2.7 1.2 2.7 2.7c.1 1.5-1.2 2.7-2.7 2.7z"/>`,
-  docx: `<path fill="#1a75ce" d="M0 2v92c0 1.1.9 2 2 2h68c1.1 0 2-.9 2-2V28H50c-1.1 0-2-.9-2-2V0H2C.9 0 0 .9 0 2z"/><path fill="#1a75ce" d="M71.9 24c-.1-.4-.2-.7-.4-1L52 1.2V24h19.9z"/><path d="M6 41h60v49H6zm.4-34.6h3.3c2.9 0 4.7 2.6 4.7 7.1s-1.8 7.2-4.7 7.2H6.4V6.4zm3.3 11.4c1.3 0 2.1-1.5 2.1-4.3S11 9.3 9.7 9.3H9v8.5h.7zM20 6.1c3 0 4.7 3.1 4.7 7.3 0 4.2-1.7 7.5-4.7 7.5s-4.7-3.2-4.7-7.5c0-4.1 1.7-7.3 4.7-7.3zm0 11.7c1.4 0 2-1.8 2-4.3s-.6-4.2-2-4.2-2 1.7-2 4.2.6 4.3 2 4.3zM30.7 6.1c1 0 2.1.4 2.9 1.2l-1.1 2.8c-.3-.5-1-.9-1.7-.9-1.7 0-2.6 1.9-2.6 4.2 0 2.3.9 4.4 2.5 4.4.8 0 1.3-.5 1.8-1l1.1 2.8c-.7.7-1.6 1.3-3.2 1.3-3.2 0-5-3.1-5-7.4.1-4.2 2-7.4 5.3-7.4zm5.9 7.5l-2.8-7.2h2.9l.9 2.9c.3.9.4 1.8.4 1.8s.2-.9.5-1.8l.9-2.9h2.9l-2.8 7.2 2.7 7.1h-2.8l-.9-3c-.3-.9-.5-1.7-.5-1.7s-.2.8-.4 1.7l-.9 3h-2.8l2.7-7.1z" fill="#fff"/><path fill="#1a75ce" d="M19.5 67.1l-4.8-14.8c-.2-.6-.3-.8-.4-.8-.1-.1-.2-.1-.3-.2l-1.7-.5-.1-2.1h9l.2 2.1-1.7.5v.2c0 .2.1.6.3 1l1.8 5.7 3.2-9.5 2.4-.1 2.9 9.5 2-5.7c.1-.4.3-.8.3-1v-.1l-1.5-.4-.1-2.2h7l.2 2.1-1.9.6c-.1 0-.2.1-.3.1 0 .1-.2.2-.3.7l-5.3 14.7-2.5.2-2.7-9.1-3.2 8.9-2.5.2z"/><path d="M42.4 48.6H60v2.8H42.4zm0 7.4H60v2.8H42.4zm0 7.7H60v2.8H42.4zM13 71.5h47v2.8H13zm0 7.6h47v2.8H13z" fill="#1a75ce" stroke="#1a75ce" stroke-width=".5" stroke-miterlimit="10"/>`,
+const GLYPH_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+// Exact page colors sampled from the file-type reference image.
+const COLORS = {
+  pdf: "#f42a2a",
+  pptx: "#ff600c",
+  csv: "#0aa563",
+  md: "#2861ee",
+  txt: "#6d6f7b",
+  json: "#e79203",
+  docx: "#2563eb",
+};
+
+// White glyphs, drawn in the middle of the page (24x24 canvas).
+// Vector glyphs come from the vivid file-icon-vectors set; the json
+// braces are drawn as text to match the reference ("{ }" with no gear).
+const GLYPHS = {
+  pdf: `<g transform="translate(4.08,-4.91) scale(0.22)"><path d="M33.5 46.538c-2.3 0-4.1 1.9-4.1 4.1 0 2.8 1.6 6.3 3.2 9.6-1.3 4-2.7 8.3-4.6 11.9-3.8 1.5-7.2 2.6-9.2 4.3l-.1.1c-.7.8-1.2 1.8-1.2 2.9 0 2.3 1.9 4.1 4.1 4.1 1.1 0 2.2-.4 2.9-1.2 0 0 .1 0 .1-.1 1.5-1.8 3.3-5.1 4.9-8 3.6-1.4 7.5-2.9 11.1-3.8 2.7 2.2 6.6 3.6 9.8 3.6 2.3 0 4.1-1.9 4.1-4.1 0-2.3-1.9-4.1-4.1-4.1-2.6 0-6.3.9-9.1 1.9-2.3-2.2-4.4-4.9-6-7.8 1.1-3.4 2.4-6.7 2.4-9.3-.1-2.3-1.9-4.1-4.2-4.1zm0 2.4c.9 0 1.6.7 1.6 1.6 0 1.2-.7 3.5-1.4 5.9-1-2.4-1.9-4.7-1.9-5.9.1-.8.8-1.6 1.7-1.6zm.7 14.1c1.2 2 2.7 3.8 4.3 5.4-2.4.7-4.8 1.5-7.2 2.4 1.2-2.5 2.1-5.2 2.9-7.8zm16.2 5.3c.9 0 1.6.7 1.6 1.6 0 .9-.7 1.6-1.6 1.6-1.9 0-4.5-.8-6.6-2 2.4-.6 5.1-1.2 6.6-1.2zm-24.5 7.3c-1.2 2.1-2.3 4-3.1 5-.3.3-.6.4-1.1.4-.9 0-1.6-.7-1.6-1.6 0-.4.2-.9.4-1.1.9-.8 3-1.7 5.4-2.7z" fill="#ffffff" stroke="#ffffff" stroke-width=".75" stroke-miterlimit="10"/></g>`,
+  pptx: `<g transform="translate(4.08,-4.91) scale(0.22)"><path fill="#ffffff" d="M53 47.7H19c-1.7 0-3.1 1.4-3.1 3.1v21.8c0 1.7 1.4 3.1 3.1 3.1h14.2L31.8 81h-1.6c-.7 0-1.2.5-1.2 1.2s.5 1.2 1.2 1.2h11.5c.7 0 1.2-.5 1.2-1.2s-.5-1.2-1.2-1.2H40l-1.4-5.4H53c1.7 0 3.1-1.4 3.1-3.1V50.8c0-1.7-1.4-3.1-3.1-3.1zm.3 25.1H18.7V50.6h34.5l.1 22.2z"/><path fill="#ffffff" d="M27.6 63.9h2.8v5.6h-2.8zm4.7-1.8h2.8v7.4h-2.8zm4.6-1.9h2.8v9.3h-2.8zm4.6-1.8h2.8v11.1h-2.8zm-.2-4.1L36.4 57l-3.6-1.2-6.1 3.3.9 1 5.4-2.8 3.6 1.2 5.6-3.1.9 1 2.1-3.5-4.8.3z"/></g>`,
+  csv: `<g transform="translate(4.08,-4.91) scale(0.22)"><path d="M14 54h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58m-44 5.9h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58m-44 5.9h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58m-44 5.9h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58m-44 5.9h8.5m3.3 0h8.5m3.4 0h8.5m3.3 0H58" fill="none" stroke="#ffffff" stroke-width="3" stroke-miterlimit="10"/></g>`,
+  md: `<g transform="translate(4.08,-4.91) scale(0.22)"><path fill="#ffffff" d="M13.5 76.4V54.6h6.4l6.4 8 6.4-8h6.4v21.8h-6.4V63.9l-6.4 8-6.4-8v12.5h-6.4zm38.4 0l-9.6-10.6h6.4V54.6h6.4v11.2h6.4l-9.6 10.6z"/></g>`,
+  txt: `<g transform="translate(4.08,-4.91) scale(0.22)"><path fill="#ffffff" d="M14.6 77.2h42.8v6.2H14.6zm0-14.8h42.8v6.2H14.6zm0-15h42.8v6.2H14.6z"/></g>`,
+  docx: `<g transform="translate(4.08,-4.91) scale(0.22)"><path fill="#ffffff" d="M19.5 67.1l-4.8-14.8c-.2-.6-.3-.8-.4-.8-.1-.1-.2-.1-.3-.2l-1.7-.5-.1-2.1h9l.2 2.1-1.7.5v.2c0 .2.1.6.3 1l1.8 5.7 3.2-9.5 2.4-.1 2.9 9.5 2-5.7c.1-.4.3-.8.3-1v-.1l-1.5-.4-.1-2.2h7l.2 2.1-1.9.6c-.1 0-.2.1-.3.1 0 .1-.2.2-.3.7l-5.3 14.7-2.5.2-2.7-9.1-3.2 8.9-2.5.2z"/><path d="M42.4 48.6H60v2.8H42.4zm0 7.4H60v2.8H42.4zm0 7.7H60v2.8H42.4zM13 71.5h47v2.8H13zm0 7.6h47v2.8H13z" fill="#ffffff" stroke="#ffffff" stroke-width=".5" stroke-miterlimit="10"/></g>`,
+  json: `<text x="12" y="13.4" font-family="${GLYPH_FONT}" font-size="8.4" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="1.6">{ }</text>`,
 };
 
 // Extension aliases resolved to a known icon.
@@ -32,17 +49,10 @@ const ALIASES = {
 };
 
 const FALLBACK_GRAY = "#9aa0a6";
-const GLYPH_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
-// Neutral gray fallback for extensions the app does not know: the same
-// vivid page geometry in gray with the raw extension drawn in the panel.
-function fallbackIcon(label) {
-  return `<path d="M0 2v92c0 1.1.9 2 2 2h68c1.1 0 2-.9 2-2V28H50c-1.1 0-2-.9-2-2V0H2C.9 0 0 .9 0 2z" fill="#9aa0a6"/>`
-    + `<path d="M71.9 24c-.1-.4-.2-.7-.4-1L52 1.2V24h19.9z" fill="#ffffff" opacity="0.35"/>`
-    + `<path d="M6 41h60v49H6z" fill="#ffffff"/>`
-    + `<text x="36" y="74" font-family="${GLYPH_FONT}" font-size="22"`
-    + ` font-weight="800" fill="#9aa0a6" text-anchor="middle"`
-    + ` letter-spacing="1">${label}</text>`;
+function page(color) {
+  return `<path d="M9 2.5h5.5l4 4v13a2.5 2.5 0 0 1-2.5 2.5H9a2.5 2.5 0 0 1-2.5-2.5v-15a2.5 2.5 0 0 1 2.5-2.5z" fill="${color}"/>`
+    + `<path d="M14.5 2.5h4v4z" fill="#ffffff" opacity="0.38"/>`;
 }
 
 /**
@@ -50,21 +60,23 @@ function fallbackIcon(label) {
  * ext: file extension, with or without a leading dot ("pdf", ".PDF", "jsonl").
  *      Aliases: ppt->pptx, markdown->md, text->txt, jsonl->json, tsv->csv,
  *      doc/word->docx. Anything else gets the neutral gray fallback with the
- *      raw ext drawn in the panel.
+ *      raw ext as the bottom label.
  * size: rendered width/height in px (default 24).
  */
 export function FileIcon(ext, size = 24) {
   const e = String(ext || "").trim().replace(/^\.+/, "").toLowerCase();
-  const type = VIVID[e] ? e : ALIASES[e];
+  const type = GLYPHS[e] ? e : ALIASES[e];
   const raw = e || "?";
   const label = (type ? type : raw).toUpperCase().slice(0, 5);
-  const inner = type ? VIVID[type] : fallbackIcon(label);
-  // The inlined icons are drawn on a 72x96 canvas; center them in the
-  // square viewport (18x24 at scale 0.25, x-offset 3).
+  const color = type ? COLORS[type] : FALLBACK_GRAY;
+  const glyph = type ? GLYPHS[type] : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"`
     + ` viewBox="0 0 24 24" fill="none" class="file-icon" role="img"`
     + ` aria-label="${label} file">`
-    + `<g transform="translate(3,0) scale(0.25)">${inner}</g></svg>`;
+    + page(color) + glyph
+    + `<text x="12" y="19.6" font-family="${GLYPH_FONT}" font-size="4.3"`
+    + ` font-weight="800" fill="#ffffff" text-anchor="middle"`
+    + ` letter-spacing="0.4">${label}</text></svg>`;
 }
 
 export default FileIcon;
