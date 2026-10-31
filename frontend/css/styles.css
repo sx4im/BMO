@@ -12201,3 +12201,10 @@ em {
     font-size: 12px;
   }
 }
+
+/* File-type icons render 5% larger on desktop viewports. */
+@media (min-width: 768px) {
+  .file-icon {
+    transform: scale(1.05);
+  }
+}
