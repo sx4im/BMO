@@ -9,7 +9,7 @@
 
 import { el, clear, formatTitle } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=73";
-import { FileIcon } from "../components/file-icon.js?v=1";
+import { FileIcon } from "../components/file-icon.js?v=2";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
 import * as api from "../api.js?v=30";
