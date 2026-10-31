@@ -1,5 +1,5 @@
 import { el, clear } from "../utils.js?v=30";
-import { FileIcon } from "./file-icon.js?v=5";
+import { FileIcon } from "./file-icon.js?v=6";
 import { thoughtOrb } from "./orb.js?v=3";
 import { searchCard } from "./search-card.js?v=3";
 import { icon } from "../icons.js?v=30";

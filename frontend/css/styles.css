@@ -6204,6 +6204,7 @@ body:has(.chat-page.is-empty) .tools-menu,
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-width: 0;
 }
 
 .workspace-card {
@@ -6316,43 +6317,38 @@ body:has(.chat-page.is-empty) .tools-menu,
 
 .upload-progress-list {
   list-style: none;
-  margin: 12px 0 0;
+  margin: 12px 0 8px;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.upload-progress-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.upload-progress-list:empty {
+  display: none;
 }
 
-.upload-progress-name {
-  font-size: 13px;
-  color: var(--body);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 40%;
+.upload-progress-percent {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 
-.upload-progress-track {
-  flex: 1;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--surface-active);
-  overflow: hidden;
+.upload-progress-spinner {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--muted);
 }
 
-.upload-progress-fill {
-  height: 100%;
-  width: 0%;
-  border-radius: 999px;
-  background: var(--primary);
-  transition: width 0.15s ease;
+.upload-progress-spinner svg {
+  animation: spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upload-progress-spinner svg {
+    animation: none;
+  }
 }
 
 .budget-hint {

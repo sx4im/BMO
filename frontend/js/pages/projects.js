@@ -9,7 +9,7 @@
 
 import { el, clear, formatTitle } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=73";
-import { FileIcon } from "../components/file-icon.js?v=5";
+import { FileIcon } from "../components/file-icon.js?v=6";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
 import * as api from "../api.js?v=30";
@@ -714,11 +714,24 @@ function renderFilesCard(project, auth) {
       toast(`"${file.name}" is over 10MB limit.`, { tone: "error" });
       return;
     }
-    const barFill = el("div", { class: "upload-progress-fill" });
-    const row = el("li", { class: "upload-progress-row" }, [
-      el("span", { class: "upload-progress-name", text: file.name, title: file.name }),
-      el("div", { class: "upload-progress-track" }, [barFill]),
+    const status = el("span", { class: "file-subtext", text: `${formatBytes(file.size)} · Uploading…` });
+    const percent = el("span", { class: "upload-progress-percent", text: "0%", "aria-hidden": "true" });
+    const row = el("li", {
+      class: "project-file-item upload-progress-row", "aria-busy": "true",
+    }, [
+      el("span", { class: "file-icon", html: FileIcon(file.name.split(".").pop(), 28) }),
+      el("div", { class: "file-meta" }, [
+        el("span", { class: "file-name", text: file.name, title: file.name }),
+        status,
+      ]),
+      percent,
+      el("span", {
+        class: "upload-progress-spinner", role: "progressbar", "aria-label": `Uploading ${file.name}`,
+        "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": "0",
+        html: icon("loader", { width: 18, height: 18 }),
+      }),
     ]);
+    const progress = row.querySelector('[role="progressbar"]');
     uploadProgressEl.append(row);
     try {
       const result = await api.uploadProjectFileWithProgress(
@@ -726,7 +739,17 @@ function renderFilesCard(project, auth) {
         project.id,
         file,
         (p) => {
-          barFill.style.width = `${Math.round(p * 100)}%`;
+          const value = Math.round(Math.max(0, Math.min(1, p)) * 100);
+          percent.textContent = `${value}%`;
+          percent.hidden = p >= 1;
+          status.textContent = `${formatBytes(file.size)} · ${p >= 1 ? "Preparing knowledge…" : "Uploading…"}`;
+          if (p >= 1) {
+            progress.removeAttribute("aria-valuenow");
+            progress.setAttribute("aria-label", `Preparing ${file.name} for project knowledge`);
+          } else {
+            progress.setAttribute("aria-valuenow", String(value));
+            progress.setAttribute("aria-label", `Uploading ${file.name}`);
+          }
         }
       );
       if (result?.file) {

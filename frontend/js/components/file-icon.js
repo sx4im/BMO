@@ -25,8 +25,7 @@ export function FileIcon(ext, size = 24) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${pixels}" height="${pixels}" viewBox="0 0 32 36" fill="none" class="file-icon" role="img" aria-label="${label} file">`
     + `<path d="M6 2h14l8 8v21a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z" fill="${definition.color}"/>`
     + '<path d="M20 2v5a3 3 0 0 0 3 3h5Z" fill="#fff" fill-opacity=".3"/>'
-    + `<g stroke="#fff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">${definition.mark}</g>`
-    + `<text x="15.5" y="28" text-anchor="middle" fill="#fff" font-family="Arial,Helvetica,sans-serif" font-size="${label.length > 4 ? 5.4 : 6.4}" font-weight="700" letter-spacing=".2">${label}</text></svg>`;
+    + `<g transform="translate(0 6)" stroke="#fff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">${definition.mark}</g></svg>`;
 }
 
 export default FileIcon;

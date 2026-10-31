@@ -6,7 +6,7 @@
 
 import { el, clear } from "../utils.js?v=20";
 import { icon } from "../icons.js?v=66";
-import { FileIcon } from "../components/file-icon.js?v=5";
+import { FileIcon } from "../components/file-icon.js?v=6";
 import { toast } from "../components/toast.js?v=58";
 import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";

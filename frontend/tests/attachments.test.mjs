@@ -83,6 +83,7 @@ test("flat icons stay identical in both themes, with safe accessible labels", ()
     dom.window.document.body.innerHTML = light;
     const svg = dom.window.document.querySelector("svg");
     assert.equal(svg.getAttribute("aria-label"), `${ext.toUpperCase()} file`);
+    assert.equal(svg.querySelector("text"), null);
     assert.equal(svg.querySelector("linearGradient, [id]"), null);
     const fill = svg.querySelector("path").getAttribute("fill");
     colors.add(fill);

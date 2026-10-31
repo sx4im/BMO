@@ -182,6 +182,41 @@ test("Projects search shares the description row and still filters the list", as
   assert.equal(host.querySelector(".project-card-title").textContent, "Claude code");
 });
 
+test("knowledge uploads show transfer progress, processing, and settle cleanly", async () => {
+  const requests = [], notifications = [];
+  const app = moduleLoader({
+    "toast.js": { toast: (message) => notifications.push(message) },
+    "confirm-modal.js": { openConfirmModal() {} },
+    "api.js": { uploadProjectFileWithProgress: (_token, _id, file, progress) => new Promise((resolve, reject) => requests.push({ file, progress, resolve, reject })) },
+    "auth.js": { getAuth() {} }, "router.js": { navigate() {} },
+    "app-shell.js": { mountAppShell() {}, loadConversations() {} },
+  }, { append: { "projects.js": "\nexport { renderFilesCard };" } });
+  const page = await app.load("js/pages/projects.js");
+  const card = page.renderFilesCard({ id: "project", files: [] }, { token: "test" });
+  const input = card.querySelector('input[type="file"]');
+  Object.defineProperty(input, "files", { value: [{ name: "reference.pdf", size: 2048 }, { name: "failed.txt", size: 20 }] });
+  input.dispatchEvent(new app.dom.window.Event("change"));
+  assert.equal(requests.length, 2);
+  const row = card.querySelector(".upload-progress-row");
+  assert.equal(row.querySelector("svg text"), null);
+  assert.equal(row.querySelector(".file-name").textContent, "reference.pdf");
+  requests[0].progress(0.42);
+  assert.equal(row.querySelector(".upload-progress-percent").textContent, "42%");
+  assert.equal(row.querySelector('[role="progressbar"]').getAttribute("aria-valuenow"), "42");
+  requests[0].progress(1);
+  assert.match(row.querySelector(".file-subtext").textContent, /Preparing knowledge/);
+  assert.equal(row.querySelector(".upload-progress-percent").hidden, true);
+  assert.equal(row.querySelector('[role="progressbar"]').hasAttribute("aria-valuenow"), false);
+  assert.equal(card.querySelectorAll(".upload-progress-row").length, 2);
+  requests[0].resolve({ file: { id: "file", filename: "reference.pdf", size_bytes: 2048, token_estimate: 40 }, tokens_used: 40 });
+  requests[1].reject(Error("Upload unavailable"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(card.querySelectorAll(".upload-progress-row").length, 0);
+  assert.equal(card.querySelectorAll(".project-file-list .project-file-item").length, 1);
+  assert.match(card.querySelector(".token-meter-text").textContent, /^40 \/ /);
+  assert.ok(notifications.includes("Upload unavailable"));
+});
+
 test("sidebar no longer renders Support", async () => {
   const app = moduleLoader({
     "router.js": { getRoute: () => ({ hash: "#/app/projects" }), navigate() {} },
