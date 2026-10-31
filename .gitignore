@@ -11,6 +11,7 @@ dist/
 build/
 .DS_Store
 graft/
+audits/
 
 # Android signing credentials
 *.keystore

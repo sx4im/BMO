@@ -1,10 +1,9 @@
-import { defineRoute, startRouter, navigate, dispatch } from "./router.js?v=31";
-import { bootstrap, getAuth, onAuthChange } from "./auth.js?v=31";
-import { initThemeSync } from "./prefs.js?v=32";
+import { defineRoute, startRouter, navigate, dispatch } from "./router.js";
+import { bootstrap, getAuth, onAuthChange } from "./auth.js";
+import { initThemeSync } from "./prefs.js";
 import * as api from "./api.js?v=32";
 import { renderLanding } from "./pages/landing.js?v=52";
 import { renderChat } from "./pages/chat.js?v=173";
-import { renderFeedback } from "./pages/feedback.js?v=70";
 import { renderSettings } from "./pages/settings.js?v=73";
 import { renderNotFound } from "./pages/not-found.js?v=54";
 import { renderSharedChat } from "./pages/shared-chat.js?v=2";
@@ -46,7 +45,6 @@ defineRoute("#/app/chat/incognito", requireAuth(() => renderChat({ incognito: tr
 defineRoute("#/app/chat/:id", requireAuth(renderChat));
 defineRoute("#/app/projects", requireAuth(renderProjects));
 defineRoute("#/app/projects/:id", requireAuth(renderProjects));
-defineRoute("#/app/feedback", requireAuth(renderFeedback));
 defineRoute("#/app/settings", renderSettings);
 defineRoute("#/share/:shareId", renderSharedChat);
 defineRoute("*", renderNotFound);

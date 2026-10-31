@@ -159,7 +159,6 @@
    active highlight is --surface-active (#343434).
    ============================================================= */
 :root[data-theme="dark"] .settings-card,
-:root[data-theme="dark"] .feedback-textarea,
 :root[data-theme="dark"] .settings-input,
 :root[data-theme="dark"] .input,
 :root[data-theme="dark"] .chat-search-card {
@@ -2245,50 +2244,7 @@ button:hover .icon-projects .gallery-line-2,
   animation: galleryLine2Anim 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) 0s both;
 }
 
-/* Circle Help (Support) */
-@keyframes circleHelpWiggle {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  20% {
-    transform: rotate(-10deg);
-  }
-
-  40% {
-    transform: rotate(10deg);
-  }
-
-  60% {
-    transform: rotate(-10deg);
-  }
-
-  80% {
-    transform: rotate(5deg);
-  }
-
-  100% {
-    transform: rotate(0deg);
-  }
-}
-
-.icon-circleHelp .circle-help-mark,
-.icon-circle-help .circle-help-mark {
-  transform-origin: 12px 12px;
-}
-
-.sidebar-nav a:hover .icon-circleHelp .circle-help-mark,
-.sidebar-nav a:hover .icon-circle-help .circle-help-mark,
-.sidebar-nav a:focus-visible .icon-circleHelp .circle-help-mark,
-.sidebar-nav a:focus-visible .icon-circle-help .circle-help-mark,
-button:hover .icon-circleHelp .circle-help-mark,
-button:hover .icon-circle-help .circle-help-mark,
-.icon-circleHelp:hover .circle-help-mark,
-.icon-circle-help:hover .circle-help-mark {
-  animation: circleHelpWiggle 0.5s ease-in-out;
-}
-
-/* User (Support / System theme) - lucide-animated */
+/* User / System theme - lucide-animated */
 @keyframes userHeadAnim {
   0% {
     transform: scale(1);
@@ -4599,127 +4555,11 @@ button:hover .icon-dislike,
   }
 }
 
-/* Feedback */
-
-/* ---- Feedback & bug-report form (Feedback page) ---- */
-.feedback-form {
-  margin-top: 20px;
-}
-
-.feedback-form .settings-field {
-  margin-top: 16px;
-}
-
-.feedback-form .settings-field:first-child {
-  margin-top: 0;
-}
-
-.feedback-form .settings-input {
-  max-width: 100%;
-}
-
-.feedback-textarea {
-  width: 100%;
-  background: var(--surface-soft);
-  color: var(--ink);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-md);
-  padding: 12px 14px;
-  font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.5;
-  min-height: 120px;
-  resize: vertical;
-  outline: none;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-}
-
-.feedback-textarea::placeholder {
-  color: var(--muted-soft);
-}
-
-.feedback-textarea:focus {
-  border-color: var(--composer-focus-border);
-  box-shadow: none;
-  outline: none;
-}
-
-.feedback-form .settings-actions {
-  margin-top: 20px;
-}
-
-.feedback-send-btn {
-  padding: 0 13px;
-  height: 36px;
-  gap: 6px;
-}
-
-.feedback-send-btn .send-arrow-icon,
-.feedback-send-btn .icon-send {
-  transform: rotate(45deg);
-  transition: transform 150ms ease;
-}
-
-.feedback-send-btn:hover:not(:disabled) .send-arrow-icon,
-.feedback-send-btn:hover:not(:disabled) .icon-send {
-  transform: rotate(45deg) translate(1.5px, -1.5px);
-}
-
-.file-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
 
 .file-name {
   font-family: var(--font-sans);
   font-size: 13px;
   color: var(--body);
-}
-
-.file-name.muted {
-  color: var(--muted);
-}
-
-.feedback .actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  align-items: center;
-}
-
-.feedback .actions .cancel {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  color: var(--muted);
-  padding: 6px 12px;
-  transition: color 150ms ease;
-}
-
-.feedback .actions .cancel:hover {
-  color: var(--ink);
-}
-
-.feedback .actions .save {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 8px 14px;
-  border-radius: var(--r-md);
-  color: var(--on-primary);
-  background: var(--primary);
-  transition: background 150ms ease;
-}
-
-.feedback .actions .save:hover {
-  background: var(--primary-active);
-}
-
-.feedback .actions .save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: var(--primary);
 }
 
 /* Composer */
@@ -5994,6 +5834,38 @@ body:has(.chat-page.is-empty) .tools-menu,
   margin: 0;
 }
 
+.projects-head-text {
+  width: 100%;
+  min-width: 0;
+}
+
+.projects-heading-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  margin-top: 14px;
+}
+
+.projects-head .projects-heading-row p {
+  margin: 0;
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .projects-heading-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 28px;
+  }
+
+  .projects-heading-row .projects-search-wrap {
+    flex: 0 1 360px;
+    min-width: 220px;
+  }
+}
+
 .projects-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
@@ -6002,7 +5874,6 @@ body:has(.chat-page.is-empty) .tools-menu,
 
 .projects-search-wrap {
   position: relative;
-  margin-bottom: 20px;
   max-width: 420px;
 }
 
@@ -8778,11 +8649,6 @@ body:has(.chat-page.is-empty) .tools-menu,
     gap: 14px;
   }
 
-  /* Feedback row collapses to a single column on phones */
-  .feedback .row {
-    grid-template-columns: 1fr;
-  }
-
   /* Modal padding is tight on phones */
   .modal {
     padding: 20px;
@@ -9786,22 +9652,24 @@ em {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: var(--surface-soft);
+  background: var(--input-bar);
   border: 1px solid var(--hairline);
-  border-radius: var(--r-md);
-  padding: 4px 8px;
-  max-width: 260px;
+  border-radius: 12px;
+  padding: 9px 10px;
+  min-height: 58px;
+  width: 280px;
+  max-width: 100%;
   transition: background 150ms ease, border-color 150ms ease;
 }
 
 :root[data-theme="dark"] .composer-attachment-chip {
-  background: var(--surface-card);
-  border-color: var(--border-soft);
+  background: var(--input-bar);
+  border-color: var(--hairline-strong);
 }
 
 .composer-attachment-chip img {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   object-fit: cover;
   border-radius: var(--r-sm);
   flex-shrink: 0;
@@ -9811,25 +9679,44 @@ em {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--r-sm);
-  background: var(--surface-card);
-  color: var(--muted);
   flex-shrink: 0;
 }
 
+.composer-attachment-chip .attachment-info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
 .composer-attachment-chip .name {
-  font-size: 12.5px;
-  color: var(--body-strong);
-  max-width: 160px;
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.composer-attachment-chip .attachment-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .composer-attachment-chip .x {
   appearance: none;
+  min-width: 24px;
+  min-height: 24px;
   background: transparent;
   border: 0;
   padding: 4px;
@@ -9848,24 +9735,34 @@ em {
   background: var(--surface-soft);
 }
 
-/* Loading chip — spinner animation */
-.composer-attachment-chip.loading {
-  opacity: 0.9;
-  border-style: dashed;
+.composer-attachment-chip .x:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .composer-attachment-chip.loading .spinner {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 11px;
+  height: 11px;
   flex-shrink: 0;
-  color: var(--primary);
 }
 
 .composer-attachment-chip.loading .spinner svg {
   animation: spin 1s linear infinite;
+}
+
+@media (max-width: 480px) {
+  .composer-attachment-chip {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-attachment-chip.loading .spinner svg {
+    animation: none;
+  }
 }
 
 @keyframes spin {
@@ -9929,13 +9826,25 @@ em {
 }
 
 .message-attachments .file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 12.5px;
-  padding: 5px 12px;
+  padding: 7px 10px;
   background: var(--surface-soft);
   border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
+  border-radius: 10px;
   color: var(--body-strong);
   max-width: 220px;
+}
+
+.message-attachments .file-chip .ic {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.message-attachments .file-chip-name {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -12202,9 +12111,8 @@ em {
   }
 }
 
-/* File-type icons render 5% larger on desktop viewports. */
-@media (min-width: 768px) {
-  .file-icon {
-    transform: scale(1.05);
-  }
+.file-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
 }

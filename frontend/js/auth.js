@@ -4,8 +4,8 @@
 // session itself (storageKey "bimo-auth"), so this module just normalises the
 // session into the shape the rest of the app expects (`{ token, user }`).
 
-import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js?v=30";
-import { getDisplayName, setDisplayName } from "./prefs.js?v=30";
+import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js";
+import { getDisplayName, setDisplayName } from "./prefs.js";
 
 const listeners = new Set();
 

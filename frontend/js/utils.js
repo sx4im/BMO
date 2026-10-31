@@ -52,10 +52,6 @@ export function clear(node) {
 
 // ---------- string / date helpers ----------
 
-export function cx(...classes) {
-  return classes.filter(Boolean).join(" ");
-}
-
 export function escapeHtml(str = "") {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -89,61 +85,6 @@ export function formatRelative(value) {
     day: "numeric",
     year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
   });
-}
-
-export function uid(prefix = "id") {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
-}
-
-export function scrambleElement(el, htmlContent, duration = 800) {
-  if (el._scrambleInterval) {
-    clearInterval(el._scrambleInterval);
-  }
-
-  el.innerHTML = htmlContent;
-  const textNodes = [];
-  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
-  let node;
-  while (node = walk.nextNode()) {
-    textNodes.push({
-      node: node,
-      originalText: node.nodeValue,
-    });
-  }
-
-  const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+";
-  const steps = 15;
-  const intervalTime = duration / steps;
-  let step = 0;
-
-  el._scrambleInterval = setInterval(() => {
-    step++;
-    if (step >= steps) {
-      clearInterval(el._scrambleInterval);
-      el._scrambleInterval = null;
-      for (const item of textNodes) {
-        item.node.nodeValue = item.originalText;
-      }
-      return;
-    }
-
-    for (const item of textNodes) {
-      const orig = item.originalText;
-      let result = "";
-      for (let i = 0; i < orig.length; i++) {
-        const charProgress = i / orig.length;
-        const totalProgress = step / steps;
-        if (charProgress < totalProgress) {
-          result += orig[i];
-        } else if (orig[i] === " " || orig[i] === "\n") {
-          result += orig[i];
-        } else {
-          result += charset[Math.floor(Math.random() * charset.length)];
-        }
-      }
-      item.node.nodeValue = result;
-    }
-  }, intervalTime);
 }
 
 export function formatTitle(raw) {

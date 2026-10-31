@@ -13,7 +13,7 @@ import secrets
 import uuid
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from postgrest.exceptions import APIError
@@ -63,6 +63,16 @@ def _execute(builder, *, max_retries: int = 2, delay: float = 0.35):
             raise
 
 
+def _fetch_all(query, *, page_size: int = 200) -> list[dict]:
+    """Read past PostgREST's row cap using a deterministically ordered query."""
+    rows = []
+    while True:
+        page = _execute(query.range(len(rows), len(rows) + page_size - 1)).data or []
+        rows.extend(page)
+        if len(page) < page_size:
+            return rows
+
+
 # ---------- profiles ----------
 
 def upsert_profile(user) -> dict:
@@ -76,17 +86,6 @@ def upsert_profile(user) -> dict:
     }
     res = _execute(supabase().table("profiles").upsert(payload, on_conflict="id"))
     return (res.data or [payload])[0]
-
-
-def get_profile(user_id: str) -> Optional[dict]:
-    res = _execute(
-        supabase()
-        .table("profiles")
-        .select("*")
-        .eq("id", user_id)
-        .limit(1)
-    )
-    return (res.data or [None])[0]
 
 
 def set_onboarding(user_id: str, *, birthday=None, role=None, seen: bool = True) -> None:
@@ -113,17 +112,7 @@ def list_conversations(user_id: str, *, limit: int = 100) -> list[dict]:
         .limit(limit)
     )
     rows = res.data or []
-    pinned = sorted(
-        [c for c in rows if c.get("pinned")],
-        key=lambda c: c.get("updated_at") or "",
-        reverse=True,
-    )
-    rest = sorted(
-        [c for c in rows if not c.get("pinned")],
-        key=lambda c: c.get("updated_at") or "",
-        reverse=True,
-    )
-    return pinned + rest
+    return [c for c in rows if c.get("pinned")] + [c for c in rows if not c.get("pinned")]
 
 
 def get_conversation(conversation_id: str, user_id: str) -> Optional[dict]:
@@ -186,28 +175,71 @@ def touch_conversation(conversation_id: str, user_id: str) -> None:
     )
 
 
-def _attachment_paths(messages: list) -> list[str]:
-    """Extract storage paths from message attachment JSONB."""
+def user_owns_path(user_id: str, path: str) -> bool:
+    return (
+        isinstance(user_id, str) and bool(user_id)
+        and isinstance(path, str) and path.startswith(f"{user_id}/")
+        and not any(part in path for part in ("..", "\\", "\x00"))
+    )
+
+
+def validate_attachment_paths(attachments: list, user_id: str) -> None:
+    if not isinstance(attachments, list) or not all(isinstance(a, dict) for a in attachments):
+        raise ValueError("attachments must be a list of objects")
+    for attachment in attachments:
+        if "path" in attachment and not user_owns_path(user_id, attachment["path"]):
+            raise ValueError("attachment path is not owned by this user")
+
+
+def _attachment_paths(messages: list, user_id: str) -> list[str]:
+    """Ignore foreign/invalid paths, including metadata saved before validation."""
     paths = []
     for msg in messages:
         for a in msg.get("attachments") or []:
-            if isinstance(a, dict) and a.get("path"):
+            if isinstance(a, dict) and user_owns_path(user_id, a.get("path")):
                 paths.append(a["path"])
     return paths
 
 
-def delete_storage_paths(paths: list[str]) -> None:
+def delete_storage_paths(paths: list[str], *, strict: bool = False) -> None:
     """Best-effort removal from Supabase Storage."""
     if not paths:
         return
     bucket = attachments_bucket()
     try:
-        supabase().storage.from_(bucket).remove(paths)
+        storage = supabase().storage.from_(bucket)
+        paths = list(dict.fromkeys(paths))
+        for start in range(0, len(paths), 100):
+            storage.remove(paths[start:start + 100])
     except Exception:
         logger.warning("storage cleanup failed for %d paths", len(paths), exc_info=True)
+        if strict:
+            raise
 
 
 _delete_storage_paths = delete_storage_paths
+
+
+def _delete_unreferenced_paths(paths: list[str], user_id: str) -> None:
+    """A branch or another chat may still use the same uploaded object."""
+    removable = []
+    try:
+        for path in dict.fromkeys(paths):
+            if not user_owns_path(user_id, path):
+                continue
+            messages = _execute(
+                supabase().table("messages").select("id,conversations!inner(user_id)")
+                .eq("conversations.user_id", user_id).contains("attachments", [{"path": path}]).limit(1)
+            )
+            files = _execute(
+                supabase().table("project_files").select("id")
+                .eq("user_id", user_id).eq("storage_path", path).limit(1)
+            )
+            if not messages.data and not files.data:
+                removable.append(path)
+        delete_storage_paths(removable)
+    except Exception:
+        logger.warning("storage reference check/cleanup failed; retaining objects", exc_info=True)
 
 
 def delete_conversation(conversation_id: str, user_id: str) -> bool:
@@ -222,9 +254,7 @@ def delete_conversation(conversation_id: str, user_id: str) -> bool:
     # conversation (messages cascade to messages, but storage objects
     # do not auto-delete on Postgres FK cascade).
     msgs = get_messages(conversation_id)
-    paths = _attachment_paths(msgs)
-    _delete_storage_paths(paths)
-
+    paths = _attachment_paths(msgs, user_id)
     res = _execute(
         supabase()
         .table("conversations")
@@ -232,21 +262,67 @@ def delete_conversation(conversation_id: str, user_id: str) -> bool:
         .eq("id", conversation_id)
         .eq("user_id", user_id)
     )
-    return bool(res.data)
+    deleted = bool(res.data)
+    if deleted:
+        _delete_unreferenced_paths(paths, user_id)
+    return deleted
+
+
+def branch_conversation(conversation_id: str, user_id: str, before_message_id: str) -> Optional[dict]:
+    original = get_conversation(conversation_id, user_id)
+    if not original:
+        return None
+    messages = get_messages(conversation_id)
+    index = next((i for i, message in enumerate(messages)
+                  if message["id"] == before_message_id and message["role"] == "user"), None)
+    if index is None:
+        return None
+    for message in messages[:index]:
+        validate_attachment_paths(message.get("attachments") or [], user_id)
+    branch = create_conversation(
+        user_id, first_message=original["title"], model=original.get("model"),
+        system_prompt=original.get("system_prompt"), project_id=original.get("project_id"),
+    )
+    rows = [
+        {"conversation_id": branch["id"], **{key: message.get(key) for key in
+         ("role", "content", "attachments", "reasoning", "created_at") if message.get(key) is not None}}
+        for message in messages[:index]
+    ]
+    previous_time = None
+    for row in rows:
+        stamp = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+        if previous_time is not None and stamp <= previous_time:
+            stamp = previous_time + timedelta(microseconds=1)
+        row["created_at"] = stamp.isoformat()
+        previous_time = stamp
+    try:
+        saved = []
+        for start in range(0, len(rows), 200):
+            batch = rows[start:start + 200]
+            inserted = _execute(supabase().table("messages").insert(batch)).data or []
+            if len(inserted) != len(batch):
+                raise RuntimeError("Could not copy conversation history")
+            saved.extend(inserted)
+    except Exception:
+        _execute(supabase().table("conversations").delete().eq("id", branch["id"]).eq("user_id", user_id))
+        raise
+    return {"conversation": branch, "messages": saved or []}
 
 
 # ---------- messages ----------
 
-def get_messages(conversation_id: str, *, limit: int = 200) -> list[dict]:
-    res = _execute(
+def get_messages(conversation_id: str, *, limit: Optional[int] = None) -> list[dict]:
+    query = (
         supabase()
         .table("messages")
         .select("*")
         .eq("conversation_id", conversation_id)
-        .order("created_at", desc=False)
-        .limit(limit)
+        .order("created_at", desc=limit is not None)
+        .order("id", desc=limit is not None)
     )
-    return res.data or []
+    if limit is None:
+        return _fetch_all(query)
+    return list(reversed(_execute(query.limit(limit)).data or []))
 
 
 def add_message(
@@ -260,6 +336,7 @@ def add_message(
 ) -> dict:
     if not get_conversation(conversation_id, user_id):
         raise PermissionError("conversation not found")
+    validate_attachment_paths(attachments or [], user_id)
     payload = {
         "conversation_id": conversation_id,
         "role": role,
@@ -294,6 +371,7 @@ def add_message(
 def update_message_attachments(message_id: str, user_id: str, attachments: list) -> None:
     if not message_belongs_to_user(message_id, user_id):
         raise PermissionError("message not found")
+    validate_attachment_paths(attachments, user_id)
     _execute(supabase().table("messages").update({"attachments": attachments}).eq("id", message_id))
 
 
@@ -447,15 +525,21 @@ def delete_all_user_data(user_id: str) -> None:
     # 1) Collect attachment paths from all user messages before anything
     # is deleted. We have to walk conversations because messages have no
     # user_id column.
-    convos = _execute(sb.table("conversations").select("id").eq("user_id", user_id))
+    convos = _fetch_all(sb.table("conversations").select("id").eq("user_id", user_id).order("id"))
     all_paths: list[str] = []
-    for row in convos.data or []:
+    for row in convos:
         msgs = get_messages(row["id"])
-        all_paths.extend(_attachment_paths(msgs))
-    _delete_storage_paths(all_paths)
+        all_paths.extend(_attachment_paths(msgs, user_id))
+    project_files = _fetch_all(
+        sb.table("project_files").select("storage_path").eq("user_id", user_id).order("id")
+    )
+    all_paths.extend(f["storage_path"] for f in project_files if user_owns_path(user_id, f.get("storage_path")))
+    # Do not erase the metadata needed to retry if storage is unavailable.
+    _delete_storage_paths(all_paths, strict=True)
 
     # 2) Conversations -> cascades to messages (FK on delete cascade)
     _execute(sb.table("conversations").delete().eq("user_id", user_id))
+    _execute(sb.table("projects").delete().eq("user_id", user_id))
     # 3) Feedback (in case any orphaned rows survived the cascade)
     _execute(sb.table("feedback").delete().eq("user_id", user_id))
     # 4) Usage events (FK is on auth.users, so they outlive a data-only wipe)
@@ -477,9 +561,7 @@ def download_attachment(path: str, user_id: str) -> bytes:
         raise ValueError("Invalid attachment path")
     if not isinstance(user_id, str) or not user_id:
         raise PermissionError("user_id required")
-    if ".." in path or path.startswith("/") or "\\" in path:
-        raise PermissionError("Path traversal rejected")
-    if not path.startswith(f"{user_id}/"):
+    if not user_owns_path(user_id, path):
         raise PermissionError(f"User {user_id} does not own attachment path: {path}")
     return supabase().storage.from_(attachments_bucket()).download(path)
 
@@ -708,8 +790,11 @@ def delete_project(project_id: str, user_id: str) -> bool:
     project = get_project(project_id, user_id)
     if not project:
         return False
-    files = list_project_files(project_id, user_id)
-    paths = [f["storage_path"] for f in files if f.get("storage_path")]
+    files = _fetch_all(
+        supabase().table("project_files").select("storage_path")
+        .eq("project_id", project_id).eq("user_id", user_id).order("id")
+    )
+    paths = [f["storage_path"] for f in files if user_owns_path(user_id, f.get("storage_path"))]
 
     # Delete DB row first
     res = _execute(
@@ -723,10 +808,7 @@ def delete_project(project_id: str, user_id: str) -> bool:
 
     # Storage cleanup is best-effort (log failure, do not raise)
     if deleted and paths:
-        try:
-            delete_storage_paths(paths)
-        except Exception:
-            logger.warning("Storage cleanup failed after deleting project %s", project_id, exc_info=True)
+        _delete_unreferenced_paths(paths, user_id)
 
     return deleted
 
@@ -815,11 +897,8 @@ def delete_project_file(project_id: str, file_id: str, user_id: str) -> bool:
     deleted = bool(res.data)
 
     # Storage cleanup is best-effort (log failure, do not raise)
-    if deleted and path:
-        try:
-            delete_storage_paths([path])
-        except Exception:
-            logger.warning("Storage cleanup failed after deleting file %s", file_id, exc_info=True)
+    if deleted and user_owns_path(user_id, path):
+        _delete_unreferenced_paths([path], user_id)
 
     return deleted
 

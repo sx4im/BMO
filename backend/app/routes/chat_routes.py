@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import queue
@@ -15,6 +16,7 @@ from flask import Blueprint, Response, request, stream_with_context
 
 from .. import document_processor, nvidia_client, project_service, search_router, store
 from ..auth import require_user
+from ..cancellation import register as _register_cancel, signal as _signal_cancel, unregister as _unregister_cancel
 from ..config import (
     ALL_VALID_MODEL_IDS,
     KNOWN_MODEL_IDS,
@@ -47,36 +49,6 @@ from .helpers import (
 logger = logging.getLogger("bmo.routes.chat")
 
 chat_bp = Blueprint("chat_routes", __name__)
-
-# ---------- chat cancellation registry ----------
-_cancel_events: dict[str, tuple[threading.Event, str]] = {}
-_cancel_lock = threading.Lock()
-_CANCEL_REGISTRY_MAX = 512
-
-
-def _register_cancel(stream_id: str, user_id: str) -> threading.Event:
-    ev = threading.Event()
-    with _cancel_lock:
-        if len(_cancel_events) >= _CANCEL_REGISTRY_MAX:
-            for old in list(_cancel_events)[: max(1, _CANCEL_REGISTRY_MAX // 4)]:
-                _cancel_events.pop(old, None)
-        _cancel_events[stream_id] = (ev, user_id)
-    return ev
-
-
-def _signal_cancel(stream_id: str, user_id: str) -> bool:
-    with _cancel_lock:
-        entry = _cancel_events.get(stream_id)
-    if entry and entry[1] == user_id:
-        entry[0].set()
-        return True
-    return False
-
-
-def _unregister_cancel(stream_id: str) -> None:
-    with _cancel_lock:
-        _cancel_events.pop(stream_id, None)
-
 
 # ---------- PDF batching helpers ----------
 
@@ -306,6 +278,10 @@ def chat(user):
         return bad_request("stream_id must be a short string", 422)
     if not isinstance(attachments, list) or not all(isinstance(a, dict) for a in attachments):
         return bad_request("attachments must be a list", 422)
+    try:
+        store.validate_attachment_paths(attachments, user.id)
+    except ValueError as exc:
+        return bad_request(str(exc), 403)
     for a in attachments:
         a.pop(TEXT_CONTEXT_KEY, None)
     if model is not None and not isinstance(model, str):
@@ -333,6 +309,24 @@ def chat(user):
         return bad_request("message too long (max 16000 chars)", 422)
     if augmented_message and len(augmented_message) > 200000:
         return bad_request("augmented_message too long (max 200000 chars)", 422)
+    incognito_history = payload.get("history", []) if is_incognito else []
+    if not isinstance(incognito_history, list) or len(incognito_history) > 24:
+        return bad_request("history must be a list of at most 24 messages", 422)
+    if len(json.dumps(incognito_history, ensure_ascii=False, separators=(",", ":"))) > 200000:
+        return bad_request("history too long (max 200000 characters)", 422)
+    for item in incognito_history:
+        if (not isinstance(item, dict) or item.get("role") not in ("user", "assistant")
+                or not isinstance(item.get("content"), str)):
+            return bad_request("history messages must contain a user/assistant role and text content", 422)
+        previous_attachments = item.get("attachments") or []
+        if not isinstance(previous_attachments, list) or not all(isinstance(a, dict) for a in previous_attachments):
+            return bad_request("history attachments must be a list", 422)
+        try:
+            store.validate_attachment_paths(previous_attachments, user.id)
+        except ValueError as exc:
+            return bad_request(str(exc), 403)
+        for attachment in previous_attachments:
+            attachment.pop(TEXT_CONTEXT_KEY, None)
     t_validation = time.time()
 
     usage = get_usage_status(user.id)
@@ -353,7 +347,10 @@ def chat(user):
                 "system_prompt": system_prompt,
                 "title": "Incognito Chat",
             }
-            history = []
+            history = [
+                {"role": m["role"], "content": m["content"], "attachments": m.get("attachments")}
+                for m in incognito_history
+            ]
             user_message = {
                 "id": f"msg_{uuid.uuid4().hex[:8]}",
                 "role": "user",
@@ -374,7 +371,7 @@ def chat(user):
             if convo_patch:
                 convo = store.update_conversation(conversation_id, user.id, convo_patch) or convo
 
-            history = store.get_messages(convo["id"])
+            history = store.get_messages(convo["id"], limit=200)
             user_message = {
                 "id": f"msg_pending_{uuid.uuid4().hex[:8]}",
                 "role": "user",
@@ -418,6 +415,13 @@ def chat(user):
     # the user's text model with saved text versions of those attachments,
     # unless the latest images have no text version yet.
     latest_attachment_msg = _latest_attachment_message(history)
+    if is_incognito and latest_attachment_msg:
+        for attachment in latest_attachment_msg.get("attachments") or []:
+            if not _is_image(attachment):
+                parts = document_processor.process_attachment(
+                    attachment, lambda path: store.download_attachment(path, user_id=user.id)
+                )
+                attachment[TEXT_CONTEXT_KEY] = _doc_text_context(attachment.get("filename") or "file", parts)
     followup_needs_vision = bool(
         latest_attachment_msg and _images_missing_context(latest_attachment_msg.get("attachments"))
     )
@@ -522,7 +526,12 @@ def chat(user):
         use_thinking = False
 
     is_first_turn = not history
-    cancel_event = _register_cancel(stream_id, user.id) if stream_id else threading.Event()
+    try:
+        cancel_event = _register_cancel(stream_id, user.id) if stream_id else threading.Event()
+    except ValueError as exc:
+        return bad_request(str(exc), 409)
+    except RuntimeError as exc:
+        return bad_request(str(exc), 503)
 
     # Voice turns stay on the fast path, and a client-supplied augmented_message
     # means the turn already carries its own retrieved context (scraped URLs).
@@ -627,6 +636,7 @@ def chat(user):
         full_reply = ""
         full_reasoning = ""
         saved = False
+        metered = False
 
         def ensure_user_persisted():
             if persist_thread is not None:
@@ -637,7 +647,13 @@ def chat(user):
                 raise RuntimeError("Could not save conversation")
 
         def persist_reply():
-            nonlocal saved
+            nonlocal saved, metered
+            if not metered and (full_reply.strip() or full_reasoning.strip()):
+                metered = True
+                store.record_usage(
+                    user.id, chosen_friendly,
+                    estimate_tokens(message_text, full_reply, full_reasoning),
+                )
             if saved or is_incognito:
                 return None
             text = full_reply.strip()
@@ -650,10 +666,6 @@ def chat(user):
                     reasoning=full_reasoning or None,
                 )
                 saved = True
-                store.record_usage(
-                    user.id, chosen_friendly,
-                    estimate_tokens(message_text, full_reply, full_reasoning),
-                )
                 return msg
             except Exception as exc:  # noqa: BLE001
                 logger.exception("chat: failed to persist assistant message convo=%s: %s", convo.get("id"), exc)
@@ -696,7 +708,7 @@ def chat(user):
                         messages_payload = nvidia_client.build_messages_for_vision(
                             model_history,
                             batch_content,
-                            system_prompt=assembled_base if project else None,
+                            system_prompt="\n\n".join(filter(None, [assembled_base if project else "", extra_sys])) or None,
                         )
                     else:
                         messages_payload = nvidia_client.build_messages(
@@ -708,6 +720,7 @@ def chat(user):
                 else:
                     messages_payload = nvidia_client.build_continuation_messages(
                         model_history, batch_content,
+                        system_prompt="\n\n".join(filter(None, [assembled_base, extra_sys])),
                     )
 
                 if use_batches and len(batches) > 1:
@@ -843,7 +856,7 @@ def chat(user):
         finally:
             persist_reply()
             if stream_id:
-                _unregister_cancel(stream_id)
+                _unregister_cancel(cancel_event)
             logger.info("chat: generate finished model=%s convo=%s chars=%d in %.3fs", chosen_model, convo.get("id"), len(full_reply), time.time() - t_gen_start)
 
     sse_queue: "queue.Queue" = queue.Queue()

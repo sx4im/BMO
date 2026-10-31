@@ -143,11 +143,7 @@ def get_usage_status(user_id: str) -> dict:
 
 def user_owns_path(user_id: str, path: str) -> bool:
     """True only when a storage path sits under the caller's own folder."""
-    if not isinstance(path, str) or not path or not isinstance(user_id, str) or not user_id:
-        return False
-    if ".." in path or path.startswith("/") or "\\" in path:
-        return False
-    return path.startswith(f"{user_id}/")
+    return store.user_owns_path(user_id, path)
 
 
 def validate_project_id(project_id: Optional[str], user_id: str) -> tuple[Optional[dict], Optional[tuple]]:

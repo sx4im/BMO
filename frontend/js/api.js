@@ -5,8 +5,8 @@
 // which validates the JWT and uses the service role on the server side.
 
 import { config } from "./config.js?v=30";
-import { getAuth, refreshSession } from "./auth.js?v=31";
-import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js?v=30";
+import { getAuth, refreshSession } from "./auth.js";
+import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js";
 
 function authHeaders(token) {
   const t = getAuth().auth?.token || token;
@@ -86,6 +86,12 @@ export async function deleteConversation(token, conversationId) {
   return request(`/conversations/${conversationId}`, { method: "DELETE", token });
 }
 
+export async function branchConversation(token, conversationId, beforeMessageId) {
+  return request(`/conversations/${conversationId}/branch`, {
+    method: "POST", token, body: { before_message_id: beforeMessageId },
+  });
+}
+
 export async function updateConversation(token, conversationId, patch) {
   return request(`/conversations/${conversationId}`, {
     method: "PATCH",
@@ -114,12 +120,20 @@ export async function shareConversation(token, conversationId) {
           .single();
         if (convErr || !conv) throw err;
 
-        const { data: msgs, error: msgErr } = await client
-          .from("messages")
-          .select("id, role, content, reasoning, attachments, created_at")
-          .eq("conversation_id", conversationId)
-          .order("created_at", { ascending: true });
-        if (msgErr) throw err;
+        const msgs = [];
+        const pageSize = 200;
+        while (true) {
+          const { data: page, error: msgErr } = await client
+            .from("messages")
+            .select("id, role, content, reasoning, attachments, created_at")
+            .eq("conversation_id", conversationId)
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(msgs.length, msgs.length + pageSize - 1);
+          if (msgErr) throw err;
+          msgs.push(...(page || []));
+          if (!page || page.length < pageSize) break;
+        }
 
         const cleanMsgs = (msgs || []).map((m) => ({
           id: m.id,
@@ -438,7 +452,7 @@ export async function submitFeedback(token, payload) {
 
 // ---------- attachments ----------
 
-export async function uploadAttachment(token, file) {
+export async function uploadAttachment(token, file, signal) {
   const execute = async (t) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -446,6 +460,7 @@ export async function uploadAttachment(token, file) {
       method: "POST",
       headers: authHeaders(t),
       body: fd,
+      signal,
     });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
@@ -635,7 +650,7 @@ export async function getUsage(token) {
 // ---------- projects ----------
 
 export async function listProjects(token, { includeArchived = false } = {}) {
-  const query = includeArchived ? "?include_archived=1" : "";
+  const query = includeArchived ? "?archived=true" : "";
   return request(`/projects${query}`, { token });
 }
 
@@ -663,64 +678,24 @@ export async function deleteProject(token, projectId) {
   return request(`/projects/${projectId}`, { method: "DELETE", token });
 }
 
-export async function listProjectFiles(token, projectId) {
-  return request(`/projects/${projectId}/files`, { token });
-}
-
-export async function uploadProjectFile(token, projectId, file) {
-  const execute = async (t) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const response = await fetch(`${config.apiUrl}/projects/${projectId}/files`, {
-      method: "POST",
-      headers: authHeaders(t),
-      body: fd,
-    });
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({}));
-      const error = new Error(detail.detail || `Upload failed (${response.status})`);
-      error.status = response.status;
-      throw error;
-    }
-    return response.json();
-  };
-
-  const initialToken = getAuth().auth?.token || token;
-  try {
-    return await execute(initialToken);
-  } catch (error) {
-    if (error.status === 401) {
-      console.warn("[bimo-api] uploadProjectFile received 401, attempting silent session refresh...");
-      try {
-        const newAuth = await refreshSession();
-        if (newAuth?.token) {
-          return await execute(newAuth.token);
-        }
-      } catch (refreshError) {
-        console.error("[bimo-api] Silent session refresh failed:", refreshError);
-      }
-    }
-    throw error;
-  }
-}
-
 export function uploadProjectFileWithProgress(token, projectId, file, onProgress) {
   return new Promise((resolve, reject) => {
-    const attempt = (t) => {
+    const attempt = (t, retried = false) => {
       const xhr = new XMLHttpRequest();
       const fd = new FormData();
       fd.append("file", file);
       xhr.open("POST", `${config.apiUrl}/projects/${projectId}/files`);
+      xhr.timeout = 120000;
       const headers = authHeaders(t);
       for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) onProgress(Math.min(1, e.loaded / e.total));
       };
       xhr.onload = async () => {
-        if (xhr.status === 401) {
+        if (xhr.status === 401 && !retried) {
           try {
             const newAuth = await refreshSession();
-            if (newAuth?.token) return attempt(newAuth.token);
+            if (newAuth?.token) return attempt(newAuth.token, true);
           } catch (_) { /* fall through */ }
         }
         if (xhr.status >= 200 && xhr.status < 300) {
@@ -738,6 +713,8 @@ export function uploadProjectFileWithProgress(token, projectId, file, onProgress
         }
       };
       xhr.onerror = () => reject(new Error("Upload failed: network error"));
+      xhr.ontimeout = () => reject(new Error("Upload timed out. Please try again."));
+      xhr.onabort = () => reject(new DOMException("Upload cancelled", "AbortError"));
       xhr.send(fd);
     };
     attempt(getAuth().auth?.token || token);
@@ -753,10 +730,6 @@ export async function deleteProjectFile(token, projectId, fileId) {
     method: "DELETE",
     token,
   });
-}
-
-export async function listProjectConversations(token, projectId) {
-  return request(`/projects/${projectId}/chats`, { token });
 }
 
 // ---------- health ----------

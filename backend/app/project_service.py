@@ -202,14 +202,14 @@ def _rank_chunks(chunks_with_meta: list[dict], query: str, top_k: int = 15) -> l
     return selected
 
 
-_DELIMITER_TAG_RE = re.compile(r"</?\s*(?:file|chunk|project_knowledge)\b[^>]*>", re.IGNORECASE)
+_DELIMITER_TAG_RE = re.compile(r"<\s*/?\s*(?:file|chunk|project_knowledge)", re.IGNORECASE)
 
 
 def _sanitize_knowledge(filename: str, text: str) -> tuple[str, str]:
     """Escape filename for XML attribute and neutralize delimiter tags in untrusted content."""
     safe_name = html.escape(filename or "file", quote=True)
     safe_text = _DELIMITER_TAG_RE.sub(
-        lambda m: m.group(0).replace("<", "&lt;").replace(">", "&gt;"),
+        lambda m: "&lt;" + m.group(0)[1:],
         text or "",
     )
     return safe_name, safe_text

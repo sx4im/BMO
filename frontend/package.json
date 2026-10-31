@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "BMO frontend tests (zero-dep except jsdom for DOM regressions)",
-  "scripts": {},
+  "scripts": {
+    "test:run": "node --experimental-vm-modules --test tests/*.test.mjs"
+  },
   "devDependencies": {
     "jsdom": "^30.0.1"
   }

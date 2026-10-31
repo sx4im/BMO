@@ -1,4 +1,5 @@
 import { el, clear } from "../utils.js?v=30";
+import { FileIcon } from "./file-icon.js?v=5";
 import { thoughtOrb } from "./orb.js?v=3";
 import { searchCard } from "./search-card.js?v=3";
 import { icon } from "../icons.js?v=30";
@@ -128,7 +129,11 @@ export function messageBubble({
           attachmentsPreview.append(img);
         }
       } else if (a.filename && !isAssistant) {
-        attachmentsPreview.append(el("span", { class: "file-chip", text: a.filename }));
+        const ext = a.filename.split(".").pop();
+        attachmentsPreview.append(el("span", { class: "file-chip", title: a.filename }, [
+          el("span", { class: "ic", html: FileIcon(ext, 32) }),
+          el("span", { class: "file-chip-name", text: a.filename }),
+        ]));
       }
     }
   }

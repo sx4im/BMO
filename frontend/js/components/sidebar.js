@@ -1,16 +1,15 @@
 import { el, clear, formatTitle } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=72";
 import { avatar } from "./avatar.js?v=30";
-import { getRoute, navigate } from "../router.js?v=31";
+import { getRoute, navigate } from "../router.js";
 import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=58";
 import { openShareModal } from "./share-modal.js?v=2";
 import { openMoveChatModal, openProjectModal } from "../pages/projects.js";
-import { getAuth } from "../auth.js?v=31";
+import { getAuth } from "../auth.js";
 
 const NAV = [
   { hash: "#/app/chat", label: "Search", icon: "search" },
   { hash: "#/app/projects", label: "Projects", icon: "projects" },
-  { hash: "#/app/feedback", label: "Support", icon: "circleHelp" },
   { hash: "#/app/settings", label: "Settings", icon: "settings" },
 ];
 
@@ -255,7 +254,7 @@ export function renderSidebar(container, props) {
     const isSearch = hash === "#/app/chat";
     // "Search" opens the search overlay — it's an ACTION, not a page, so it
     // never gets the active highlight (previously it lit up on every /app/chat
-    // route, which is the whole app). Support/Settings stay path-active.
+    // route, which is the whole app). Other navigation stays path-active.
     const isActive = isSearch ? false : currentHash.startsWith(hash);
     nav.append(
       el(

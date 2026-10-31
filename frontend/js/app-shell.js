@@ -4,9 +4,9 @@ import { renderSidebar } from "./components/sidebar.js?v=64";
 import { openChatSearch } from "./components/chat-search.js?v=31";
 import { toast } from "./components/toast.js?v=58";
 import * as api from "./api.js?v=30";
-import { getAuth, signOut } from "./auth.js?v=31";
-import { navigate } from "./router.js?v=31";
-import { applyTheme } from "./prefs.js?v=32";
+import { getAuth, signOut } from "./auth.js";
+import { navigate } from "./router.js";
+import { applyTheme } from "./prefs.js";
 
 /**
  * Persistent app shell shared between Chat / Analytics / Settings pages.
@@ -32,7 +32,9 @@ export async function loadConversations() {
   const { auth } = getAuth();
   if (!auth) return;
   try {
-    state.conversations = await api.listConversations(auth.token);
+    const conversations = await api.listConversations(auth.token);
+    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    state.conversations = conversations;
     if (nodes) renderSidebars();
     if (typeof window !== "undefined") {
       window.dispatchEvent(
@@ -48,7 +50,9 @@ export async function loadProjects() {
   const { auth } = getAuth();
   if (!auth) return;
   try {
-    state.projects = await api.listProjects(auth.token);
+    const projects = await api.listProjects(auth.token);
+    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    state.projects = projects;
     if (nodes) renderSidebars();
     if (typeof window !== "undefined") {
       window.dispatchEvent(
@@ -64,7 +68,9 @@ export async function loadUsage() {
   const { auth } = getAuth();
   if (!auth) return;
   try {
-    state.usage = await api.getUsage(auth.token);
+    const usage = await api.getUsage(auth.token);
+    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    state.usage = usage;
   } catch (err) {
     // Silently fail if metering is off or throws
   }
@@ -299,5 +305,5 @@ function shellApi() {
  */
 export function tearDownShell() {
   nodes = null;
-  state = { conversations: null, activeId: null, pageRefresh: null, usage: null };
+  state = { conversations: null, projects: null, activeId: null, pageRefresh: null, usage: null };
 }

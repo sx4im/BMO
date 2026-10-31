@@ -9,13 +9,13 @@
 
 import { el, clear, formatTitle } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=73";
-import { FileIcon } from "../components/file-icon.js?v=4";
+import { FileIcon } from "../components/file-icon.js?v=5";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
 import * as api from "../api.js?v=30";
-import { getAuth } from "../auth.js?v=31";
-import { navigate } from "../router.js?v=31";
-import { mountAppShell, loadConversations } from "../app-shell.js?v=30";
+import { getAuth } from "../auth.js";
+import { navigate } from "../router.js";
+import { mountAppShell, loadConversations } from "../app-shell.js";
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -67,10 +67,13 @@ async function renderProjectsList(host, auth) {
   const page = el("div", { class: "page-shell projects-page" });
   host.append(page);
 
+  const headingRow = el("div", { class: "projects-heading-row" }, [
+    el("p", { text: "Curate instructions and reference documents to focus your chats." }),
+  ]);
   const head = el("header", { class: "page-head projects-head" }, [
     el("div", { class: "projects-head-text" }, [
       el("h1", { text: "Projects" }),
-      el("p", { text: "Curate instructions and reference documents to focus your chats." }),
+      headingRow,
     ]),
   ]);
   page.append(head);
@@ -223,7 +226,7 @@ async function renderProjectsList(host, auth) {
     noResults.style.display = list.length ? "none" : "block";
   }
 
-  page.append(searchWrap);
+  headingRow.append(searchWrap);
   page.append(grid);
   page.append(noResults);
   renderGrid();
@@ -395,6 +398,7 @@ async function renderProjectWorkspace(host, auth, projectId) {
 function renderInstructionsCard(project, auth) {
   let instructionsText = project.instructions || "";
   let saving = false;
+  let savedTimer;
 
   const charCounter = el("span", {
     class: "char-count",
@@ -422,6 +426,10 @@ function renderInstructionsCard(project, auth) {
       charCounter.textContent = `${textarea.value.length} / 8000`;
       const changed = textarea.value.trim() !== (project.instructions || "").trim();
       saveBtn.disabled = !changed || saving;
+      if (changed && !saving) {
+        clearTimeout(savedTimer);
+        saveBtn.textContent = "Save instructions";
+      }
     },
     onblur: () => {
       if (!saveBtn.disabled && !saving) save();
@@ -430,9 +438,11 @@ function renderInstructionsCard(project, auth) {
   textarea.value = instructionsText;
 
   async function save() {
+    if (saving) return;
     const nextVal = textarea.value.trim();
     if (nextVal === (project.instructions || "").trim()) return;
     saving = true;
+    clearTimeout(savedTimer);
     saveBtn.disabled = true;
     saveBtn.textContent = "Saving…";
     try {
@@ -444,10 +454,12 @@ function renderInstructionsCard(project, auth) {
         el("span", { text: "Saved" })
       );
       toast("Instructions saved", { tone: "success" });
-      setTimeout(() => {
+      saving = false;
+      saveBtn.disabled = textarea.value.trim() === project.instructions;
+      if (!saveBtn.disabled) saveBtn.textContent = "Save instructions";
+      savedTimer = setTimeout(() => {
         saveBtn.textContent = "Save instructions";
-        saveBtn.disabled = true;
-        saving = false;
+        saveBtn.disabled = saving || textarea.value.trim() === (project.instructions || "").trim();
       }, 1800);
     } catch (err) {
       saveBtn.textContent = "Save instructions";
@@ -651,7 +663,7 @@ function renderFilesCard(project, auth) {
           },
         },
         [
-        el("span", { class: "file-icon", html: FileIcon(ext, 16) }),
+        el("span", { class: "file-icon", html: FileIcon(ext, 28) }),
         el("div", { class: "file-meta" }, [
           el("span", { class: "file-name", text: file.filename, title: file.filename }),
           el("span", {

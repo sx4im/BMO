@@ -6,7 +6,6 @@
  *   #/                       — Landing
  *   #/app/chat               — Chat (new conversation)
  *   #/app/chat/:id           — Chat (existing conversation)
- *   #/app/feedback           — Feedback & bug reports
  *   #/app/settings           — Settings
  *   *                        — 404
  */

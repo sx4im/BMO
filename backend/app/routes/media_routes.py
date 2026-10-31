@@ -68,6 +68,10 @@ def generate_image_route(user):
         return bad_request("prompt too long (max 2000 chars)", 422)
     if not isinstance(attachments, list) or not all(isinstance(a, dict) for a in attachments):
         return bad_request("attachments must be a list", 422)
+    try:
+        store.validate_attachment_paths(attachments, user.id)
+    except ValueError as exc:
+        return bad_request(str(exc), 403)
     if conversation_id is not None and not isinstance(conversation_id, str):
         return bad_request("conversation_id must be a string", 422)
 
@@ -172,7 +176,7 @@ def upload_attachment(user):
         return bad_request("empty file", 422)
     if len(data) > 50 * 1024 * 1024:
         return bad_request("max attachment size is 50 MB", 413)
-    if not upload_magic_ok(data):
+    if not upload_magic_ok(data, f.filename or ""):
         return bad_request("file content does not match a supported type", 422)
     try:
         attachment = store.upload_attachment_for_user(

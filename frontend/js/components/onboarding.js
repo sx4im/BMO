@@ -7,7 +7,7 @@
 
 import { el, clear } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=30";
-import { resolveTheme, setThemePref } from "../prefs.js?v=32";
+import { resolveTheme, setThemePref } from "../prefs.js";
 import { saveOnboarding } from "../api.js?v=30";
 
 // Bump the version suffix to re-show the onboarding to everyone (no DB reset).
@@ -259,18 +259,6 @@ export function showOnboarding(auth) {
     ];
   }
 
-  function feedbackNote() {
-    return [
-      el("div", { class: "ob-icon", html: icon("bug", { width: 26, height: 26 }) }),
-      el("h2", { class: "ob-title", text: "Found a bug?" }),
-      el("p", { class: "ob-sub", text: "If something looks off, open Support in the sidebar and send a quick report. A screenshot helps, and it reaches the team directly." }),
-      el("div", { class: "ob-actions" }, [
-        el("button", { type: "button", class: "btn ghost", text: "Back", onclick: () => go(2) }),
-        el("button", { type: "button", class: "btn primary", text: "Got it", onclick: () => go(4) }),
-      ]),
-    ];
-  }
-
   function theme() {
     let current = resolveTheme(); // resolved light/dark, so "system" highlights the real theme
     const tiles = {};
@@ -291,8 +279,8 @@ export function showOnboarding(auth) {
       el("p", { class: "ob-sub", text: "You can switch this anytime in Settings." }),
       el("div", { class: "ob-themes" }, [tile("light", "Light", "sun"), tile("dark", "Dark", "moon")]),
       el("div", { class: "ob-actions" }, [
-        el("button", { type: "button", class: "btn ghost", text: "Back", onclick: () => go(3) }),
-        el("button", { type: "button", class: "btn primary", text: "Continue", onclick: () => go(5) }),
+        el("button", { type: "button", class: "btn ghost", text: "Back", onclick: () => go(2) }),
+        el("button", { type: "button", class: "btn primary", text: "Continue", onclick: () => go(4) }),
       ]),
     ];
   }
@@ -323,7 +311,7 @@ export function showOnboarding(auth) {
     ];
   }
 
-  const STEPS = [intro, birthday, role, feedbackNote, theme, whatsNew];
+  const STEPS = [intro, birthday, role, theme, whatsNew];
 
   function render() {
     clear(card);

@@ -1,0 +1,138 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { moduleLoader } from "./modules.mjs";
+
+async function chatPage({ incognito = false, messages = [], id } = {}) {
+  let composer, feed, voice, lastRender;
+  const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
+  let app;
+  class Feed {
+    constructor(callbacks) {
+      feed = this;
+      this.callbacks = callbacks;
+      this.element = app.dom.window.document.createElement("div");
+      this.stream = this.element;
+      this.follower = { attach() {} };
+    }
+    render(value) { lastRender = { ...value, messages: value.messages.map(m => ({ ...m })) }; }
+    mountScrollFollower() {} unmountScrollFollower() {} scrollToBottom() {}
+    updateStreamingBubble() {} finishStreamingBubble() {} setStatusText() {} setStreamingReasoningTimer() {}
+  }
+  const api = {
+    listModels: async () => ({ models: [{ id: "thinking", label: "Stanza" }], default: "thinking" }),
+    listConversations: async () => [],
+    getMessages: async () => ({ conversation: { id, model: "thinking", title: "Original chat" }, messages }),
+    branchConversation: async (_token, parentId, messageId) => {
+      branchCalls.push({ parentId, messageId });
+      const prefix = messages.slice(0, messages.findIndex(m => m.id === messageId));
+      return { conversation: { id: "branch", model: "thinking", title: "Branched chat" },
+               messages: prefix.map(m => ({ ...m, id: `copy-${m.id}`, conversation_id: "branch" })) };
+    },
+    streamChat: async (_token, payload, callbacks) => {
+      payloads.push(structuredClone(payload));
+      const turn = payloads.length;
+      callbacks.onConversation({ id: incognito ? "incognito_test" : payload.conversation_id || "saved", model: "thinking" });
+      callbacks.onUserMessage({ id: `user-${turn}`, role: "user", content: payload.message, attachments: payload.attachments });
+      callbacks.onToken({ delta: `Answer ${turn}` });
+      callbacks.onComplete();
+      callbacks.onAssistantMessage({ id: `assistant-${turn}`, role: "assistant", content: `Answer ${turn}` });
+    },
+    cancelChat: async () => {},
+    exportDocument: async () => { throw Error("Export service unavailable"); },
+  };
+  const stubs = {
+    "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner", name: "Tester" } } }) },
+    "router.js": { navigate() {} },
+    "app-shell.js": { mountAppShell: async () => ({
+      content: app.dom.window.document.querySelector("#app"),
+      setActiveConversation() {}, setConversations() {}, setShareActive() {}, setIncognitoActive() {},
+    }) },
+    "toast.js": { toast: notice => notices.push(notice) },
+    "confirm-modal.js": { openConfirmModal() {}, openPromptModal() {} },
+    "share-modal.js": { openShareModal() {} }, "projects.js": { openMoveChatModal() {} },
+    "markdown.js": { whenMarkdownReady() {}, renderMarkdown: text => text },
+    "voice-overlay.js": { openVoiceOverlay: options => { voice = options; return { close() {} }; } },
+    "api.js": api,
+    "message-feed.js": { MessageFeed: Feed },
+    "export.js": {
+      detectExportIntent: () => ({ exportOnly: false }), buildCanonicalMarkdown: () => "",
+      formatExportFilename: (title, format) => `${title}.${format}`,
+      downloadBlob: (blob, filename) => downloads.push({ blob, filename }),
+      buildClientDocxBlob: options => { converted.push(options); return "docx-blob"; },
+      printDocumentToPdf: options => printed.push(options),
+    },
+    "image-modal.js": { openImageModal() {} },
+  };
+  app = moduleLoader(stubs, { globals: {
+    setTimeout: (fn, milliseconds) => setTimeout(fn, milliseconds).unref(),
+    setInterval: (fn, milliseconds) => setInterval(fn, milliseconds).unref(),
+  } });
+  const actual = await app.load("js/chat/composer.js");
+  stubs["composer.js"] = { ...actual, Composer: class extends actual.Composer {
+    constructor(options) { super(options); composer = this; }
+  } };
+  const page = await app.load("js/pages/chat.js");
+  const unmount = await page.renderChat({ id, incognito });
+  await new Promise(resolve => setImmediate(resolve));
+  const turn = (text, extras = {}) => composer.onSubmit({ text, attachments: [], model: "thinking", studyMode: false, autoSearch: false, ...extras });
+  return { app, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, turn, unmount,
+           voice: () => voice, rendered: () => lastRender };
+}
+
+test("document export falls back to client rendering when the gateway is unavailable", async t => {
+  const page = await chatPage();
+  t.after(page.unmount);
+  page.feed.callbacks.onExport({ title: "Report", content: "A completed answer", format: "docx" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.converted[0].htmlContent, "A completed answer");
+  assert.equal(page.downloads[0].filename, "Report.docx");
+  page.feed.callbacks.onExport({ title: "Report", content: "Another completed answer", format: "pdf" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.printed[0].htmlContent, "Another completed answer");
+});
+
+test("incognito follow-ups send the visible conversation and cap history at 24 messages", async t => {
+  const page = await chatPage({ incognito: true });
+  t.after(page.unmount);
+  await page.turn("Remember my number 731");
+  await page.turn("What number did I give you?");
+  assert.equal(page.payloads[1].history.length, 2);
+  assert.match(page.payloads[1].history[0].content, /731/);
+  assert.equal(page.payloads[1].conversation_id, undefined);
+  for (let i = 0; i < 12; i++) await page.turn(`Next turn ${i}`);
+  assert.equal(page.payloads.at(-1).history.length, 24);
+  assert.equal(page.notices.length, 0);
+});
+
+test("selected voice language reaches the actual outgoing chat request", async t => {
+  const page = await chatPage();
+  t.after(page.unmount);
+  page.composer.onOpenVoiceAssistant();
+  await page.voice().sendTurn("Bonjour", { language: "fr", languageName: "French" });
+  assert.match(page.payloads.at(-1).system_prompt, /Respond fluently and naturally in French/);
+  assert.equal(page.payloads.at(-1).model, "aeon");
+  assert.equal(page.payloads.at(-1).auto_search, false);
+});
+
+for (const action of ["edit", "retry-user", "retry-assistant"]) {
+  test(`${action} sends the replacement to a persisted branch`, async t => {
+    const messages = Array.from({ length: 6 }, (_, i) => ({ id: `original-${i}`, role: i % 2 ? "assistant" : "user", content: `Original turn ${i}` }));
+    const page = await chatPage({ messages, id: "original" });
+    t.after(page.unmount);
+    if (action === "edit") {
+      await page.feed.callbacks.onEditMessage(messages[2]);
+      assert.equal(page.composer.textarea.value, messages[2].content);
+      await page.turn("Replacement text");
+    } else if (action === "retry-user") {
+      await page.feed.callbacks.onRetryMessage(messages[2]);
+    } else {
+      await page.feed.callbacks.onRetryAssistantMessage(messages[3]);
+    }
+    assert.deepEqual(page.branchCalls, [{ parentId: "original", messageId: "original-2" }]);
+    assert.equal(page.payloads.at(-1).conversation_id, "branch");
+    assert.equal(page.app.dom.window.location.hash, "#/app/chat/branch");
+    assert.equal(page.rendered().messages.some(message => message.content === "Original turn 4"), false);
+    assert.equal(messages.length, 6);
+    assert.equal(page.notices.length, 0);
+  });
+}

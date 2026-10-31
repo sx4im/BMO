@@ -255,7 +255,7 @@ def upload_file_endpoint(user, project_id):
             )
 
         return jsonify({
-            "file": record,
+            "file": {key: record[key] for key in store._FILE_LIST_COLUMNS.replace(" ", "").split(",") if key in record},
             "tokens_used": total_tokens,
             "token_budget": PROJECT_KNOWLEDGE_BUDGET_TOKENS,
         }), 201

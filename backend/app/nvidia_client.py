@@ -527,9 +527,11 @@ def build_vision_continuation_messages(
     history: Iterable[dict],
     user_content,
     *,
+    system_prompt: Optional[str] = None,
     history_limit: int = 24,
 ) -> list[dict]:
-    out: list[dict] = [{"role": "system", "content": CONTINUATION_VISION_PROMPT}]
+    prompt = "\n\n".join(filter(None, [system_prompt, CONTINUATION_VISION_PROMPT]))
+    out: list[dict] = [{"role": "system", "content": prompt}]
     history = [m for m in history if m.get("role") in {"user", "assistant"}]
     for m in history[-history_limit:]:
         role = m["role"]
@@ -616,15 +618,21 @@ def iter_response(
 
     if groq_client.is_groq_model(chosen_model):
         if groq_client.is_configured():
+            emitted = False
             try:
-                yield from groq_client.iter_response(
+                for event in groq_client.iter_response(
                     messages,
                     model=chosen_model,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                )
+                ):
+                    if event.get("type") in {"delta", "reasoning_delta"} and event.get("data"):
+                        emitted = True
+                    yield event
                 return
             except Exception as exc:
+                if emitted:
+                    raise
                 logger.warning("Groq inference failed for %s, falling back to Stanza: %s", chosen_model, exc)
                 yield from mistral_client.iter_response(
                     messages,

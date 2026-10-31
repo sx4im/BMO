@@ -5,18 +5,18 @@
 
 import { el, clear, formatTitle } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=71";
-import { getAuth } from "../auth.js?v=31";
-import { navigate } from "../router.js?v=31";
-import { mountAppShell } from "../app-shell.js?v=75";
+import { getAuth } from "../auth.js";
+import { navigate } from "../router.js";
+import { mountAppShell } from "../app-shell.js";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { openShareModal } from "../components/share-modal.js?v=2";
 import { openMoveChatModal } from "./projects.js";
-import { whenMarkdownReady } from "../components/markdown.js?v=34";
+import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=34";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=55";
 import * as api from "../api.js?v=61";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=26";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=27";
 import { MessageFeed } from "../chat/message-feed.js?v=38";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=8";
 import { STUDY_SYSTEM_PROMPT } from "../chat/study-mode.js?v=3";
@@ -96,6 +96,7 @@ export async function renderChat({ id, incognito }) {
   let activeVoiceOnDelta = null;
   let unmounted = false;
   let reconciling = false;
+  let branching = false;
 
   let activeProjectId = null;
   const hashParts = (location.hash || "").split("?");
@@ -815,6 +816,10 @@ export async function renderChat({ id, incognito }) {
       created_at: new Date().toISOString(),
       conversation_id: id || "pending",
     };
+    const incognitoHistory = incognito
+      ? messages.slice(-24).map(({ role, content, attachments }) => ({ role, content: content || "", attachments }))
+      : undefined;
+    while (incognitoHistory?.length && JSON.stringify(incognitoHistory).length > 200000) incognitoHistory.shift();
     messages.push(optimisticUser);
     enteringId = optimisticUser.id;
     searchPreamble = "";
@@ -881,8 +886,9 @@ export async function renderChat({ id, incognito }) {
           conversation_id: (!incognito && id) ? id : undefined,
           project_id: (!incognito && activeProjectId) ? activeProjectId : undefined,
           attachments,
+          history: incognitoHistory,
           model: activeModel,
-          system_prompt: studyMode ? STUDY_SYSTEM_PROMPT : (conversation?.system_prompt || undefined),
+          system_prompt: [studyMode ? STUDY_SYSTEM_PROMPT : conversation?.system_prompt, systemPrompt].filter(Boolean).join("\n\n") || undefined,
           reasoning_effort: reasoningEffort || composer.getReasoningEffort(activeModel),
           auto_search: autoSearch && !studyMode,
           incognito,
@@ -1014,28 +1020,56 @@ export async function renderChat({ id, incognito }) {
     }, 3000);
   }
 
-  function editMessage(message) {
-    if (streamHandler.isStreaming || imageGenerating) return;
+  async function branchBeforeMessage(message) {
+    if (incognito || !id) return true;
+    branching = true;
+    composer.isGenerating = true;
+    composer.syncSendEnabled();
+    try {
+      const branch = await api.branchConversation(auth.token, id, message.id);
+      conversation = branch.conversation;
+      id = conversation.id;
+      messages = branch.messages;
+      history.replaceState(null, "", `#/app/chat/${id}`);
+      shell.setActiveConversation(id);
+      loadConversations();
+      return true;
+    } catch (err) {
+      toast(err.message || "Couldn't branch this conversation", { tone: "error" });
+      return false;
+    } finally {
+      branching = false;
+      composer.isGenerating = false;
+      composer.syncSendEnabled();
+    }
+  }
+
+  async function editMessage(message) {
+    if (streamHandler.isStreaming || imageGenerating || branching) return;
     const idx = messages.findIndex((x) => x.id === message.id);
     if (idx === -1) return;
+    if (!await branchBeforeMessage(message)) return;
     messages = messages.slice(0, idx);
+    composer.pendingAttachments = [...(message.attachments || [])];
+    composer.renderAttachmentsBar();
     composer.setText(message.content);
     renderUI();
     composer.focus();
   }
 
-  function retryMessage(message) {
-    if (streamHandler.isStreaming || imageGenerating) return;
+  async function retryMessage(message) {
+    if (streamHandler.isStreaming || imageGenerating || branching) return;
     const idx = messages.findIndex((x) => x.id === message.id);
     if (idx === -1) return;
+    if (!await branchBeforeMessage(message)) return;
     messages = messages.slice(0, idx);
     renderUI();
     if (composer.isImageMode()) {
-      sendImageMessage(message.content);
+      sendImageMessage(message.content, message.attachments || []);
     } else {
       handleComposerSubmit({
         text: message.content,
-        attachments: [],
+        attachments: message.attachments || [],
         model: composer.currentModel,
         reasoningEffort: composer.getReasoningEffort(),
         autoSearch: composer.autoSearch,
@@ -1044,8 +1078,8 @@ export async function renderChat({ id, incognito }) {
     }
   }
 
-  function retryAssistantMessage(assistantMsg) {
-    if (streamHandler.isStreaming || imageGenerating) return;
+  async function retryAssistantMessage(assistantMsg) {
+    if (streamHandler.isStreaming || imageGenerating || branching) return;
     const idx = messages.findIndex((x) => x.id === assistantMsg.id);
     if (idx === -1) return;
     let userIdx = -1;
@@ -1054,6 +1088,7 @@ export async function renderChat({ id, incognito }) {
     }
     if (userIdx === -1) return;
     const userMsg = messages[userIdx];
+    if (!await branchBeforeMessage(userMsg)) return;
     messages = messages.slice(0, userIdx);
     renderUI();
     if (composer.isImageMode()) {

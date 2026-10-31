@@ -160,6 +160,21 @@ def patch_conversation(user, conversation_id):
 
 # ---------- Shared Conversations ----------
 
+@user_bp.post("/conversations/<conversation_id>/branch")
+@require_user
+def branch_conversation(user, conversation_id):
+    payload = request.get_json(silent=True) or {}
+    message_id = payload.get("before_message_id")
+    if not isinstance(message_id, str) or not message_id:
+        return bad_request("before_message_id is required", 422)
+    try:
+        branch = store.branch_conversation(conversation_id, user.id, message_id)
+    except ValueError as exc:
+        return bad_request(str(exc), 422)
+    if not branch:
+        return bad_request("conversation or message not found", 404)
+    return jsonify(branch), 201
+
 @user_bp.post("/conversations/<conversation_id>/share")
 @require_user
 def share_conversation(user, conversation_id):

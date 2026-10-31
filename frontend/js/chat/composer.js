@@ -6,11 +6,11 @@
 
 import { el, clear } from "../utils.js?v=20";
 import { icon } from "../icons.js?v=66";
-import { FileIcon } from "../components/file-icon.js?v=4";
+import { FileIcon } from "../components/file-icon.js?v=5";
 import { toast } from "../components/toast.js?v=58";
 import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
-import { getAuth } from "../auth.js?v=31";
+import { getAuth } from "../auth.js";
 import * as api from "../api.js?v=60";
 
 export const URL_REGEX = /(?:https?:\/\/|www\.)[^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’]))|\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?::\d+)?(?:[\/?#][^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’])))?/gi;
@@ -207,7 +207,7 @@ export class Composer {
 
     this.documentInput = el("input", {
       type: "file",
-      accept: ".pdf,.docx,.zip,.pptx,.xlsx",
+      accept: ".pdf,.docx,.zip,.pptx,.xlsx,.txt,.md,.json",
       multiple: true,
       style: "display:none",
       onchange: async (e) => {
@@ -236,7 +236,7 @@ export class Composer {
     // Attachment menu (+)
     const ATTACH_ITEMS = [
       { ic: "image", label: "Image", desc: "Upload a photo or picture", open: () => this.imageInput.click() },
-      { ic: "fileText", label: "File", desc: ".pdf, .docx, .xlsx, .pptx, .zip", open: () => this.documentInput.click() },
+      { ic: "fileText", label: "File", desc: "Documents, presentations, text & data", open: () => this.documentInput.click() },
       { ic: "camera", label: "Camera", desc: "Take a photo to attach", open: () => this.cameraInput.click() },
     ];
     this.attachmentMenu = el("div", { class: "attachment-menu", role: "menu" },
@@ -846,22 +846,27 @@ export class Composer {
     clear(this.attachmentsBar);
     for (const f of this.uploadingFiles) {
       const isImg = f.file?.type?.startsWith("image/") || (f.name && /\.(png|jpe?g|webp|gif|svg)$/i.test(f.name));
-      const children = [
-        el("span", { class: "spinner", html: icon("loader", { width: 14, height: 14 }) }),
-      ];
+      const children = [];
       if (isImg && f.previewUrl) {
         children.push(el("img", { src: f.previewUrl, alt: f.name || "uploading image" }));
       } else {
         const uploadExt = (f.name || "").split(".").pop() || "";
-        children.push(el("span", { class: "ic", html: FileIcon(uploadExt, 16) }));
+        children.push(el("span", { class: "ic", html: FileIcon(uploadExt, 36) }));
       }
-      children.push(el("span", { class: "name line-clamp-1", text: f.name || "Uploading..." }));
+      children.push(el("span", { class: "attachment-info" }, [
+        el("span", { class: "name", text: f.name || "File", title: f.name || "File" }),
+        el("span", { class: "attachment-status", role: "status" }, [
+          el("span", { class: "spinner", html: icon("loader", { width: 11, height: 11 }) }),
+          "Uploading…",
+        ]),
+      ]));
       children.push(
         el("button", {
           type: "button",
           class: "x",
           "aria-label": "Cancel upload",
           onclick: () => {
+            f.controller.abort();
             this.uploadingFiles = this.uploadingFiles.filter((x) => x !== f);
             this.renderAttachmentsBar();
             this.syncSendEnabled();
@@ -870,7 +875,7 @@ export class Composer {
         })
       );
       this.attachmentsBar.append(
-        el("div", { class: "composer-attachment-chip loading" }, children)
+        el("div", { class: "composer-attachment-chip loading", "aria-busy": "true" }, children)
       );
     }
 
@@ -887,9 +892,13 @@ export class Composer {
         }));
       } else {
         const ext = (a.filename || "").split(".").pop()?.toLowerCase();
-        children.push(el("span", { class: "ic", html: FileIcon(ext, 16) }));
+        children.push(el("span", { class: "ic", html: FileIcon(ext, 36) }));
       }
-      children.push(el("span", { class: "name line-clamp-1", text: a.filename || "attachment" }));
+      const fileType = (a.filename || "").split(".").pop()?.toUpperCase() || "FILE";
+      children.push(el("span", { class: "attachment-info" }, [
+        el("span", { class: "name", text: a.filename || "Attachment", title: a.filename || "Attachment" }),
+        el("span", { class: "attachment-status", text: `${fileType} · Ready` }),
+      ]));
       children.push(
         el("button", {
           type: "button",
@@ -925,16 +934,17 @@ export class Composer {
       try { previewUrl = URL.createObjectURL(file); } catch {}
     }
 
-    const uploadEntry = { file, name: file.name, previewUrl };
+    const controller = new AbortController();
+    const uploadEntry = { file, name: file.name, previewUrl, controller };
     this.uploadingFiles.push(uploadEntry);
     this.renderAttachmentsBar();
     this.syncSendEnabled();
 
     try {
-      const attachment = await api.uploadAttachment(token, file);
-      this.pendingAttachments.push(attachment);
+      const attachment = await api.uploadAttachment(token, file, controller.signal);
+      if (!controller.signal.aborted) this.pendingAttachments.push(attachment);
     } catch (err) {
-      toast(err.message || "Upload failed", { tone: "error" });
+      if (!controller.signal.aborted) toast(err.message || "Upload failed", { tone: "error" });
     } finally {
       this.uploadingFiles = this.uploadingFiles.filter((x) => x !== uploadEntry);
       if (previewUrl) {

@@ -8,7 +8,7 @@ import { icon } from "../icons.js?v=72";
 import { brandMark, logo } from "../components/logo.js?v=32";
 import { messageBubble } from "../components/message.js?v=36";
 import { whenMarkdownReady } from "../components/markdown.js?v=34";
-import { navigate } from "../router.js?v=31";
+import { navigate } from "../router.js";
 import * as api from "../api.js?v=62";
 
 export async function renderSharedChat({ shareId } = {}) {

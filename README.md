@@ -70,12 +70,15 @@ The client is built with clean, dependency-free HTML, CSS, and modern ES modules
 Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (powers Stanza 2.5 with `ministral-8b-2512`), and an NVIDIA API key (powers Nexos 3.0, Vision, and TTS).
 
 ### 1. Database setup
-Run the SQL scripts in `backend/migrations/` in numerical order inside your Supabase project SQL editor (`0001_init.sql` → `0005_conversation_pinned.sql`):
+Run these forward migrations from `backend/migrations/` in order inside your Supabase project SQL editor. Files ending in `_down.sql` undo migrations; use them only for an intentional rollback.
 1. `0001_init.sql` — base schema (profiles, conversations, messages, feedback, storage bucket, RLS)
 2. `0002_message_reasoning.sql` — adds `reasoning` column to messages
 3. `0003_usage_events.sql` — token metering and usage tracking
 4. `0004_onboarding.sql` — onboarding surveys and profile flags
 5. `0005_conversation_pinned.sql` — pinned conversation support
+6. `0006_shared_conversations.sql` — public conversation snapshots
+7. `0007_projects.sql` — projects, knowledge files, and conversation membership
+8. `0008_projects_hardening.sql` — project constraints and ownership validation
 
 ### 2. Start the backend
 ```bash
@@ -86,6 +89,12 @@ cp .env.example .env
 python -m app.main
 ```
 Verify the server with `curl http://localhost:8000/health`.
+
+Chat cancellation uses a private SQLite registry shared by Gunicorn workers on
+the same host. Set `BMO_STATE_DIR` to a writable private directory to override
+its default temporary location. Deployments spanning multiple hosts must use
+shared coordination before enabling that topology; separate local files do
+not provide cross-host cancellation.
 
 ### 3. Start the frontend
 ```bash
