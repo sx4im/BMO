@@ -8,7 +8,8 @@
  */
 
 import { el, clear, formatTitle } from "../utils.js?v=51";
-import { icon, formatDocIcon } from "../icons.js?v=72";
+import { icon } from "../icons.js?v=73";
+import { FileIcon } from "../components/file-icon.js?v=1";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
 import * as api from "../api.js?v=30";
@@ -650,7 +651,7 @@ function renderFilesCard(project, auth) {
           },
         },
         [
-        el("span", { class: "file-icon", html: formatDocIcon(ext, { width: 16, height: 18 }) }),
+        el("span", { class: "file-icon", html: FileIcon(ext, 16) }),
         el("div", { class: "file-meta" }, [
           el("span", { class: "file-name", text: file.filename, title: file.filename }),
           el("span", {

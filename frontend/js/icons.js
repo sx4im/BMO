@@ -119,14 +119,3 @@ export function icon(name, opts = {}) {
   return SVG_BASE(paths, { name, ...opts });
 }
 
-export function formatDocIcon(fmt, { width = 18, height = 22 } = {}) {
-  const f = (fmt || "md").toLowerCase();
-  if (f === "pdf") {
-    return `<svg width="${width}" height="${height}" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2 3a2 2 0 0 1 2-2h9.586a2 2 0 0 1 1.414.586l3.414 3.414A2 2 0 0 1 19 6.414V21a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3z" fill="#EF4444"/><path d="M13 1v4.5a1.5 1.5 0 0 0 1.5 1.5H19" fill="#FCA5A5"/><path d="M9.8 11.5c.3 1.3 1.3 2.9 2.5 3.4.4.2.8.2 1 .1.3-.2.3-.6.1-1-.4-.8-1.5-1.5-3.6-2.5zm0 0c-.8-1.2-1.3-2.6-1.1-3.2.1-.3.4-.5.7-.5.5 0 .8.8.4 2.2zm0 0c-1.3.8-3.1 1.6-4 1.7-.4.1-.6.3-.6.6 0 .4.4.7 1 .7 1 0 2.3-.9 3.6-2.5z" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  }
-  if (f === "docx" || f === "word" || f === "doc") {
-    return `<svg width="${width}" height="${height}" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2 3a2 2 0 0 1 2-2h9.586a2 2 0 0 1 1.414.586l3.414 3.414A2 2 0 0 1 19 6.414V21a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3z" fill="#2563EB"/><path d="M13 1v4.5a1.5 1.5 0 0 0 1.5 1.5H19" fill="#93C5FD"/><text x="10" y="17.2" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="8.5" font-weight="800" text-anchor="middle">W</text></svg>`;
-  }
-  // Markdown default
-  return `<svg width="${width}" height="${height}" viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2 3a2 2 0 0 1 2-2h9.586a2 2 0 0 1 1.414.586l3.414 3.414A2 2 0 0 1 19 6.414V21a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3z" fill="#3B82F6"/><path d="M13 1v4.5a1.5 1.5 0 0 0 1.5 1.5H19" fill="#93C5FD"/><path d="M5.5 11h9M5.5 14.5h9M5.5 18h5.5" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/></svg>`;
-}

@@ -5,7 +5,8 @@
  */
 
 import { el, clear } from "../utils.js?v=20";
-import { icon, formatDocIcon } from "../icons.js?v=65";
+import { icon } from "../icons.js?v=66";
+import { FileIcon } from "../components/file-icon.js?v=1";
 import { toast } from "../components/toast.js?v=58";
 import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
@@ -851,7 +852,8 @@ export class Composer {
       if (isImg && f.previewUrl) {
         children.push(el("img", { src: f.previewUrl, alt: f.name || "uploading image" }));
       } else {
-        children.push(el("span", { class: "ic", html: icon("fileText", { width: 14, height: 14 }) }));
+        const uploadExt = (f.name || "").split(".").pop() || "";
+        children.push(el("span", { class: "ic", html: FileIcon(uploadExt, 16) }));
       }
       children.push(el("span", { class: "name line-clamp-1", text: f.name || "Uploading..." }));
       children.push(
@@ -885,11 +887,7 @@ export class Composer {
         }));
       } else {
         const ext = (a.filename || "").split(".").pop()?.toLowerCase();
-        if (["pdf", "docx", "md"].includes(ext)) {
-          children.push(el("span", { class: "ic", html: formatDocIcon(ext, { width: 15, height: 18 }) }));
-        } else {
-          children.push(el("span", { class: "ic", html: icon("fileText", { width: 14, height: 14 }) }));
-        }
+        children.push(el("span", { class: "ic", html: FileIcon(ext, 16) }));
       }
       children.push(el("span", { class: "name line-clamp-1", text: a.filename || "attachment" }));
       children.push(
