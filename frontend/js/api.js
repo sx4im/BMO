@@ -704,6 +704,50 @@ export async function uploadProjectFile(token, projectId, file) {
   }
 }
 
+export function uploadProjectFileWithProgress(token, projectId, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const attempt = (t) => {
+      const xhr = new XMLHttpRequest();
+      const fd = new FormData();
+      fd.append("file", file);
+      xhr.open("POST", `${config.apiUrl}/projects/${projectId}/files`);
+      const headers = authHeaders(t);
+      for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(Math.min(1, e.loaded / e.total));
+      };
+      xhr.onload = async () => {
+        if (xhr.status === 401) {
+          try {
+            const newAuth = await refreshSession();
+            if (newAuth?.token) return attempt(newAuth.token);
+          } catch (_) { /* fall through */ }
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch (_) {
+            reject(new Error("Upload failed: bad response"));
+          }
+        } else {
+          let detail = {};
+          try { detail = JSON.parse(xhr.responseText); } catch (_) {}
+          const error = new Error(detail.detail || `Upload failed (${xhr.status})`);
+          error.status = xhr.status;
+          reject(error);
+        }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed: network error"));
+      xhr.send(fd);
+    };
+    attempt(getAuth().auth?.token || token);
+  });
+}
+
+export async function getProjectFilePreview(token, projectId, fileId) {
+  return request(`/projects/${projectId}/files/${fileId}`, { token });
+}
+
 export async function deleteProjectFile(token, projectId, fileId) {
   return request(`/projects/${projectId}/files/${fileId}`, {
     method: "DELETE",

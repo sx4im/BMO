@@ -31,6 +31,7 @@ def list_projects_endpoint(user):
     include_archived = request.args.get("archived", "false").lower() == "true"
     projects = store.list_projects(user.id, include_archived=include_archived)
     stats = store.get_projects_file_stats(user.id)
+    chat_stats = store.get_projects_chat_stats(user.id)
     result = []
     for p in projects:
         p_stats = stats.get(p["id"], {"file_count": 0, "tokens_used": 0})
@@ -39,6 +40,7 @@ def list_projects_endpoint(user):
             "file_count": p_stats["file_count"],
             "tokens_used": p_stats["tokens_used"],
             "token_budget": PROJECT_KNOWLEDGE_BUDGET_TOKENS,
+            "chat_count": chat_stats.get(p["id"], 0),
         })
     return jsonify(result)
 
@@ -280,6 +282,25 @@ def delete_file_endpoint(user, project_id, file_id):
         "file_id": file_id,
         "tokens_used": tokens_used,
         "token_budget": PROJECT_KNOWLEDGE_BUDGET_TOKENS,
+    })
+
+
+@project_bp.get("/projects/<project_id>/files/<file_id>")
+@require_user
+def get_file_endpoint(user, project_id, file_id):
+    if not store.get_project(project_id, user.id):
+        return bad_request("project not found", 404)
+    f = store.get_project_file(file_id, user.id)
+    if not f or f.get("project_id") != project_id:
+        return bad_request("file not found", 404)
+    text = f.get("extracted_text") or ""
+    # Cap preview payload; full text stays server-side for knowledge assembly.
+    return jsonify({
+        "id": f["id"],
+        "filename": f.get("filename"),
+        "token_estimate": f.get("token_estimate", 0),
+        "preview": text[:20000],
+        "truncated": len(text) > 20000,
     })
 
 

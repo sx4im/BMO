@@ -854,6 +854,23 @@ def get_projects_file_stats(user_id: str) -> dict[str, dict[str, int]]:
     return stats
 
 
+def get_projects_chat_stats(user_id: str) -> dict[str, int]:
+    """Return {project_id: chat_count} for all conversations owned by user."""
+    res = _execute(
+        supabase()
+        .table("conversations")
+        .select("project_id")
+        .eq("user_id", user_id)
+        .not_.is_("project_id", "null")
+    )
+    stats: dict[str, int] = {}
+    for row in (res.data or []):
+        pid = row.get("project_id")
+        if pid:
+            stats[pid] = stats.get(pid, 0) + 1
+    return stats
+
+
 def list_project_conversations(project_id: str, user_id: str) -> list[dict]:
     res = _execute(
         supabase()
