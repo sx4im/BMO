@@ -24,7 +24,7 @@ RLS protects preferences, skills and references. The skill reference FK includes
 
 Skill names are 1–64 lowercase ASCII letters, numbers and single hyphens, without leading or trailing hyphens, and unique per user. Description is required (1–1,024 characters). Instructions may be empty and are limited to 20,000 characters. An update preserves imported references.
 
-Saved chats retain `conversations.active_skills`; omitting `skill_ids` reuses them and sending `[]` clears them. Incognito callers send their selection each turn and no conversation is stored. User messages keep immutable `{id, name}` snapshots for historical chips, including branches and shares. Disabled or deleted skills are excluded when creating a branch; historical labels remain.
+Skills apply only to the message that includes their `skill_ids`. Omitting `skill_ids` or sending `[]` uses no skills. The composer clears its selection after sending and never restores skills from a saved conversation. Legacy `conversations.active_skills` selections are cleared on the next chat request. Incognito callers also select skills per message and no conversation is stored. User messages keep immutable `{id, name}` snapshots for historical chips, including branches and shares. Disabled or deleted skills are excluded when creating a branch; historical labels remain.
 
 Prompt order is global instructions, base prompt and its explicit safety precedence, active skills with references, project instructions/knowledge, then conversation/study/voice instructions. All user-written fields use the shared delimiter escaping helper. Text, vision and document continuation batches receive this context.
 
@@ -65,8 +65,8 @@ npm --prefix frontend run test:run
 
 - Save, reload and clear Instructions; check the counter at 4,000 characters and its effect in a normal, project, incognito and voice chat.
 - Write a skill; edit its prefilled fields, toggle it, export it, delete it and reimport its SKILL.md. Duplicate names must fail for the same user.
-- Import a renamed .md file with valid frontmatter; confirm its card uses the metadata name and description. On a throttled connection, check transfer percentages and the checking state. Select **Use in chat**, send a message and confirm its skill chip and instructions apply.
+- Import a renamed .md file with valid frontmatter; confirm its card uses the metadata name and description. On a throttled connection, check transfer percentages and the checking state. Select the skill card title to open a chat, send a message and confirm its skill label and instructions apply for that message only.
 - Try missing name/description, a script, binary, NUL-bearing file or ZIP; each must show a red inline error without a toast. Retry with a valid file. Check a late list response does not clear the feedback.
 - Confirm long descriptions occupy one line in light/dark and mobile/desktop, and sent attachment icons are smaller than composer previews. Import in another tab and return to chat; the `/` picker should include the new skill.
-- Type `/`, filter, navigate with arrows, select with Enter/Tab or touch, close with Esc, and remove chips. Check the three-skill limit, sent chips and follow-ups after reload; edit/retry/attachments/streaming must still work.
+- Type `/`, filter, navigate with arrows, select with Enter/Tab or touch, close with Esc, and remove chips. Check the three-skill limit and historical labels. Follow-ups and reloaded chats must start without a selection; selecting a skill again applies it to that message. Edit/retry/attachments/streaming must still work.
 - Repeat in light/dark, desktop/mobile and reduced motion. Sign into a second account and confirm the first account’s instructions and skills are unavailable.

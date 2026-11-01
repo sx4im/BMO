@@ -16,7 +16,7 @@ import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=3
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=56";
 import * as api from "../api.js?v=64";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=33";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=34";
 import { MessageFeed } from "../chat/message-feed.js?v=42";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=9";
 import { STUDY_SYSTEM_PROMPT } from "../chat/study-mode.js?v=3";
@@ -775,7 +775,6 @@ export async function renderChat({ id, incognito }) {
         activeProjectId = conversation.project_id;
       }
       messages = Array.isArray(data?.messages) ? data.messages : [];
-      composer.skillPicker.setSelected(conversation?.active_skills || []);
       if (conversation?.model) {
         composer.currentModel = conversation.model;
       }
@@ -796,6 +795,7 @@ export async function renderChat({ id, incognito }) {
   async function handleComposerSubmit(turn) {
     const { text, attachments, model, reasoningEffort, studyMode, autoSearch = true, systemPrompt } = turn;
     const skills = turn.skills || composer.skillPicker.selected;
+    composer.skillPicker.setSelected([]);
 
     if (model === "image") {
       await sendImageMessage(text, attachments);

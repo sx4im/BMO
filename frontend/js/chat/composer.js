@@ -336,6 +336,7 @@ export class Composer {
         this.syncUrlHighlight();
       },
       onscroll: () => {
+        this.inputRow.style.setProperty("--composer-scroll-top", `${this.textarea.scrollTop}px`);
         if (this.backdrop) {
           this.backdrop.scrollTop = this.textarea.scrollTop;
           this.backdrop.scrollLeft = this.textarea.scrollLeft;
@@ -374,12 +375,18 @@ export class Composer {
     });
     this.skillPicker = new SkillPicker(this.textarea, {
       onAddFiles: () => this.documentInput.click(),
-      onSelectionChange: () => { this.updateComposerForMode(); this.autoSize(this.textarea); },
+      onSelectionChange: () => { this.updateComposerForMode(); this.syncSkillLayout(); },
     });
     this.inputWrap = el("div", { class: "composer-input-wrap" }, [
       this.backdrop,
       this.textarea,
     ]);
+    this.inputRow = el("div", { class: "composer-input-row" }, [this.skillPicker.chips, this.inputWrap]);
+    if (typeof ResizeObserver !== "undefined") {
+      this.skillLayoutObserver = new ResizeObserver(() => this.syncSkillLayout());
+      this.skillLayoutObserver.observe(this.inputRow);
+      this.skillLayoutObserver.observe(this.skillPicker.chips);
+    }
 
     this.sendBtn = el("button", {
       type: "submit",
@@ -420,7 +427,7 @@ export class Composer {
       this.skillPicker.popup,
       this.skillPicker.preview,
       this.attachmentsBar,
-      el("div", { class: "composer-input-row" }, [this.skillPicker.chips, this.inputWrap]),
+      this.inputRow,
       this.composerToolbar,
     ]);
 
@@ -513,6 +520,15 @@ export class Composer {
       this.backdrop.scrollTop = node.scrollTop;
       this.backdrop.scrollLeft = node.scrollLeft;
     }
+  }
+
+  syncSkillLayout() {
+    this.inputRow.classList.remove("skills-stacked");
+    const width = this.skillPicker.chips.hidden ? 0 : this.skillPicker.chips.scrollWidth + 4;
+    const inline = width < this.inputRow.clientWidth - 80;
+    this.inputRow.classList.toggle("skills-stacked", width > 0 && !inline);
+    this.inputRow.style.setProperty("--skill-indent", `${inline ? width : 0}px`);
+    this.autoSize(this.textarea);
   }
 
   syncUrlHighlight() {
@@ -1253,6 +1269,7 @@ export class Composer {
   }
 
   destroy() {
+    this.skillLayoutObserver?.disconnect();
     this.skillPicker.destroy();
     this.stopRecordTimer();
     this.stopWaveMeter();

@@ -67,7 +67,7 @@ test("Chat and Projects reuse the same shell and teardown clears projects", asyn
   assert.equal(first.content, second.content);
   assert.equal(app.dom.window.document.querySelector(".mobile-share-btn").style.display, "none");
   app.dom.window.document.querySelector(".mobile-share-btn").click();
-  assert.equal(app.dom.window.document.querySelector(".app-footer").textContent.trim(), "Saim Shafique");
+  assert.equal(app.dom.window.document.querySelector(".app-footer").textContent.trim(), "Built by Saim Shafique");
   await firstModule.loadProjects();
   assert.equal(firstModule.getShellState().projects.length, 1);
   firstModule.tearDownShell();
@@ -267,4 +267,27 @@ test("onboarding completes without a removed Support step", async () => {
   clickPrimary();
   assert.equal(document.querySelector("#onboarding"), null);
   assert.equal(saved.length, 1);
+});
+
+test("Settings shares one panel and keeps appearance and usage controls", async () => {
+  let app;
+  const themes = [];
+  const usage = { session: { percent: 29, resets_in_seconds: 120 }, weekly: { percent: 10, resets_in_seconds: 240 } };
+  app = moduleLoader({
+    "icons.js": { icon: () => "" },
+    "avatar.js": { avatar: () => app.dom.window.document.createElement("span") },
+    "app-shell.js": { mountAppShell: async () => ({ content: app.dom.window.document.querySelector("#app"), setActiveConversation() {}, setIncognitoActive() {} }), tearDownShell() {}, getShellState: () => ({ usage }) },
+    "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner", name: "Saim", email: "user@example.invalid" } } }), signOut() {}, setUserDisplayName() {} },
+    "prefs.js": { getThemePref: () => "light", setThemePref: value => themes.push(value) },
+    "toast.js": { toast() {} }, "confirm-modal.js": { openConfirmModal() {} }, "api.js": { getUsage: async () => usage },
+  });
+  const { renderSettings } = await app.load("js/pages/settings.js");
+  await renderSettings();
+  const doc = app.dom.window.document;
+  assert.equal(doc.querySelectorAll(".settings-card").length, 1);
+  assert.deepEqual([...doc.querySelectorAll(".section-title h2")].map(n => n.textContent), ["Profile", "Plan usage"]);
+  doc.querySelector('[title="Dark"]').click();
+  assert.deepEqual(themes, ["dark"]);
+  assert.equal(doc.querySelector('[title="Dark"]').getAttribute('aria-pressed'), 'true');
+  assert.match(doc.querySelector('.usage-list').textContent, /29% used/);
 });

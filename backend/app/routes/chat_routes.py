@@ -336,7 +336,7 @@ def chat(user):
         existing_conversation = store.get_conversation(conversation_id, user.id)
         if not existing_conversation:
             return bad_request("conversation not found", 404)
-    skill_ids = payload.get("skill_ids", (existing_conversation or {}).get("active_skills") or [])
+    skill_ids = payload.get("skill_ids", [])
     try:
         active_skills = skill_service.resolve_skills(user.id, skill_ids)
     except LookupError as exc:
@@ -364,7 +364,7 @@ def chat(user):
                 "model": model or "thinking",
                 "system_prompt": system_prompt,
                 "title": "Incognito Chat",
-                "active_skills": skill_ids,
+                "active_skills": [],
             }
             history = [
                 {"role": m["role"], "content": m["content"], "attachments": m.get("attachments")}
@@ -379,8 +379,8 @@ def chat(user):
         elif conversation_id:
             convo = existing_conversation
             convo_patch = {}
-            if "skill_ids" in payload and skill_ids != (convo.get("active_skills") or []):
-                convo_patch["active_skills"] = skill_ids
+            if convo.get("active_skills"):
+                convo_patch["active_skills"] = []
             if model and model != convo.get("model"):
                 convo_patch["model"] = model
             if system_prompt is not None and system_prompt != convo.get("system_prompt"):
@@ -407,7 +407,7 @@ def chat(user):
                 "project_id": project_id,
                 "title": title_seed,
                 "_new": True,
-                "active_skills": skill_ids,
+                "active_skills": [],
             }
             history = []
             user_message = {
@@ -582,7 +582,6 @@ def chat(user):
                         model=convo.get("model") or model,
                         system_prompt=convo.get("system_prompt"),
                         project_id=convo.get("project_id"),
-                        **({"active_skills": skill_ids} if skill_ids else {}),
                     )
                     real_msg = store.add_message(
                         real["id"],

@@ -4577,16 +4577,6 @@ button:hover .icon-dislike,
   border-top: none;
 }
 
-/* Footer ("Built by Saim Shafique") shows only on active chat pages */
-.app-footer {
-  display: none;
-}
-
-body:has(.chat-page:not(.is-empty)) .app-footer,
-.app-shell:has(.chat-page:not(.is-empty)) .app-footer {
-  display: block;
-}
-
 /* =============================================================
    Empty chat (New conversation) — Centered Hero Layout (Claude/ChatGPT style)
    ============================================================= */
@@ -4742,15 +4732,17 @@ body:has(.chat-page.is-empty) .tools-menu,
 }
 
 .composer-input-row {
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  column-gap: 4px;
+  position: relative;
+  overflow: hidden;
 }
 
 .composer-input-row .composer-input-wrap {
-  flex: 1 1 100px;
-  width: auto;
+  width: 100%;
+}
+
+.composer-input-row textarea,
+.composer-input-row .composer-backdrop {
+  text-indent: var(--skill-indent, 0px);
 }
 
 .composer-backdrop {
@@ -7176,6 +7168,12 @@ body:has(.chat-page.is-empty) .tools-menu,
   margin-top: 16px;
 }
 
+.settings-section + .settings-section {
+  margin-top: 28px;
+  padding-top: 28px;
+  border-top: 1px solid var(--hairline);
+}
+
 .warning-card {
   background: var(--surface-card);
   border-color: var(--hairline-strong);
@@ -7751,9 +7749,9 @@ body:has(.chat-page.is-empty) .tools-menu,
 }
 
 .ob-title {
-  font-family: "Poppins", var(--font-sans);
+  font-family: "Rubik", var(--font-sans);
   font-size: 25px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.01em;
   color: var(--ink);
   margin: 0 0 8px;
@@ -12197,7 +12195,11 @@ em {
 .skill-option-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-popup-empty { padding: 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .composer-skill-chips, .message-skill-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.composer-skill-chips { padding: 6px 0 0 4px; max-width: 100%; }
+.composer-skill-chips { position: absolute; top: 0; left: 0; z-index: 3; padding: 6px 0 0 4px; width: max-content; flex-wrap: nowrap; transform: translateY(calc(-1 * var(--composer-scroll-top, 0px))); }
+.composer-skill-chips .skill-chip { white-space: nowrap; }
+.composer-skill-chips .skill-name { white-space: inherit; }
+.skills-stacked .composer-skill-chips { position: static; width: auto; max-width: 100%; flex-wrap: wrap; transform: none; }
+.skills-stacked .skill-chip { white-space: normal; }
 .message-skill-chips { display: inline; }
 .message-skill-chips .skill-chip { display: inline; font-size: inherit; }
 .message-skill-chips .skill-chip + .skill-chip { margin-inline-start: 6px; }

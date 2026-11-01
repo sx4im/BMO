@@ -217,6 +217,7 @@ export async function mountAppShell() {
   const footer = el("footer", {
     class: "app-footer",
   }, [
+    el("span", { text: "Built by " }),
     el("a", {
       href: "https://saimshafique.com",
       target: "_blank",

@@ -135,7 +135,7 @@ def test_chat_rejects_bad_skill_ids_before_writes(gateway, headers, db, ids, sta
     assert not db.rows["messages"]
 
 
-def test_disabled_duplicate_and_stored_foreign_skills_are_rejected(gateway, headers, db):
+def test_disabled_and_duplicate_selections_rejected_and_legacy_state_ignored(gateway, headers, db, monkeypatch):
     owned = skill(db)
     sid = owned["id"]
     assert gateway.post("/chat", headers=headers, json={"message": "hi", "skill_ids": [sid, sid]}).status_code == 422
@@ -143,11 +143,15 @@ def test_disabled_duplicate_and_stored_foreign_skills_are_rejected(gateway, head
     assert gateway.post("/chat", headers=headers, json={"message": "hi", "skill_ids": [sid]}).status_code == 404
     foreign = skill(db, user="other")
     db.rows["conversations"] = [{"id": "chat", "user_id": "owner", "active_skills": [foreign["id"]]}]
-    assert gateway.post("/chat", headers=headers, json={"message": "hi", "conversation_id": "chat"}).status_code == 404
-    assert not db.rows["messages"]
+    captured = stream(monkeypatch)
+    response = gateway.post("/chat", headers=headers, json={"message": "hi", "conversation_id": "chat", "auto_search": False})
+    assert response.status_code == 200
+    response.get_data()
+    assert "<active_skills>" not in captured[-1][0]["content"]
+    assert store.get_conversation("chat", "owner")["active_skills"] == []
 
 
-def test_chat_prompt_order_persists_skills_followups_clear_and_branch(gateway, headers, db, monkeypatch):
+def test_chat_prompt_order_uses_skills_once_and_preserves_message_labels(gateway, headers, db, monkeypatch):
     first = skill(db)
     extra = [skill(db, name=f"other-{i}") for i in range(2)]
     ids = [first["id"]] + [s["id"] for s in extra]
@@ -158,7 +162,7 @@ def test_chat_prompt_order_persists_skills_followups_clear_and_branch(gateway, h
     assert response.status_code == 200
     assert "Reviewed." in response.get_data(as_text=True)
     convo = db.rows["conversations"][0]
-    assert convo["active_skills"] == ids
+    assert convo.get("active_skills", []) == []
     saved_user = next(m for m in db.rows["messages"] if m["role"] == "user")
     assert saved_user["skills"] == [{"id": s["id"], "name": s["name"]} for s in [first] + extra]
     system = captured[0][0]["content"]
@@ -167,15 +171,15 @@ def test_chat_prompt_order_persists_skills_followups_clear_and_branch(gateway, h
     followup = gateway.post("/chat", headers=headers, json={"message": "Continue", "conversation_id": convo["id"], "auto_search": False})
     assert followup.status_code == 200
     assert "Reviewed." in followup.get_data(as_text=True)
-    assert "<active_skills>" in captured[-1][0]["content"]
+    assert "<active_skills>" not in captured[-1][0]["content"]
     second_user = [m for m in db.rows["messages"] if m["role"] == "user"][-1]
     branch = store.branch_conversation(convo["id"], "owner", second_user["id"])
-    assert branch["conversation"]["active_skills"] == ids
+    assert branch["conversation"].get("active_skills", []) == []
     assert branch["messages"][0]["skills"] == saved_user["skills"]
     cleared = gateway.post("/chat", headers=headers, json={"message": "Without skills", "conversation_id": convo["id"], "skill_ids": [], "auto_search": False})
     assert "Reviewed." in cleared.get_data(as_text=True)
     assert "<active_skills>" not in captured[-1][0]["content"]
-    assert store.get_conversation(convo["id"], "owner")["active_skills"] == []
+    assert store.get_conversation(convo["id"], "owner").get("active_skills", []) == []
     assert saved_user["skills"]  # immutable historical labels
 
 

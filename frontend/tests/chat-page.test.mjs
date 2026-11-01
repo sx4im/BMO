@@ -152,20 +152,18 @@ for (const action of ["edit", "retry-user", "retry-assistant"]) {
   });
 }
 
-test("saved skills load as chips, follow-ups send them, and removal clears the next request", async t => {
+test("skills apply once and saved conversations do not restore them", async t => {
   const skills = [{ id: "skill", name: "code-review", description: "Review code", enabled: true }];
   const page = await chatPage({ id: "chat", skills, activeSkills: ["skill"] });
   t.after(page.unmount);
-  assert.equal(page.composer.skillPicker.chips.textContent, "/code-review");
+  assert.equal(page.composer.skillPicker.chips.hidden, true);
+  page.composer.skillPicker.setSelected(["skill"]);
   await page.turn("Review this");
   assert.deepEqual(page.payloads[0].skill_ids, ["skill"]);
   assert.equal(page.rendered().messages.find(message => message.role === "user").skills[0].name, "code-review");
+  assert.equal(page.composer.skillPicker.chips.hidden, true);
   await page.turn("Continue");
-  assert.deepEqual(page.payloads[1].skill_ids, ["skill"]);
-  page.composer.textarea.setSelectionRange(0, 0);
-  page.composer.textarea.dispatchEvent(new page.app.dom.window.KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
-  await page.turn("Without skills");
-  assert.deepEqual(page.payloads[2].skill_ids, []);
+  assert.deepEqual(page.payloads[1].skill_ids, []);
 });
 
 test("Use in chat preselects the imported skill and sends its ID", async t => {

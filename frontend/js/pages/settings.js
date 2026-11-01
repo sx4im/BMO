@@ -216,15 +216,9 @@ export async function renderSettings() {
     );
   }
 
-  page.append(el("div", { class: "settings-card glass" }, profileChildren));
-
-  // ----- Preferences -----
-  page.append(
-    el("div", { class: "settings-card glass" }, [
-      el("div", { class: "section-title" }, [
-        el("div", { class: "icon-box", html: icon("preferences", { width: 16, height: 16 }) }),
-        el("h2", { text: "Preferences" }),
-      ]),
+  const panel = el("div", { class: "settings-card glass" }, [
+    el("section", { class: "settings-section" }, profileChildren),
+    el("section", { class: "settings-section" }, [
       el("div", { class: "settings-row" }, [
         el("div", { class: "row-text" }, [
           el("div", { class: "row-label", text: "Appearance" }),
@@ -232,26 +226,14 @@ export async function renderSettings() {
         ]),
         appearanceControl(),
       ]),
-    ])
-  );
-
-  // ----- Plan usage (auth only; fills async, removes itself if metering is off) -----
+    ]),
+  ]);
+  page.append(panel);
   if (auth) {
-    const usageCard = el("div", { class: "settings-card glass" });
-    page.append(usageCard);
-    renderUsageInto(usageCard, auth.token);
+    const usageSection = el("section", { class: "settings-section" });
+    panel.append(usageSection);
+    renderUsageInto(usageSection, auth.token);
   }
-
-  // ----- About -----
-  page.append(
-    el("div", { class: "settings-card glass" }, [
-      el("div", { class: "section-title" }, [
-        el("div", { class: "icon-box", html: icon("about", { width: 16, height: 16 }) }),
-        el("h2", { text: "About Bmo" }),
-      ]),
-      el("p", { class: "footnote", text: "Bmo is a streaming AI chat workspace. Pick from multiple AI modes, attach images and documents, and talk by voice, all in one place." }),
-    ])
-  );
 
   host.append(page);
 }
