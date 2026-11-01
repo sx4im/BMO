@@ -63,6 +63,7 @@ def create_skill(user):
 @limiter.limit("30 per minute")
 @require_user
 def upload_skill(user):
+    request.max_content_length = skill_service.MAX_UPLOAD_BYTES + 64 * 1024
     upload = request.files.get("file")
     if not upload:
         return bad_request("file is required", 422)

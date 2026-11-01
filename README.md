@@ -79,6 +79,9 @@ Run these forward migrations from `backend/migrations/` in order inside your Sup
 6. `0006_shared_conversations.sql` — public conversation snapshots
 7. `0007_projects.sql` — projects, knowledge files, and conversation membership
 8. `0008_projects_hardening.sql` — project constraints and ownership validation
+9. `0009_customize.sql` — global instructions, text-only skills, RLS and chat selections
+
+See [Customize](docs/CUSTOMIZE.md) for deployment order, import limits, API details and the manual test checklist.
 
 ### 2. Start the backend
 ```bash

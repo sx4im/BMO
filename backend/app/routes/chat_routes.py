@@ -14,7 +14,7 @@ import uuid
 
 from flask import Blueprint, Response, request, stream_with_context
 
-from .. import document_processor, nvidia_client, project_service, search_router, skill_service, store
+from .. import document_processor, nvidia_client, search_router, skill_service, store
 from ..auth import require_user
 from ..cancellation import register as _register_cancel, signal as _signal_cancel, unregister as _unregister_cancel
 from ..config import (

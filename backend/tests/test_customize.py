@@ -333,3 +333,9 @@ def test_skill_reference_failure_rolls_back_skill(db, monkeypatch):
     with pytest.raises(RuntimeError):
         store.create_skill("owner", values(), [{"filename": "ref.txt", "content": "text", "size_bytes": 4}])
     assert not db.rows.get("skills")
+
+
+def test_multipart_request_is_bounded_before_reading_upload(gateway, headers, db):
+    response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(b"x" * (skill_service.MAX_UPLOAD_BYTES + 128 * 1024)), "large.zip")})
+    assert response.status_code == 413
+    assert not db.rows.get("skills")
