@@ -3,7 +3,7 @@
  * Manages token assembly, reasoning timer, background buffering, status phrases, and stream cancellation.
  */
 
-import * as api from "../api.js?v=60";
+import * as api from "../api.js?v=64";
 
 export const ROTATING_PHRASES = [
   "Extrapolating…",
@@ -189,6 +189,7 @@ export class StreamHandler {
     payload,
     streamId,
     onDeltaVoice,
+    onVoiceStyle,
   }) {
     this.cleanup();
     this.controller = new AbortController();
@@ -211,6 +212,7 @@ export class StreamHandler {
         {
           signal: this.controller.signal,
           onConversation: (convo) => this.onConversation(convo),
+          onVoiceStyle,
           onUserMessage: (msg) => this.onUserMessage(msg),
           onSearching: ({ query }) => {
             this.isSearching = true;

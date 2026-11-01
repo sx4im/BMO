@@ -28,6 +28,7 @@ from ..limiter import limiter
 from ..prompts import (
     AEON_SYSTEM_PROMPT,
     DEFAULT_SYSTEM_PROMPT,
+    VoiceReplyFilter,
     earlier_attachment_note,
     image_settings_reply,
     wrap_attachment_content,
@@ -554,12 +555,11 @@ def chat(user):
     except RuntimeError as exc:
         return bad_request(str(exc), 503)
 
-    # Voice turns stay on the fast path, and a client-supplied augmented_message
-    # means the turn already carries its own retrieved context (scraped URLs).
+    # Augmented turns already carry retrieved context; all other models share
+    # the same selective search router, including voice.
     search_allowed = (
         (auto_search or force_search)
         and not augmented_message
-        and chosen_friendly != "aeon"
     )
     # Chat cannot draw. Answer image asks here so the model cannot refuse them.
     settings_reply = "" if chosen_friendly == "image" else image_settings_reply(message_text)
@@ -744,7 +744,8 @@ def chat(user):
                     yield sse_event({"type": "token", "data": {"delta": header}})
 
                 batch_reply = ""
-                max_tokens_override = 300 if chosen_friendly == "aeon" else None
+                max_tokens_override = 450 if chosen_friendly == "aeon" else None
+                voice_filter = VoiceReplyFilter() if chosen_friendly == "aeon" else None
                 retry_delays = (1.5, 3.0)
                 for attempt in range(len(retry_delays) + 1):
                     streamed = False
@@ -762,15 +763,35 @@ def chat(user):
                             if ev["type"] == "delta":
                                 streamed = True
                                 batch_reply += ev["data"]
-                                full_reply += ev["data"]
-                                yield sse_event({"type": "token", "data": {"delta": ev["data"]}})
+                                delta = ev["data"]
+                                if voice_filter:
+                                    tone, delta = voice_filter.feed(delta)
+                                    if tone:
+                                        yield sse_event({"type": "voice_style", "data": {"tone": tone}})
+                                full_reply += delta
+                                if delta:
+                                    yield sse_event({"type": "token", "data": {"delta": delta}})
                             elif ev["type"] == "reasoning_delta":
                                 streamed = True
                                 full_reasoning += ev["data"]
                                 yield sse_event({"type": "reasoning_token", "data": {"delta": ev["data"]}})
                             elif ev["type"] == "done":
+                                if voice_filter and not streamed:
+                                    tone, delta = voice_filter.feed(ev.get("content") or "", final=True)
+                                    if tone:
+                                        yield sse_event({"type": "voice_style", "data": {"tone": tone}})
+                                    full_reply += delta
+                                    if delta:
+                                        yield sse_event({"type": "token", "data": {"delta": delta}})
                                 batch_reply += ev["content"] or ""
                                 full_reasoning += ev.get("reasoning") or ""
+                        if voice_filter:
+                            tone, delta = voice_filter.feed("", final=True)
+                            if tone:
+                                yield sse_event({"type": "voice_style", "data": {"tone": tone}})
+                            full_reply += delta
+                            if delta:
+                                yield sse_event({"type": "token", "data": {"delta": delta}})
                         break
                     except Exception as exc:  # noqa: BLE001
                         # Retrying after tokens reached the client would duplicate them.

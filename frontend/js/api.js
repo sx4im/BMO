@@ -280,7 +280,7 @@ export async function getPublicShare(shareId) {
  *   - "error"             { detail }
  */
 export async function streamChat(token, payload, handlers = {}) {
-  const { onConversation, onUserMessage, onToken, onReasoningToken, onAssistantMessage, onComplete, onError, onSearching, onSearchComplete, signal } = handlers;
+  const { onConversation, onUserMessage, onToken, onReasoningToken, onAssistantMessage, onComplete, onError, onSearching, onSearchComplete, onVoiceStyle, signal } = handlers;
   
   // Extract incognito flag if present so we don't send it to the normal payload
   const isIncognito = !!payload.incognito;
@@ -380,6 +380,9 @@ export async function streamChat(token, payload, handlers = {}) {
           break;
         case "token":
           onToken?.(event.data);
+          break;
+        case "voice_style":
+          onVoiceStyle?.(event.data);
           break;
         case "reasoning_token":
           onReasoningToken?.(event.data);
@@ -581,7 +584,7 @@ export async function synthesizeSpeech(token, text, { voice, language } = {}) {
   }
 }
 
-export function ttsStreamUrl(token, { model = "flux-sienna-en", sampleRate = 24000 } = {}) {
+export function ttsStreamUrl(token, { model = "flux-sienna-en", sampleRate = 24000, speed, expressivity } = {}) {
   const t = getAuth().auth?.token || token || "";
   let base = (config.apiUrl || "").replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
   if (!base.startsWith("ws://") && !base.startsWith("wss://")) {
@@ -591,6 +594,8 @@ export function ttsStreamUrl(token, { model = "flux-sienna-en", sampleRate = 240
   if (t) params.set("token", t);
   if (model) params.set("model", model);
   if (sampleRate) params.set("sample_rate", String(sampleRate));
+  if (speed !== undefined) params.set("speed", String(speed));
+  if (expressivity !== undefined) params.set("expressivity", String(expressivity));
   return `${base.replace(/\/+$/, "")}/tts/stream?${params.toString()}`;
 }
 

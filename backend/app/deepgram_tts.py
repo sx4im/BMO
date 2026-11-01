@@ -1,8 +1,7 @@
-"""Deepgram Aura-1 streaming text-to-speech bridge for Bmo.
+"""Deepgram Flux/Aura streaming text-to-speech bridge for Bmo.
 
 Bridges incoming client WebSockets (authenticated via Supabase JWT) to
-Deepgram's real-time Aura-1 streaming text-to-speech WebSocket API
-(wss://api.deepgram.com/v1/speak).
+Deepgram's streaming text-to-speech API: Flux on /v2/speak and Aura on /v1/speak.
 
 The client streams text chunks into Deepgram over WebSocket as tokens
 generate, and Deepgram streams raw 16-bit linear PCM audio frames back
@@ -14,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import threading
 from typing import Optional
@@ -30,6 +30,23 @@ from .config import (
 
 logger = logging.getLogger("bmo.deepgram_tts")
 
+def voice_controls(model: str, speed=None, expressivity=None) -> str:
+    """Validate documented Flux delivery controls before opening a socket."""
+    if speed is None and expressivity is None:
+        return ""
+    if not model.startswith("flux-"):
+        raise ValueError("Expressive delivery requires a Flux TTS voice")
+    try:
+        rate = float(speed) if speed is not None else 1.0
+        expression = float(expressivity) if expressivity is not None else 0
+    except (TypeError, ValueError):
+        raise ValueError("Invalid voice delivery settings") from None
+    if not math.isfinite(rate) or not 0.5 <= rate <= 1.5 or not math.isclose(rate * 20, round(rate * 20), abs_tol=1e-8):
+        raise ValueError("Voice speed must be 0.5–1.5 in steps of 0.05")
+    if not math.isfinite(expression) or expression not in {-2, -1, 0, 1, 2}:
+        raise ValueError("Voice expressivity must be an integer from -2 to 2")
+    return f"&speed={rate:g}&expressivity={int(expression)}"
+
 
 def relay_tts_stream(
     client_ws,
@@ -37,6 +54,8 @@ def relay_tts_stream(
     model: Optional[str] = None,
     api_key: Optional[str] = None,
     sample_rate: int = 24000,
+    speed=None,
+    expressivity=None,
 ) -> None:
     """Relay streaming text-to-speech between client WebSocket and Deepgram.
 
@@ -58,8 +77,9 @@ def relay_tts_stream(
     if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", chosen_model):
         chosen_model = DEFAULT_DEEPGRAM_TTS_MODEL
     endpoint = "v2" if chosen_model.startswith("flux") else "v1"
+    controls = voice_controls(chosen_model, speed, expressivity)
     dg_url = (
-        f"wss://api.deepgram.com/{endpoint}/speak?model={chosen_model}&encoding=linear16&sample_rate={sample_rate}"
+        f"wss://api.deepgram.com/{endpoint}/speak?model={chosen_model}&encoding=linear16&sample_rate={sample_rate}{controls}"
     )
     headers = {"Authorization": f"Token {key}"}
 

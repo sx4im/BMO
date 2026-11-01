@@ -328,7 +328,7 @@ def tts(user):  # noqa: ARG001
         return bad_request(f"TTS failed: {exc}", 502)
 
 
-# ---------- Deepgram Aura-1 Streaming TTS (WebSocket) ----------
+# ---------- Deepgram Flux/Aura Streaming TTS (WebSocket) ----------
 
 @sock.route("/tts/stream")
 def tts_stream(ws):
@@ -361,7 +361,15 @@ def tts_stream(ws):
     except (ValueError, TypeError):
         sample_rate = 24000
 
-    deepgram_tts.relay_tts_stream(ws, model=model, sample_rate=sample_rate)
+    speed = request.args.get("speed")
+    expressivity = request.args.get("expressivity")
+    try:
+        deepgram_tts.voice_controls(model or get_deepgram_tts_model(), speed, expressivity)
+    except ValueError as exc:
+        ws.send(json.dumps({"type": "Error", "message": str(exc)}))
+        ws.close(4400, "Invalid voice delivery")
+        return
+    deepgram_tts.relay_tts_stream(ws, model=model, sample_rate=sample_rate, speed=speed, expressivity=expressivity)
 
 
 # ---------- Web Search (TinyFish) ----------

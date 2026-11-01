@@ -94,6 +94,8 @@ export async function renderChat({ id, incognito }) {
   let imagePollTimer = null;
   let voiceHandle = null;
   let activeVoiceOnDelta = null;
+  let activeVoiceOnSearch = null;
+  let activeVoiceOnStyle = null;
   let unmounted = false;
   let reconciling = false;
   let branching = false;
@@ -524,6 +526,7 @@ export async function renderChat({ id, incognito }) {
       }
     },
     onSearching: ({ query, preamble }) => {
+      activeVoiceOnSearch?.();
       searching = true;
       searchPreamble = preamble || "";
       searchVariant = "search";
@@ -846,7 +849,7 @@ export async function renderChat({ id, incognito }) {
     const streamId = uid("stream");
     let llmMessage = text;
 
-    const urls = extractUrls(text);
+    const urls = model === "aeon" ? [] : extractUrls(text);
     if (urls.length > 0) {
       searching = true;
       searchVariant = "reading";
@@ -905,6 +908,7 @@ export async function renderChat({ id, incognito }) {
           incognito,
         },
         streamId,
+        onVoiceStyle: data => activeVoiceOnStyle?.(data?.tone),
       });
     } catch (err) {
       if (err?.name !== "AbortError") {
@@ -1154,8 +1158,12 @@ export async function renderChat({ id, incognito }) {
     resetToNewConversation();
     voiceHandle = openVoiceOverlay({
       token: auth.token,
+      onInterrupt: () => { if (streamHandler.isStreaming) streamHandler.cancel(); },
       sendTurn: async (text, opts) => {
+        const previousAssistantId = messages.findLast(message => message.role === "assistant")?.id;
         activeVoiceOnDelta = opts?.onDelta || null;
+        activeVoiceOnSearch = opts?.onSearching || null;
+        activeVoiceOnStyle = opts?.onVoiceStyle || null;
         const langInstruction = opts?.language && opts.language !== "en"
           ? `Selected conversation language: ${opts.languageName}. Respond fluently and naturally in ${opts.languageName}.`
           : undefined;
@@ -1165,20 +1173,24 @@ export async function renderChat({ id, incognito }) {
             attachments: [],
             model: "aeon",
             reasoningEffort: "low",
-            autoSearch: false,
+            autoSearch: true,
             studyMode: false,
             systemPrompt: langInstruction,
           });
           for (let i = messages.length - 1; i >= 0; i--) {
-            if (messages[i].role === "assistant") return messages[i].content || "";
+            if (messages[i].role === "assistant") return messages[i].id === previousAssistantId ? "" : messages[i].content || "";
           }
           return "";
         } finally {
-          activeVoiceOnDelta = null;
+          if (activeVoiceOnDelta === opts?.onDelta) activeVoiceOnDelta = null;
+          if (activeVoiceOnSearch === opts?.onSearching) activeVoiceOnSearch = null;
+          if (activeVoiceOnStyle === opts?.onVoiceStyle) activeVoiceOnStyle = null;
         }
       },
       onClose: () => {
         activeVoiceOnDelta = null;
+        activeVoiceOnSearch = null;
+        activeVoiceOnStyle = null;
         voiceHandle = null;
         loadConversations();
       },

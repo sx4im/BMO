@@ -114,7 +114,7 @@ test("selected voice language reaches the actual outgoing chat request", async t
   await page.voice().sendTurn("Bonjour", { language: "fr", languageName: "French" });
   assert.match(page.payloads.at(-1).system_prompt, /Respond fluently and naturally in French/);
   assert.equal(page.payloads.at(-1).model, "aeon");
-  assert.equal(page.payloads.at(-1).auto_search, false);
+  assert.equal(page.payloads.at(-1).auto_search, true);
 });
 
 for (const action of ["edit", "retry-user", "retry-assistant"]) {

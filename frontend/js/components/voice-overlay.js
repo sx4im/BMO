@@ -2,12 +2,12 @@
 //
 // Flow: open -> listen (live transcription) -> on silence, send the turn ->
 // voice-themed wait text while the reply streams -> read the reply aloud
-// (magpie-tts-multilingual) -> listen again. The X closes it. A glowing globe
+// (Deepgram Flux/Aura streaming) -> listen again. The X closes it. A glowing globe
 // reflects the state and pulses with the spoken audio.
 //
-// Speech-to-text always uses the MediaRecorder + /transcribe backend path.
-// The browser's Web Speech API is NOT used. Recording auto-stops via an
-// ADAPTIVE Web Audio VAD (see the tuning block below): it learns the room's
+// Speech input uses browser recognition when available, with a MediaRecorder
+// and /transcribe fallback. Recording auto-stops via an adaptive Web Audio
+// VAD (see the tuning block below): it learns the room's
 // noise floor and only counts input a multiple louder than that as speech,
 // so background noise neither holds the mic open nor triggers a turn.
 //
@@ -18,7 +18,7 @@
 import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=58";
 import { toast } from "./toast.js?v=58";
-import * as api from "../api.js?v=30";
+import * as api from "../api.js?v=64";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 
 const VOICE_WAIT_PHRASES = [
@@ -64,7 +64,7 @@ const VAD_ENTER_FACTOR = 2.0;    // speech: level > floor * 2.0 (and > MIN)
 const VAD_EXIT_FACTOR  = 1.4;    // silence again below floor * 1.4 (hysteresis)
 const VAD_MIN_LEVEL    = 0.005;  // absolute gate so dead-quiet rooms don't fire on hiss
 const VAD_ENTER_FRAMES = 2;      // ~2 consecutive loud frames (~35 ms) to confirm speech
-const VAD_SILENCE_MS   = 2000;   // wait 2.0s of silence so user can pause and think naturally
+const VAD_SILENCE_MS   = 1100;   // short pause without sending in the middle of normal speech
 const VAD_NO_SPEECH_MS = 8000;   // never spoke -> release the mic, don't transcribe noise
 const VAD_MAX_TURN_MS  = 60000;  // hard safety cap per turn
 
@@ -122,6 +122,13 @@ export const VOICE_LANGUAGES = [
   { id: "ja", code: "JA", label: "Japanese", voiceName: "Izanami", model: "aura-2-izanami-ja", recLang: "ja-JP" },
 ];
 
+export function voiceDelivery(tone = "neutral") {
+  // Flux expression is a per-connection beta; keep register shifts restrained.
+  if (tone === "gentle") return { speed: 1, expressivity: -1 };
+  if (tone === "lively") return { speed: 1.1, expressivity: 1 };
+  return { speed: 1.05, expressivity: 0 };
+}
+
 /**
  * @param {object} ctx
  * @param {string} ctx.token - Supabase access token for API calls.
@@ -130,10 +137,12 @@ export const VOICE_LANGUAGES = [
  * @param {()=>void} [ctx.onClose] - called when the overlay closes.
  * @returns {{ close: ()=>void }}
  */
-export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
+export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {}) {
   let active = true;
   let state = "idle";
   let turnInFlight = false;
+  let turnSequence = 0;
+  let currentTone = "neutral";
 
   let mediaRecorder = null;
   let mediaStream = null;
@@ -178,18 +187,23 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
   // Persistent Deepgram TTS WebSocket across turns
   let ttsWS = null;
+  let ttsSignature = "";
 
   function ensureTTSWS() {
     if (!active) return null;
-    if (ttsWS && (ttsWS.readyState === WebSocket.OPEN || ttsWS.readyState === WebSocket.CONNECTING)) {
+    const activeLang = getLangConfig();
+    const controls = activeLang.model.startsWith("flux-") ? voiceDelivery(currentTone) : {};
+    const signature = JSON.stringify([activeLang.model, controls]);
+    if (ttsWS && signature === ttsSignature && (ttsWS.readyState === WebSocket.OPEN || ttsWS.readyState === WebSocket.CONNECTING)) {
       return ttsWS;
     }
+    if (ttsWS) { try { ttsWS.close(); } catch {} ttsWS = null; }
     try {
-      const activeLang = getLangConfig();
-      const streamUrl = api.ttsStreamUrl(token, { model: activeLang.model, sampleRate: 24000 });
+      const streamUrl = api.ttsStreamUrl(token, { model: activeLang.model, sampleRate: 24000, ...controls });
       const ws = new WebSocket(streamUrl);
       ws.binaryType = "arraybuffer";
       ttsWS = ws;
+      ttsSignature = signature;
       ws.onclose = () => {
         if (ttsWS === ws) ttsWS = null;
       };
@@ -211,7 +225,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   let discardTake = false;    // drop the in-flight recording on stop (typed turn)
   let recordStartedAt = 0;    // performance.now() when the current take began
 
-  const TTS_COOLDOWN_MS = 500; // pause after Bmo speaks before listening again
+  const TTS_COOLDOWN_MS = 250; // let the last frame clear before reopening the mic
 
   // ---------- DOM ----------
   // The orb is a muted, looping video of the iridescent bubble. CSS blends its
@@ -258,6 +272,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
   function selectLanguage(id) {
     if (currentLangId === id) return;
+    if (activeSpeech || turnInFlight) stopSpeaking();
     currentLangId = id;
     try { localStorage.setItem("bimo-voice-lang", id); } catch {}
     const conf = getLangConfig();
@@ -270,6 +285,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       ttsWS = null;
     }
     ensureTTSWS();
+    if (state === "idle") startListening();
 
     // Update speech recognition language if Web Speech is active
     if (recognition) {
@@ -493,7 +509,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
               stopRecognition();
               endTurn(textToSend);
             }
-          }, 2000); // exactly 2.0s of silence gives user natural time to pause and think
+          }, event.results[event.results.length - 1]?.isFinal ? 750 : VAD_SILENCE_MS);
         }
       };
 
@@ -761,7 +777,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   // ---------- turn ----------
   async function endTurn(text) {
     if (turnInFlight || !active) return;
-    console.log("[bimo-voice] endTurn:", text.slice(0, 60));
+    const turn = ++turnSequence;
+    const isCurrent = () => active && turn === turnSequence;
     turnInFlight = true;
     micBtn.classList.remove("active");
     stopRecognition();
@@ -769,51 +786,78 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     setTranscript(text);
     setState("thinking", voiceWaitPhrase());
 
-    const speech = audioCtx ? createDeepgramTTSStream() : null;
-    activeSpeech = speech;
+    let speech = null;
+    let searchSpeech = null;
+    let searchActive = false;
+    let searchAnnounced = false;
+    let searchDone = Promise.resolve();
+    let pendingText = "";
+    const startedAt = performance.now();
+    function pushReply() {
+      if (!isCurrent() || !audioCtx || searchActive || speech?.cancelled) return;
+      if (!speech) {
+        speech = createDeepgramTTSStream(startedAt);
+        activeSpeech = speech;
+      }
+      speech.pushText(pendingText);
+    }
 
-    let reply = "";
     try {
       const activeLang = getLangConfig();
-      reply = (await sendTurn(text, {
+      const reply = (await sendTurn(text, {
         language: activeLang.id,
         languageName: activeLang.label,
-        onDelta: speech ? (soFar) => speech.pushText(soFar) : undefined,
+        onVoiceStyle: tone => { if (isCurrent()) currentTone = ["gentle", "lively"].includes(tone) ? tone : "neutral"; },
+        onSearching: () => {
+          if (!isCurrent() || !audioCtx || searchAnnounced) return;
+          searchAnnounced = true;
+          searchActive = true;
+          setState("thinking", "Searching…");
+          searchSpeech = createDeepgramTTSStream(startedAt);
+          activeSpeech = searchSpeech;
+          const announcements = {
+            en: "I'm searching for that now.", es: "Estoy buscando esa información.",
+            fr: "Je cherche cette information.", de: "Ich suche gerade danach.",
+            it: "Sto cercando questa informazione.", ja: "今、調べています。", nl: "Ik zoek dat even op.",
+          };
+          searchSpeech.finish(announcements[activeLang.id] || announcements.en);
+          searchDone = searchSpeech.done().then(() => {
+            searchActive = false;
+            if (!isCurrent()) return;
+            if (activeSpeech === searchSpeech) activeSpeech = null;
+            setState("thinking", "Preparing your answer…");
+            if (pendingText) pushReply();
+          });
+        },
+        onDelta: soFar => { if (isCurrent()) { pendingText = soFar; pushReply(); } },
       })) || "";
 
-      if (!active) { speech?.cancel(); return; }
+      await searchDone;
+      if (!isCurrent()) { speech?.cancel(); searchSpeech?.cancel(); return; }
       setTranscript("");
-
       if (!reply || !audioCtx) {
         speech?.cancel();
-        if (activeSpeech === speech) activeSpeech = null;
         afterSpeaking();
         return;
       }
-
-      if (speech) {
-        speech.finish(reply);
-        // Generous safety cap so speech is never prematurely cut off mid-sentence
-        await Promise.race([
-          speech.done(),
-          new Promise((resolve) => setTimeout(resolve, 300000)),
-        ]);
-        if (activeSpeech === speech) activeSpeech = null;
-        if (!active || speech.cancelled) return;
-        afterSpeaking();
-        return;
-      }
-
-      if (!active) return;
+      pendingText = reply;
+      pushReply();
+      speech.finish(reply);
+      let timeout;
+      await Promise.race([speech.done(), new Promise(resolve => { timeout = setTimeout(resolve, 300000); })])
+        .finally(() => clearTimeout(timeout));
+      if (!isCurrent() || speech.cancelled) return;
       afterSpeaking();
     } catch (err) {
-      console.warn("[bimo-voice] sendTurn failed:", err?.message);
-      toast(err?.message || "Couldn't connect", { tone: "error" });
-      speech?.cancel();
-      if (activeSpeech === speech) activeSpeech = null;
-      afterSpeaking();
+      if (isCurrent()) {
+        console.warn("[bimo-voice] sendTurn failed:", err?.message);
+        toast(err?.message || "Couldn't connect", { tone: "error" });
+        speech?.cancel();
+        searchSpeech?.cancel();
+        afterSpeaking();
+      }
     } finally {
-      turnInFlight = false;
+      if (isCurrent()) turnInFlight = false;
     }
   }
 
@@ -831,24 +875,34 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   }
 
   // ---------- speaking (streaming Deepgram Flux via Web Audio) ----------
-  function createDeepgramTTSStream() {
+  function createDeepgramTTSStream(startedAt = performance.now()) {
+    const activeLang = getLangConfig();
     let cancelled = false;
     let offset = 0;
     let finished = false;
     let flushSent = false;
-    let flushReceived = false;
     let serverAudioDone = false;
     let hasReceivedAudio = false;
     let wsClosed = false;
     let nextPlayTime = 0;
     let finishTimer = null;
     let hasSentFirstChunk = false;
+    let completed = false;
     const queuedSources = [];
     const pendingTextQueue = [];
     let resolveDone;
     const donePromise = new Promise((r) => { resolveDone = r; });
 
     const ws = ensureTTSWS();
+
+    function complete() {
+      if (completed) return;
+      completed = true;
+      if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
+      stopMeter();
+      ttsSource = null;
+      resolveDone();
+    }
 
     function isAudioPlaying() {
       if (!audioCtx) return false;
@@ -870,20 +924,16 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       if (!finished) return;
 
       if (serverAudioDone || wsClosed) {
-        if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
-        stopMeter();
-        ttsSource = null;
-        resolveDone();
+        complete();
         return;
       }
 
       if (!finishTimer) {
-        const stallMs = hasReceivedAudio ? 2500 : 1500;
+        const stallMs = hasReceivedAudio ? 2500 : 8000;
         finishTimer = setTimeout(() => {
           if (!cancelled && !isAudioPlaying()) {
-            stopMeter();
-            ttsSource = null;
-            resolveDone();
+            try { ws?.close(); } catch {}
+            complete();
           }
         }, stallMs);
       }
@@ -903,7 +953,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       };
 
       ws.onmessage = (event) => {
-        if (cancelled || !active) return;
+        if (cancelled || completed || !active) return;
         if (typeof event.data === "string") {
           try {
             const data = JSON.parse(event.data);
@@ -911,7 +961,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
               serverAudioDone = true;
               checkDone();
             } else if (data.type === "Flushed") {
-              flushReceived = true;
               const isFlux = (activeLang?.model || "").startsWith("flux");
               if (!isFlux) {
                 serverAudioDone = true;
@@ -984,6 +1033,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       source.start(startTime);
       nextPlayTime = startTime + audioBuffer.duration;
 
+      if (!hasReceivedAudio) console.debug("[bimo-voice] first-audio-ms", Math.round(performance.now() - startedAt));
       hasReceivedAudio = true;
       queuedSources.push(source);
       source.onended = () => {
@@ -999,7 +1049,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
 
     function sendChunk(rawText) {
       const isStart = !hasSentFirstChunk;
-      const clean = stripForSpeech(rawText, isStart);
+      const clean = stripForSpeech(rawText, isStart).trim();
       // Skip chunks with no actual spoken words (prevents sending orphan dots or bare punctuation)
       if (!clean || !clean.replace(/[\s.,;:!?…-]/g, "")) return;
       hasSentFirstChunk = true;
@@ -1017,13 +1067,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     }
 
     function pushText(soFar) {
-      if (cancelled || typeof soFar !== "string") return;
+      if (cancelled || completed || typeof soFar !== "string") return;
       const pending = soFar.slice(offset);
       if (!pending) return;
 
-      // Stream full clauses when punctuation appears for natural spoken prosody and cadence.
-      // Match punctuation without splitting in the middle of consecutive dots (e.g. ..., ..)
-      const match = pending.match(/([,;:!?\n]|\.+)/);
+      // Prefer sentence boundaries; keep a useful first phrase for fast startup.
+      const match = pending.match(/([.!?](?=\s|$)|[。！？\n])/);
       if (match && match.index != null) {
         const endIdx = match.index + match[0].length;
         const toSend = pending.slice(0, endIdx);
@@ -1032,8 +1081,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
         return;
       }
 
-      // If no punctuation yet, stream at the last word boundary once we have a comfortable phrase (>= 24 chars)
-      if (pending.length >= 24) {
+      // Longer later chunks give synthesis more context without splitting words.
+      if (pending.length >= (hasSentFirstChunk ? 160 : 60)) {
         const lastSpace = pending.lastIndexOf(" ");
         if (lastSpace > 0) {
           const toSend = pending.slice(0, lastSpace + 1);
@@ -1044,7 +1093,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
     }
 
     function finish(finalText) {
-      if (cancelled) { resolveDone(); return; }
+      if (cancelled || completed) { resolveDone(); return; }
       if (typeof finalText === "string" && finalText.length > offset) {
         const remaining = finalText.slice(offset);
         offset = finalText.length;
@@ -1058,16 +1107,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       }
       checkDone();
 
-      // Fallback only if no audio is ever received (e.g. synthesis error or empty reply)
-      if (!hasReceivedAudio) {
-        setTimeout(() => {
-          if (!cancelled && !hasReceivedAudio && !isAudioPlaying()) {
-            stopMeter();
-            ttsSource = null;
-            resolveDone();
-          }
-        }, 2000);
-      }
     }
 
     function cancel() {
@@ -1087,7 +1126,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
           ws.send(JSON.stringify({ type: "Interrupt" }));
         } catch {}
       }
-      resolveDone();
+      complete();
     }
 
     return {
@@ -1098,70 +1137,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
       hasAudio: () => hasReceivedAudio,
       get cancelled() { return cancelled; },
     };
-  }
-
-  // ---------- speaking (TTS via Web Audio) ----------
-  // Synthesize and play the full generated reply as a single seamless audio clip,
-  // preventing any pauses or delays mid-speech.
-  function speakFullText(textToSpeak) {
-    let cancelled = false;
-    let resolveDone;
-    const donePromise = new Promise((r) => { resolveDone = r; });
-
-    const handle = {
-      cancel: () => {
-        if (cancelled) return;
-        cancelled = true;
-        resolveDone();
-      },
-      done: () => donePromise,
-      get cancelled() { return cancelled; },
-    };
-
-    activeSpeech = handle;
-
-    (async () => {
-      try {
-        const activeLang = getLangConfig();
-        const bytes = await api.synthesizeSpeech(token, textToSpeak, { voice: activeLang.model, language: activeLang.id });
-        if (cancelled || !active) { resolveDone(); return; }
-
-        if (audioCtx.state === "suspended") {
-          await audioCtx.resume().catch(() => {});
-        }
-        if (cancelled || !active) { resolveDone(); return; }
-
-        const decoded = await audioCtx.decodeAudioData(bytes);
-        if (cancelled || !active) { resolveDone(); return; }
-
-        setState("speaking", "Speaking…");
-        const source = audioCtx.createBufferSource();
-        source.buffer = decoded;
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        analyser.connect(audioCtx.destination);
-        ttsSource = source;
-        driveGlobe(analyser);
-
-        source.onended = () => {
-          stopMeter();
-          ttsSource = null;
-          resolveDone();
-        };
-        source.start();
-      } catch (err) {
-        if (!cancelled && active) {
-          console.warn("[bimo-voice] TTS failed:", err?.message);
-          toast(err?.message || "Speech failed", { tone: "error" });
-        }
-        resolveDone();
-      } finally {
-        if (activeSpeech === handle) activeSpeech = null;
-      }
-    })();
-
-    return handle.done();
   }
 
   function driveGlobe(analyser) {
@@ -1183,6 +1158,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   }
 
   function stopSpeaking() {
+    turnSequence++;
+    if (turnInFlight) onInterrupt?.();
     if (activeSpeech) {
       try { activeSpeech.cancel(); } catch {}
       activeSpeech = null;
