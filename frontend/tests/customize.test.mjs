@@ -9,11 +9,11 @@ const catalog = [
   { id: "off", name: "disabled", description: "Hidden", enabled: false },
 ];
 
-async function picker() {
+async function picker(options) {
   const app = moduleLoader();
   const { SkillPicker } = await app.load("js/chat/skill-picker.js");
   const textarea = app.dom.window.document.createElement("textarea");
-  const picker = new SkillPicker(textarea);
+  const picker = new SkillPicker(textarea, options);
   app.dom.window.document.body.append(textarea, picker.popup, picker.chips);
   picker.setCatalog(catalog);
   const type = value => { textarea.value = value; textarea.setSelectionRange(value.length, value.length); textarea.dispatchEvent(new app.dom.window.Event("input", { bubbles: true })); };
@@ -77,6 +77,32 @@ test("touch selection, selection cap, URL slashes and untrusted labels stay safe
   assert.equal(app.picker.popup.hidden, true);
 });
 
+test("slash menu lists Add files first and keeps attachment selection available at the skill limit", async t => {
+  let opened = 0;
+  const app = await picker({ onAddFiles: () => opened++ });
+  t.after(() => app.picker.destroy());
+  app.type("/");
+  const rows = app.picker.popup.querySelectorAll('[role="option"]');
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].textContent, "Add files");
+  assert.ok(rows[0].querySelector(".icon-attachFile"));
+  assert.equal(rows[1].textContent, "code-review");
+  assert.ok(rows[1].querySelector(".icon-filePenLine"));
+  assert.equal(rows[1].getAttribute("aria-description"), "Review code");
+  app.key("Enter");
+  assert.equal(opened, 1);
+  assert.equal(app.textarea.value, "");
+  assert.equal(app.picker.selected.length, 0);
+  app.picker.setSelected(["one", "two", "three"]);
+  app.type("/");
+  assert.equal(app.picker.popup.querySelectorAll('[role="option"]').length, 1);
+  app.key("Tab");
+  assert.equal(opened, 2);
+  assert.equal(app.picker.selected.length, 3);
+  app.type("/review");
+  assert.equal(app.picker.popup.querySelector('[role="option"]'), null);
+});
+
 test("Customize tabs, instructions save races, skill editor and toggles update incrementally", async t => {
   let app, finishSave;
   const toggles = [], savedSkills = [], uploads = [], downloads = [];
@@ -103,6 +129,7 @@ test("Customize tabs, instructions save races, skill editor and toggles update i
   t.after(cleanup);
   await new Promise(resolve => setImmediate(resolve));
   const doc = app.dom.window.document;
+  assert.equal(doc.querySelector(".customize-empty svg"), null);
   const textarea = doc.querySelector("#global-instructions");
   assert.equal(textarea.value, "Old preference");
   textarea.value = "First edit";

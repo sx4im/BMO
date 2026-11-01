@@ -1,12 +1,13 @@
 import { el } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=74";
+import { icon } from "../icons.js?v=76";
 
 let sequence = 0;
 
 // This component updates only its popup and chips; the textarea/feed stay mounted.
 export class SkillPicker {
-  constructor(textarea) {
+  constructor(textarea, { onAddFiles } = {}) {
     this.textarea = textarea;
+    this.onAddFiles = onAddFiles;
     this.skills = [];
     this.selectedIds = [];
     this.loaded = false;
@@ -70,21 +71,25 @@ export class SkillPicker {
     }
     this.range = { start: cursor - match[1].length - 1, end: cursor };
     const query = match[1].toLowerCase();
-    this.matches = this.skills.filter(skill => !this.selectedIds.includes(skill.id) &&
+    const matchingSkills = this.skills.filter(skill => !this.selectedIds.includes(skill.id) &&
       (skill.name.includes(query) || skill.description.toLowerCase().includes(query)));
+    this.matches = this.selectedIds.length >= 3 ? [] : [...matchingSkills];
+    if (!query && this.onAddFiles) this.matches.unshift({ name: "Add files", isAttachment: true });
     this.index = 0;
     this.popup.replaceChildren();
-    if (this.selectedIds.length >= 3 || !this.matches.length) {
-      const message = this.selectedIds.length >= 3 ? "Up to 3 skills per chat" : this.loaded ? "No matching enabled skills"
+    this.matches.forEach((choice, i) => {
+      this.popup.append(el("div", { id: `${this.popup.id}-${i}`, class: "skill-option", role: "option", "aria-selected": String(i === 0),
+        title: choice.description || choice.name, "aria-description": choice.description,
+        onpointerdown: event => event.preventDefault(), onclick: () => this.select(i),
+      }, [
+        el("span", { class: "skill-option-icon", "aria-hidden": "true", html: icon(choice.isAttachment ? "attachFile" : "filePenLine", { width: 16, height: 16 }) }),
+        el("span", { class: "skill-option-name", text: choice.name }),
+      ]));
+    });
+    if (this.selectedIds.length >= 3 || !matchingSkills.length) {
+      const message = this.selectedIds.length >= 3 ? "Up to 3 skills per chat" : this.loaded ? (query ? "No matching skills" : "No enabled skills yet")
         : this.loadError ? "Could not load skills. Reopen this chat to retry." : "Loading skills…";
       this.popup.append(el("div", { class: "skill-popup-empty", role: "status", text: message }));
-    } else {
-      this.matches.forEach((skill, i) => {
-        this.popup.append(el("div", { id: `${this.popup.id}-${i}`, class: "skill-option", role: "option", "aria-selected": String(i === 0),
-          onpointerdown: event => event.preventDefault(),
-          onclick: () => this.select(i),
-        }, [el("strong", { text: skill.name }), el("span", { text: skill.description })]));
-      });
     }
     this.popup.hidden = false;
     this.textarea.setAttribute("aria-expanded", "true");
@@ -109,22 +114,23 @@ export class SkillPicker {
       this.index = (this.index + (event.key === "ArrowDown" ? 1 : -1) + this.matches.length) % (this.matches.length || 1);
       this.syncActive(); return true;
     }
-    if ((event.key === "Enter" || event.key === "Tab") && this.matches.length && this.selectedIds.length < 3) {
+    if ((event.key === "Enter" || event.key === "Tab") && this.matches.length) {
       event.preventDefault(); this.select(this.index); return true;
     }
     return false;
   }
 
   select(index) {
-    const skill = this.matches[index];
-    if (!skill || !this.range || this.selectedIds.length >= 3) return;
+    const choice = this.matches[index];
+    if (!choice || !this.range || (!choice.isAttachment && this.selectedIds.length >= 3)) return;
     clearTimeout(this.blurTimer);
     const { start, end } = this.range;
     this.textarea.setRangeText("", start, end, "end");
-    this.setSelected([...this.selectedIds, skill.id]);
+    if (!choice.isAttachment) this.setSelected([...this.selectedIds, choice.id]);
     this.close();
     this.textarea.focus();
     this.textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    if (choice.isAttachment) this.onAddFiles();
   }
 
   close() {

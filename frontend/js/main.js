@@ -3,12 +3,12 @@ import { bootstrap, getAuth, onAuthChange } from "./auth.js";
 import { initThemeSync } from "./prefs.js";
 import * as api from "./api.js?v=32";
 import { renderLanding } from "./pages/landing.js?v=52";
-import { renderChat } from "./pages/chat.js?v=174";
+import { renderChat } from "./pages/chat.js?v=176";
 import { renderSettings } from "./pages/settings.js?v=73";
 import { renderNotFound } from "./pages/not-found.js?v=54";
 import { renderSharedChat } from "./pages/shared-chat.js?v=2";
 import { renderProjects } from "./pages/projects.js";
-import { renderCustomize } from "./pages/customize.js?v=2";
+import { renderCustomize } from "./pages/customize.js?v=3";
 import { bootVersionGuard } from "./version-guard.js?v=1";
 
 
