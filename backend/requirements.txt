@@ -3,6 +3,7 @@ flask-sock>=0.7.0
 flask-cors==6.0.0
 Flask-Limiter==4.1.1
 python-dotenv==1.2.2
+PyYAML==6.0.3
 requests==2.33.0
 openai>=1.59.0
 pyjwt==2.12.0

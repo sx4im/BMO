@@ -14,7 +14,7 @@ import uuid
 
 from flask import Blueprint, Response, request, stream_with_context
 
-from .. import document_processor, nvidia_client, project_service, search_router, store
+from .. import document_processor, nvidia_client, project_service, search_router, skill_service, store
 from ..auth import require_user
 from ..cancellation import register as _register_cancel, signal as _signal_cancel, unregister as _unregister_cancel
 from ..config import (
@@ -329,6 +329,22 @@ def chat(user):
             attachment.pop(TEXT_CONTEXT_KEY, None)
     t_validation = time.time()
 
+    existing_conversation = None
+    if conversation_id and not is_incognito:
+        existing_conversation = store.get_conversation(conversation_id, user.id)
+        if not existing_conversation:
+            return bad_request("conversation not found", 404)
+    skill_ids = payload.get("skill_ids", (existing_conversation or {}).get("active_skills") or [])
+    try:
+        active_skills = skill_service.resolve_skills(user.id, skill_ids)
+    except LookupError as exc:
+        return bad_request(str(exc), 404)
+    except ValueError as exc:
+        return bad_request(str(exc), 422)
+    skill_ids = [skill["id"] for skill in active_skills]
+    skill_labels = [{"id": skill["id"], "name": skill["name"]} for skill in active_skills]
+    global_instructions = store.get_preferences(user.id).get("instructions") or ""
+
     usage = get_usage_status(user.id)
     if usage["blocked"]:
         over = usage["session"] if usage["session"]["used"] >= SESSION_LIMIT else usage["weekly"]
@@ -346,6 +362,7 @@ def chat(user):
                 "model": model or "thinking",
                 "system_prompt": system_prompt,
                 "title": "Incognito Chat",
+                "active_skills": skill_ids,
             }
             history = [
                 {"role": m["role"], "content": m["content"], "attachments": m.get("attachments")}
@@ -358,10 +375,10 @@ def chat(user):
                 "attachments": attachments or None,
             }
         elif conversation_id:
-            convo = store.get_conversation(conversation_id, user.id)
-            if not convo:
-                return bad_request("conversation not found", 404)
+            convo = existing_conversation
             convo_patch = {}
+            if "skill_ids" in payload and skill_ids != (convo.get("active_skills") or []):
+                convo_patch["active_skills"] = skill_ids
             if model and model != convo.get("model"):
                 convo_patch["model"] = model
             if system_prompt is not None and system_prompt != convo.get("system_prompt"):
@@ -388,6 +405,7 @@ def chat(user):
                 "project_id": project_id,
                 "title": title_seed,
                 "_new": True,
+                "active_skills": skill_ids,
             }
             history = []
             user_message = {
@@ -400,6 +418,9 @@ def chat(user):
     except Exception as exc:  # noqa: BLE001
         logger.exception("chat: persistence failed for user=%s: %s", user.id, exc)
         return bad_request(f"Could not save conversation. {friendly_error(exc)}", 500)
+
+    if skill_labels:
+        user_message["skills"] = skill_labels
 
     model_text = augmented_message or message_text
 
@@ -560,6 +581,7 @@ def chat(user):
                         model=convo.get("model") or model,
                         system_prompt=convo.get("system_prompt"),
                         project_id=convo.get("project_id"),
+                        **({"active_skills": skill_ids} if skill_ids else {}),
                     )
                     real_msg = store.add_message(
                         real["id"],
@@ -567,6 +589,7 @@ def chat(user):
                         role="user",
                         content=message_text,
                         attachments=attachments or None,
+                        **({"skills": skill_labels} if skill_labels else {}),
                     )
                     convo = real
                     user_message = real_msg
@@ -577,6 +600,7 @@ def chat(user):
                         role="user",
                         content=message_text,
                         attachments=attachments or None,
+                        **({"skills": skill_labels} if skill_labels else {}),
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.exception("chat: deferred persist failed user=%s: %s", user.id, exc)
@@ -685,42 +709,27 @@ def chat(user):
                     project_files = store.list_project_files(active_project_id, user.id, include_text=True) if project else None
 
                     base_sys = AEON_SYSTEM_PROMPT if chosen_friendly == "aeon" else DEFAULT_SYSTEM_PROMPT
-                    if project:
-                        past_user_texts = [
-                            m.get("content", "")
-                            for m in model_history
-                            if m.get("role") == "user" and isinstance(m.get("content"), str)
-                        ]
-                        retrieval_query = "\n".join([t for t in (past_user_texts[-2:] + [message_text]) if t])
-
-                        assembled_base = project_service.assemble_project_system_prompt(
-                            project=project,
-                            base_system_prompt=base_sys,
-                            project_files=project_files,
-                            user_query=retrieval_query,
-                        )
-                    else:
-                        assembled_base = base_sys
-
-                    extra_sys = convo.get("system_prompt")
-
+                    past_user_texts = [
+                        m.get("content", "") for m in model_history
+                        if m.get("role") == "user" and isinstance(m.get("content"), str)
+                    ]
+                    retrieval_query = "\n".join(filter(None, past_user_texts[-2:] + [message_text]))
+                    assembled_base = skill_service.assemble_prompt(
+                        global_instructions, base_sys, active_skills,
+                        project=project, project_files=project_files, user_query=retrieval_query,
+                        extra_instructions=convo.get("system_prompt"),
+                    )
                     if conversation_is_visual:
                         messages_payload = nvidia_client.build_messages_for_vision(
-                            model_history,
-                            batch_content,
-                            system_prompt="\n\n".join(filter(None, [assembled_base if project else "", extra_sys])) or None,
+                            model_history, batch_content, system_prompt=assembled_base,
                         )
                     else:
                         messages_payload = nvidia_client.build_messages(
-                            model_history,
-                            batch_content,
-                            base_system_prompt=assembled_base,
-                            system_prompt=extra_sys,
+                            model_history, batch_content, base_system_prompt=assembled_base,
                         )
                 else:
                     messages_payload = nvidia_client.build_continuation_messages(
-                        model_history, batch_content,
-                        system_prompt="\n\n".join(filter(None, [assembled_base, extra_sys])),
+                        model_history, batch_content, system_prompt=assembled_base,
                     )
 
                 if use_batches and len(batches) > 1:

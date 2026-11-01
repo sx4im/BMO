@@ -8,6 +8,10 @@ import pytest
 
 @pytest.fixture()
 def client(monkeypatch):
+    # Legacy gateway tests stub their persistence calls individually. Customize
+    # storage is exercised with the real store and a tenant-aware DB double.
+    from app import store
+    monkeypatch.setattr(store, "get_preferences", lambda user_id: {"instructions": ""})
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-jwt-secret")
