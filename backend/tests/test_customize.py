@@ -289,3 +289,47 @@ def test_all_customize_endpoints_require_authentication(gateway):
                          ("post", "/skills/upload"), ("get", f"/skills/{sid}"), ("put", f"/skills/{sid}"),
                          ("delete", f"/skills/{sid}"), ("put", f"/skills/{sid}/enabled"), ("get", f"/skills/{sid}/export")]:
         assert getattr(gateway, method)(path).status_code == 401
+
+
+def test_yaml_and_body_limits_and_deep_yaml_are_bounded():
+    with pytest.raises(ValueError, match="frontmatter exceeds"):
+        skill_service.parse_skill_md(b"---\n" + b"x" * 16385 + b"\n---\n")
+    with pytest.raises(ValueError, match="instructions too long"):
+        skill_service.parse_skill_md(markdown(instructions="x" * 20001))
+    with pytest.raises(ValueError, match="Invalid or unsafe YAML"):
+        skill_service.parse_skill_md(b"---\nname: " + b"[" * 2000 + b"a" + b"]" * 2000 + b"\ndescription: text\n---\n")
+
+
+def test_duplicate_archive_roots_outside_files_and_large_reference_are_rejected():
+    with pytest.raises(ValueError, match="duplicate paths"):
+        skill_service.import_skill("duplicate.zip", archive([("SKILL.md", markdown()), ("skill.md", b"duplicate")]))
+    with pytest.raises(ValueError, match="directory name must match"):
+        skill_service.import_skill("wrong-root.zip", archive([("other/SKILL.md", markdown())]))
+    with pytest.raises(ValueError, match="inside the skill directory"):
+        skill_service.import_skill("outside.zip", archive([("code-review/SKILL.md", markdown()), ("outside.md", b"text")]))
+    with pytest.raises(ValueError, match="64 KB"):
+        skill_service.import_skill("large-ref.zip", archive([("SKILL.md", markdown()), ("reference.txt", b"x" * 65537)]))
+
+
+def test_branch_drops_deleted_and_disabled_selections_but_keeps_historical_labels(db):
+    enabled = skill(db)
+    disabled = skill(db, name="disabled")
+    store.update_skill(disabled["id"], "owner", {"enabled": False})
+    db.rows["conversations"] = [{"id": "chat", "user_id": "owner", "title": "Chat", "active_skills": [enabled["id"], disabled["id"], str(uuid.uuid4())]}]
+    db.rows["messages"] = [{"id": "first", "conversation_id": "chat", "role": "user", "content": "Original", "created_at": "2026-01-01T00:00:00+00:00", "skills": [{"id": disabled["id"], "name": "disabled"}]},
+                           {"id": "second", "conversation_id": "chat", "role": "user", "content": "Edit this", "created_at": "2026-01-01T00:00:01+00:00"}]
+    branch = store.branch_conversation("chat", "owner", "second")
+    assert branch["conversation"]["active_skills"] == [enabled["id"]]
+    assert branch["messages"][0]["skills"][0]["name"] == "disabled"
+
+
+def test_skill_reference_failure_rolls_back_skill(db, monkeypatch):
+    execute = store._execute
+    def fail_files(query, **kwargs):
+        if query.table == "skill_files" and query.action == "insert":
+            raise RuntimeError("Storage failed")
+        return execute(query, **kwargs)
+    monkeypatch.setattr(store, "_execute", fail_files)
+    with pytest.raises(RuntimeError):
+        store.create_skill("owner", values(), [{"filename": "ref.txt", "content": "text", "size_bytes": 4}])
+    assert not db.rows.get("skills")
