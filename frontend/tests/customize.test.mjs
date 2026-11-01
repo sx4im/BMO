@@ -14,7 +14,7 @@ async function picker(options) {
   const { SkillPicker } = await app.load("js/chat/skill-picker.js");
   const textarea = app.dom.window.document.createElement("textarea");
   const picker = new SkillPicker(textarea, options);
-  app.dom.window.document.body.append(textarea, picker.popup, picker.chips);
+  app.dom.window.document.body.append(textarea, picker.popup, picker.chips, picker.preview);
   picker.setCatalog(catalog);
   const type = value => { textarea.value = value; textarea.setSelectionRange(value.length, value.length); textarea.dispatchEvent(new app.dom.window.Event("input", { bubbles: true })); };
   const key = value => picker.handleKey(new app.dom.window.KeyboardEvent("keydown", { key: value, cancelable: true }));
@@ -103,6 +103,49 @@ test("slash menu lists Add files first and keeps attachment selection available 
   assert.equal(app.picker.popup.querySelector('[role="option"]'), null);
 });
 
+test("selected skill descriptions open on hover, focus and touch, and dismiss safely", async t => {
+  const app = await picker();
+  t.after(() => app.picker.destroy());
+  app.picker.setSelected(["one"]);
+  const label = app.picker.chips.querySelector('.skill-name');
+  assert.equal(label.textContent, '/code-review');
+  assert.equal(label.getAttribute('aria-describedby'), app.picker.preview.id);
+  label.dispatchEvent(new app.dom.window.Event('pointerenter'));
+  assert.equal(app.picker.preview.hidden, false);
+  assert.equal(app.picker.preview.getAttribute('role'), 'tooltip');
+  assert.equal(app.picker.previewDescription.textContent, 'Review code');
+  app.dom.window.document.dispatchEvent(new app.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(app.picker.preview.hidden, true);
+  label.focus();
+  assert.equal(app.picker.preview.hidden, false);
+  app.textarea.dispatchEvent(new app.dom.window.Event('pointerdown', { bubbles: true }));
+  assert.equal(app.picker.preview.hidden, true);
+  label.click();
+  assert.equal(app.picker.preview.hidden, false);
+  assert.deepEqual(Array.from(app.picker.selectedIds), ['one']);
+  app.picker.setCatalog([{ id: 'evil', name: '<img src=x>', description: '<script>unsafe</script>', enabled: true }]);
+  app.picker.setSelected(['evil']);
+  app.picker.chips.querySelector('.skill-name').click();
+  assert.equal(app.picker.previewDescription.textContent, '<script>unsafe</script>');
+  assert.equal(app.picker.preview.querySelector('img, script'), null);
+  app.picker.destroy();
+  assert.equal(app.picker.preview.hidden, true);
+});
+
+test("Backspace at the message start removes the last skill without changing the message", async t => {
+  const app = await picker();
+  t.after(() => app.picker.destroy());
+  app.picker.setSelected(['one', 'two']);
+  app.type('Review this');
+  app.textarea.setSelectionRange(0, 0);
+  assert.equal(app.key('Backspace'), true);
+  assert.deepEqual(Array.from(app.picker.selectedIds), ['one']);
+  assert.equal(app.textarea.value, 'Review this');
+  app.textarea.setSelectionRange(1, 1);
+  assert.equal(app.key('Backspace'), false);
+  assert.deepEqual(Array.from(app.picker.selectedIds), ['one']);
+});
+
 test("Customize tabs, instructions save races, skill editor and toggles update incrementally", async t => {
   let app, finishSave;
   const toggles = [], savedSkills = [], uploads = [], downloads = [];
@@ -163,6 +206,8 @@ test("Customize tabs, instructions save races, skill editor and toggles update i
   assert.equal(savedSkills[0].instructions, "<script>text only</script>");
   assert.equal(doc.querySelector("dialog"), null);
   assert.equal(doc.querySelectorAll(".skill-card").length, 5);
+  assert.equal(doc.querySelector('.skills-feedback').hidden, true);
+  assert.equal(doc.querySelector('.skills-feedback a'), null);
   const upload = doc.querySelector('input[type="file"]');
   assert.equal(upload.accept, ".md");
   Object.defineProperty(upload, "files", { configurable: true, value: [{ name: "invalid.zip" }] });
@@ -296,7 +341,9 @@ test("skill uploads show real progress, preserve inline errors across list loadi
   assert.equal(doc.querySelector(".skill-card h3").textContent, "no-ai-slop");
   assert.equal(doc.querySelector(".skill-description").title, "Edit drafts with clear examples and preserve the writer's voice.");
   assert.equal(doc.querySelector(".skills-feedback.error"), null);
-  assert.equal(doc.querySelector(".skills-feedback a").getAttribute("href"), "#/app/chat?skill_id=new-id");
+  assert.equal(doc.querySelector(".skills-feedback").hidden, true);
+  assert.equal(doc.querySelector(".skills-feedback").textContent, "");
+  assert.equal(doc.querySelector(".skills-feedback a"), null);
   assert.equal(doc.querySelector(".skill-use-link").getAttribute("href"), "#/app/chat?skill_id=new-id");
 });
 

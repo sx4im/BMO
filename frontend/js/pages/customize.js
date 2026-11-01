@@ -108,12 +108,11 @@ export async function renderCustomize() {
     ]), uploadTrack,
   ]);
   const skillChatUrl = skill => `#/app/chat?skill_id=${encodeURIComponent(skill.id)}`;
-  function showFeedback(message, error = false, skill = null) {
+  function showFeedback(message) {
     feedback.hidden = false;
-    feedback.classList.toggle("error", error);
-    feedback.setAttribute("role", error ? "alert" : "status");
+    feedback.classList.add("error");
+    feedback.setAttribute("role", "alert");
     feedback.replaceChildren(el("span", { text: message }));
-    if (skill) feedback.append(el("a", { class: "btn secondary", href: skillChatUrl(skill), text: "Use in chat" }));
   }
   const cards = new Map();
   function upsertCard(skill) {
@@ -127,7 +126,7 @@ export async function renderCustomize() {
   function edit(skill) {
     closeEditor?.();
     closeEditor = openSkillEditor({ auth, skill, onSaved: updated => {
-      if (isCurrent()) { upsertCard(updated); showFeedback(`“${updated.name}” saved.`, false, updated.enabled ? updated : null); }
+      if (isCurrent()) { upsertCard(updated); feedback.hidden = true; }
     } });
   }
   const upload = el("input", { type: "file", accept: ".md", hidden: true, onchange: async () => {
@@ -135,12 +134,14 @@ export async function renderCustomize() {
     upload.value = "";
     if (!file || upload.disabled) return;
     feedback.hidden = true;
+    feedback.replaceChildren();
+    feedback.classList.remove("error");
     if (!/\.md$/i.test(file.name)) {
-      showFeedback("Choose a Markdown (.md) skill file.", true);
+      showFeedback("Choose a Markdown (.md) skill file.");
       return;
     }
     if (file.size > 128 * 1024) {
-      showFeedback("This skill is too large. Choose a file smaller than 128 KB.", true);
+      showFeedback("This skill is too large. Choose a file smaller than 128 KB.");
       return;
     }
     uploadName.textContent = file.name;
@@ -162,8 +163,8 @@ export async function renderCustomize() {
     try {
       const skill = await api.uploadSkill(auth.token, file, updateProgress);
       if (!skill?.id || typeof skill.name !== "string" || typeof skill.description !== "string") throw Error("The skill could not be saved. Please try again.");
-      if (isCurrent()) { upsertCard(skill); showFeedback(`“${skill.name}” added.`, false, skill); }
-    } catch (error) { if (isCurrent()) showFeedback(error.message || "Upload failed. Please try again.", true); }
+      if (isCurrent()) upsertCard(skill);
+    } catch (error) { if (isCurrent()) showFeedback(error.message || "Upload failed. Please try again."); }
     finally { upload.disabled = false; progress.hidden = true; }
   } });
   const add = el("details", { class: "skills-add" });

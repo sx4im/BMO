@@ -4741,6 +4741,18 @@ body:has(.chat-page.is-empty) .tools-menu,
   min-width: 0;
 }
 
+.composer-input-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  column-gap: 4px;
+}
+
+.composer-input-row .composer-input-wrap {
+  flex: 1 1 100px;
+  width: auto;
+}
+
 .composer-backdrop {
   position: absolute;
   top: 0;
@@ -6181,21 +6193,8 @@ body:has(.chat-page.is-empty) .tools-menu,
 
 .workspace-layout {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
-}
-
-@media (min-width: 900px) {
-  .workspace-layout {
-    grid-template-columns: 1.15fr 0.85fr;
-  }
-}
-
-.workspace-col {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  min-width: 0;
 }
 
 .workspace-card {
@@ -12110,7 +12109,7 @@ em {
 .customize-tabs [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent; padding: 12px 2px; color: var(--muted); font: inherit; cursor: pointer; }
 .customize-tabs [role="tab"]:hover { color: var(--ink); }
 .customize-tabs [aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
-.customize-page [hidden], .skill-popup[hidden], .composer-skill-chips[hidden] { display: none; }
+.customize-page [hidden], .skill-popup[hidden], .composer-skill-chips[hidden], .skill-description-preview[hidden] { display: none; }
 .customize-label { color: var(--ink); font-size: 14px; font-weight: 600; }
 .customize-hint { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 8px 0 18px; }
 .customize-instructions { min-height: 230px; }
@@ -12125,11 +12124,10 @@ em {
 .skill-card h3 { margin: 0; color: var(--ink); font-size: 15px; overflow-wrap: anywhere; }
 .skill-use-link { color: inherit; text-decoration: none; }
 .skill-use-link:hover { text-decoration: underline; text-underline-offset: 3px; }
-.skill-description { color: var(--muted); font-size: 13px; line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.skill-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; color: var(--muted); font-size: 13px; line-height: 1.6; margin: 12px 0 0; white-space: normal; overflow: hidden; overflow-wrap: anywhere; min-width: 0; }
 .skills-feedback, .skills-load-status { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .skills-load-status:empty { display: none; }
-.skills-feedback:not(.error), .skills-load-status { color: var(--muted); }
-.skills-feedback .btn { font-size: 12px; padding: 6px 10px; }
+.skills-load-status { color: var(--muted); }
 .skill-card-error { margin: 12px 0 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .skill-upload-progress { padding: 14px 16px; margin-bottom: 16px; border: 1px solid var(--hairline); border-radius: 10px; background: var(--surface-card); }
 .skill-upload-meta { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--muted); }
@@ -12199,18 +12197,30 @@ em {
 .skill-option-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-popup-empty { padding: 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .composer-skill-chips, .message-skill-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.composer-skill-chips { padding: 12px 14px 0; }
+.composer-skill-chips { padding: 6px 0 0 4px; max-width: 100%; }
 .message-skill-chips { justify-content: flex-end; margin-bottom: 8px; }
 .skill-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0; border: 0; background: transparent; color: #1263b5; font-size: 14px; overflow-wrap: anywhere; }
+.composer-skill-chips .skill-chip { font-size: 15px; line-height: 1.5; }
 :root[data-theme="dark"] .skill-chip { color: #81b9ed; }
-.skill-chip button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; padding: 0; background: none; border: 0; border-radius: 4px; color: inherit; opacity: 0.7; cursor: pointer; }
-.skill-chip button:hover, .skill-chip button:focus-visible { opacity: 1; background: var(--surface-soft); }
+.skill-name { min-width: 0; padding: 0; background: transparent; border: 0; color: inherit; font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.skill-name:hover, .skill-name:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.skill-remove { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; padding: 0; background: none; border: 0; border-radius: 4px; color: inherit; opacity: 0; cursor: pointer; }
+.skill-chip:hover .skill-remove, .skill-chip:focus-within .skill-remove { opacity: 0.7; }
+.skill-remove:hover, .skill-remove:focus-visible { opacity: 1; background: var(--surface-soft); }
+.skill-description-preview { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 60; width: 280px; max-width: 100%; padding: 12px 14px; background: var(--surface-card); border: 1px solid var(--hairline-strong); border-radius: 10px; box-shadow: 0 6px 20px #0002; color: var(--ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.skill-description-preview strong { display: block; margin-bottom: 5px; font-weight: 600; }
+.skill-description-preview p { margin: 0; max-height: min(120px, 25dvh); overflow-y: auto; color: var(--muted); }
 .customize-loading { position: relative; width: 100%; min-height: 240px; }
 .image-unavailable { color: var(--muted); font-size: 13px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); }
 @media (max-width: 600px) { .skill-editor { padding: 20px; } .skills-heading { gap: 12px; } }
 @media (hover: none) {
+  .skill-remove { opacity: 0.7; }
   .sidebar.mobile .sidebar-nav .sidebar-nav-icon svg,
   .sidebar.mobile .sidebar-nav .sidebar-nav-icon svg * { animation: none; transition: none; transform: none; }
+}
+@media (max-width: 559px) {
+  .composer-skill-chips { padding-left: 2px; }
+  .composer-skill-chips .skill-chip { font-size: calc(16px * 1.05); }
 }
 @media (prefers-reduced-motion: reduce) {
   .skill-toggle span { transition: none; }

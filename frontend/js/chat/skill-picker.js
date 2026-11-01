@@ -5,9 +5,10 @@ let sequence = 0;
 
 // This component updates only its popup and chips; the textarea/feed stay mounted.
 export class SkillPicker {
-  constructor(textarea, { onAddFiles } = {}) {
+  constructor(textarea, { onAddFiles, onSelectionChange } = {}) {
     this.textarea = textarea;
     this.onAddFiles = onAddFiles;
+    this.onSelectionChange = onSelectionChange;
     this.skills = [];
     this.selectedIds = [];
     this.loaded = false;
@@ -16,16 +17,26 @@ export class SkillPicker {
     this.range = null;
     this.popup = el("div", { class: "skill-popup", id: `skill-options-${++sequence}`, role: "listbox", "aria-label": "Enabled skills", hidden: true });
     this.chips = el("div", { class: "composer-skill-chips", "aria-label": "Active skills", hidden: true });
+    this.previewName = el("strong");
+    this.previewDescription = el("p");
+    this.preview = el("div", { class: "skill-description-preview", id: `skill-preview-${sequence}`, role: "tooltip", hidden: true,
+      onpointerenter: () => clearTimeout(this.previewTimer), onpointerleave: () => this.schedulePreviewClose(),
+    }, [this.previewName, this.previewDescription]);
     textarea.setAttribute("aria-controls", this.popup.id);
     textarea.setAttribute("aria-haspopup", "listbox");
     textarea.setAttribute("aria-expanded", "false");
-    this.onInput = () => this.update();
-    this.onClick = event => { if (!this.popup.contains(event.target) && event.target !== textarea) this.close(); };
+    this.onInput = () => { this.hidePreview(); this.update(); };
+    this.onClick = event => {
+      if (!this.popup.contains(event.target) && event.target !== textarea) this.close();
+      if (!this.chips.contains(event.target) && !this.preview.contains(event.target)) this.hidePreview();
+    };
+    this.onEscape = event => { if (event.key === "Escape" && !this.preview.hidden) { event.preventDefault(); this.hidePreview(); } };
     this.onBlur = () => { this.blurTimer = setTimeout(() => this.close(), 150); };
     textarea.addEventListener("input", this.onInput);
     textarea.addEventListener("click", this.onInput);
     textarea.addEventListener("blur", this.onBlur);
     document.addEventListener("pointerdown", this.onClick);
+    document.addEventListener("keydown", this.onEscape);
   }
 
   setCatalog(skills) {
@@ -51,15 +62,43 @@ export class SkillPicker {
   }
 
   renderChips() {
+    this.hidePreview();
     this.chips.replaceChildren(...this.selected.map(skill => el("span", { class: "skill-chip" }, [
-      el("span", { text: `/${skill.name}` }),
-      el("button", { type: "button", "aria-label": `Remove ${skill.name}`, onclick: () => {
+      el("button", { type: "button", class: "skill-name", text: `/${skill.name}`, "aria-describedby": this.preview.id,
+        onpointerenter: event => { if (event.pointerType !== "touch") this.showPreview(skill, event.currentTarget); },
+        onpointerleave: () => this.schedulePreviewClose(), onblur: () => this.schedulePreviewClose(),
+        onfocus: event => this.showPreview(skill, event.currentTarget), onclick: event => this.showPreview(skill, event.currentTarget),
+      }),
+      el("button", { type: "button", class: "skill-remove", "aria-label": `Remove ${skill.name}`, onclick: () => {
         this.setSelected(this.selectedIds.filter(id => id !== skill.id));
         this.textarea.focus();
         this.update();
       } }, [el("span", { "aria-hidden": "true", html: icon("x", { width: 12, height: 12 }) })]),
     ])));
     this.chips.hidden = this.selectedIds.length === 0;
+    this.onSelectionChange?.();
+  }
+
+  showPreview(skill, trigger) {
+    clearTimeout(this.previewTimer);
+    this.close();
+    this.previewTrigger = trigger;
+    this.previewName.textContent = skill.name;
+    this.previewDescription.textContent = skill.description || "No description available.";
+    this.preview.hidden = false;
+  }
+
+  schedulePreviewClose() {
+    clearTimeout(this.previewTimer);
+    this.previewTimer = setTimeout(() => {
+      if (document.activeElement !== this.previewTrigger && !this.preview.matches(":hover")) this.hidePreview();
+    }, 150);
+  }
+
+  hidePreview() {
+    clearTimeout(this.previewTimer);
+    this.preview.hidden = true;
+    this.previewTrigger = null;
   }
 
   update() {
@@ -107,6 +146,12 @@ export class SkillPicker {
   }
 
   handleKey(event) {
+    if (!event.isComposing && event.key === "Backspace" && this.textarea.selectionStart === 0 && this.textarea.selectionEnd === 0 && this.selectedIds.length) {
+      event.preventDefault();
+      this.setSelected(this.selectedIds.slice(0, -1));
+      this.close();
+      return true;
+    }
     if (this.popup.hidden || event.isComposing) return false;
     if (event.key === "Escape") { event.preventDefault(); this.close(); return true; }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -146,6 +191,8 @@ export class SkillPicker {
     this.textarea.removeEventListener("click", this.onInput);
     this.textarea.removeEventListener("blur", this.onBlur);
     document.removeEventListener("pointerdown", this.onClick);
+    document.removeEventListener("keydown", this.onEscape);
+    this.hidePreview();
     this.close();
   }
 }

@@ -374,25 +374,13 @@ async function renderProjectWorkspace(host, auth, projectId) {
   ]);
   page.append(workspaceHead);
 
-  // Two-column layout
   const layout = el("div", { class: "workspace-layout" });
   page.append(layout);
-
-  // Left column: Instructions + Chats
-  const leftCol = el("div", { class: "workspace-col primary-col" });
-  // Right column: Knowledge Files
-  const rightCol = el("div", { class: "workspace-col secondary-col" });
-  layout.append(leftCol, rightCol);
-
-  // 1. Instructions Section
-  const instructionsCard = renderInstructionsCard(project, auth);
-  // 2. Chats Section
-  const chatsCard = renderChatsCard(project);
-  leftCol.append(instructionsCard, chatsCard);
-
-  // 3. Knowledge Files Section
-  const filesCard = renderFilesCard(project, auth);
-  rightCol.append(filesCard);
+  layout.append(
+    renderInstructionsCard(project, auth),
+    renderFilesCard(project, auth),
+    renderChatsCard(project),
+  );
 }
 
 /**

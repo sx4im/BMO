@@ -162,7 +162,7 @@ test("saved skills load as chips, follow-ups send them, and removal clears the n
   assert.equal(page.rendered().messages.find(message => message.role === "user").skills[0].name, "code-review");
   await page.turn("Continue");
   assert.deepEqual(page.payloads[1].skill_ids, ["skill"]);
-  page.composer.skillPicker.chips.querySelector("button").click();
+  page.composer.skillPicker.chips.querySelector('[aria-label="Remove code-review"]').click();
   await page.turn("Without skills");
   assert.deepEqual(page.payloads[2].skill_ids, []);
 });

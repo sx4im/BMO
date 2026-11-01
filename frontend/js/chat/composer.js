@@ -12,7 +12,7 @@ import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 import { getAuth } from "../auth.js";
 import * as api from "../api.js?v=64";
-import { SkillPicker } from "./skill-picker.js?v=4";
+import { SkillPicker } from "./skill-picker.js?v=5";
 
 export const URL_REGEX = /(?:https?:\/\/|www\.)[^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’]))|\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?::\d+)?(?:[\/?#][^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’])))?/gi;
 
@@ -372,7 +372,10 @@ export class Composer {
         for (const file of files.slice(0, 3)) this.uploadAndAttach(file);
       },
     });
-    this.skillPicker = new SkillPicker(this.textarea, { onAddFiles: () => this.documentInput.click() });
+    this.skillPicker = new SkillPicker(this.textarea, {
+      onAddFiles: () => this.documentInput.click(),
+      onSelectionChange: () => { this.updateComposerForMode(); this.autoSize(this.textarea); },
+    });
     this.inputWrap = el("div", { class: "composer-input-wrap" }, [
       this.backdrop,
       this.textarea,
@@ -415,9 +418,9 @@ export class Composer {
 
     this.composerBox = el("div", { class: "composer-box glass" }, [
       this.skillPicker.popup,
-      this.skillPicker.chips,
+      this.skillPicker.preview,
       this.attachmentsBar,
-      this.inputWrap,
+      el("div", { class: "composer-input-row" }, [this.skillPicker.chips, this.inputWrap]),
       this.composerToolbar,
     ]);
 
@@ -656,7 +659,9 @@ export class Composer {
   }
 
   updateComposerForMode() {
-    if (this.studyMode) {
+    if (this.skillPicker.selectedIds.length) {
+      this.textarea.placeholder = "";
+    } else if (this.studyMode) {
       this.textarea.placeholder = "What topic do you want to study?";
     } else if (this.isImageMode()) {
       this.textarea.placeholder = "Describe an image to create…";
