@@ -6,10 +6,10 @@
 import { el, clear, formatTitle } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=72";
 import { brandMark, logo } from "../components/logo.js?v=32";
-import { messageBubble } from "../components/message.js?v=36";
+import { messageBubble } from "../components/message.js?v=76";
 import { whenMarkdownReady } from "../components/markdown.js?v=34";
 import { navigate } from "../router.js";
-import * as api from "../api.js?v=62";
+import * as api from "../api.js?v=64";
 
 export async function renderSharedChat({ shareId } = {}) {
   const root = document.getElementById("app");
@@ -82,6 +82,7 @@ export async function renderSharedChat({ shareId } = {}) {
     }
 
     titleText.textContent = formatTitle(data.title || "Shared conversation");
+    let attachmentRefresh = null;
 
     const renderMessages = () => {
       clear(feedContainer);
@@ -96,6 +97,11 @@ export async function renderSharedChat({ shareId } = {}) {
           onRetryAssistant: null,
           onRenderQuiz: null,
           onExport: null,
+          onRefreshAttachment: async attachment => {
+            if (!attachmentRefresh) attachmentRefresh = api.getPublicShare(shareId).finally(() => { attachmentRefresh = null; });
+            const refreshed = await attachmentRefresh;
+            return refreshed.messages?.flatMap(message => message.attachments || []).find(a => a.path === attachment.path)?.url;
+          },
         });
         feedContainer.appendChild(bubbleNode);
       }

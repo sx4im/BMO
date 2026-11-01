@@ -189,7 +189,7 @@ test("sent messages render skill labels safely and use compact document icons", 
     "orb.js": { thoughtOrb() {}, searchOrb() {} } });
   const { messageBubble } = await app.load("js/components/message.js");
   const bubble = messageBubble({ message: { role: "user", content: "Review this", skills: [{ id: "one", name: "<img src=x>" }], attachments: [{ filename: "test.pptx" }] } });
-  assert.equal(bubble.querySelector(".message-skill-chips").textContent, "<img src=x>");
+  assert.equal(bubble.querySelector(".message-skill-chips").textContent, "/<img src=x>");
   assert.equal(bubble.querySelector("img"), null);
   assert.equal(bubble.querySelector(".file-chip svg").getAttribute("width"), "24");
   assert.equal(bubble.querySelector(".file-chip-name").textContent, "test.pptx");
@@ -341,4 +341,48 @@ test("skill upload transport reports bytes and the server-processing stage", asy
   assert.deepEqual(progress, [0, 0.25, 1]);
   xhr.onload();
   assert.equal((await result).name, "review");
+});
+
+test("expired images refresh once in place and failures show a readable fallback", async () => {
+  let renewals = 0;
+  const app = moduleLoader({ "markdown.js": { renderMarkdown: text => text }, "orb.js": { thoughtOrb() {}, searchOrb() {} } });
+  const { messageBubble } = await app.load("js/components/message.js");
+  const attachment = { filename: "179170251214873170996683.png", path: "owner/photo", url: "https://old.invalid/image", content_type: "image/png" };
+  const bubble = messageBubble({ message: { role: "user", content: "Explain this", attachments: [attachment] },
+    onRefreshAttachment: async () => { renewals++; return "https://fresh.invalid/image"; } });
+  app.dom.window.document.body.append(bubble);
+  const img = bubble.querySelector("img");
+  assert.equal(img.alt, "Attached image");
+  img.dispatchEvent(new app.dom.window.Event("error"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(renewals, 1);
+  assert.equal(bubble.querySelector("img"), img);
+  assert.equal(img.src, "https://fresh.invalid/image");
+  img.dispatchEvent(new app.dom.window.Event("error"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(renewals, 1);
+  assert.equal(bubble.querySelector("img"), null);
+  assert.match(bubble.querySelector(".image-unavailable").textContent, /Image unavailable/);
+  assert.equal(bubble.textContent.includes("179170251214873170996683"), false);
+});
+
+test("Customize panels expose independent busy states and loading indicators", async t => {
+  let finishInstructions, finishSkills;
+  const page = await customizePage({
+    getInstructions: () => new Promise(resolve => { finishInstructions = resolve; }),
+    listSkills: () => new Promise(resolve => { finishSkills = resolve; }),
+  });
+  t.after(page.cleanup);
+  assert.equal(page.doc.querySelector('#customize-instructions').getAttribute('aria-busy'), 'true');
+  assert.equal(page.doc.querySelectorAll('.customize-loading .spinner-blade').length, 24);
+  assert.equal(page.doc.querySelector('#customize-skills').getAttribute('aria-busy'), 'true');
+  finishInstructions({ instructions: 'Read carefully' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.doc.querySelector('#customize-instructions').getAttribute('aria-busy'), 'false');
+  assert.equal(page.doc.querySelector('#customize-instructions .customize-loading').hidden, true);
+  assert.equal(page.doc.querySelector('#customize-skills').getAttribute('aria-busy'), 'true');
+  finishSkills([]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.doc.querySelector('#customize-skills').getAttribute('aria-busy'), 'false');
+  assert.equal(page.doc.querySelector('.skills-load-status').textContent, '');
 });

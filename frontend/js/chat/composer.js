@@ -11,8 +11,8 @@ import { toast } from "../components/toast.js?v=58";
 import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 import { getAuth } from "../auth.js";
-import * as api from "../api.js?v=60";
-import { SkillPicker } from "./skill-picker.js?v=3";
+import * as api from "../api.js?v=64";
+import { SkillPicker } from "./skill-picker.js?v=4";
 
 export const URL_REGEX = /(?:https?:\/\/|www\.)[^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’]))|\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?::\d+)?(?:[\/?#][^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’])))?/gi;
 
@@ -208,7 +208,7 @@ export class Composer {
 
     this.documentInput = el("input", {
       type: "file",
-      accept: ".pdf,.docx,.zip,.pptx,.xlsx,.txt,.md,.json",
+      accept: ".pdf,.docx,.zip,.pptx,.xlsx,.txt,.md,.json,.csv",
       multiple: true,
       style: "display:none",
       onchange: async (e) => {

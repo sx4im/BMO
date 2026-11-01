@@ -17,7 +17,7 @@ import { el, clear } from "../utils.js?v=30";
 import { readingOrb } from "../components/orb.js?v=3";
 import { searchCard } from "../components/search-card.js?v=3";
 import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=34";
-import { messageBubble, reasoningDetails } from "../components/message.js?v=75";
+import { messageBubble, reasoningDetails } from "../components/message.js?v=76";
 import { EXPORT_FORMATS, downloadBlob } from "../export.js?v=4";
 import { StreamingRenderer } from "./stream-renderer.js?v=13";
 import { stripStrayCursors } from "./caret.js?v=1";
@@ -146,12 +146,14 @@ export class MessageFeed {
     onFeedback,
     onRetryAssistantMessage,
     onExport,
+    onRefreshAttachment,
   }) {
     this.onEditMessage = onEditMessage;
     this.onRetryMessage = onRetryMessage;
     this.onFeedback = onFeedback;
     this.onRetryAssistantMessage = onRetryAssistantMessage;
     this.onExport = onExport;
+    this.onRefreshAttachment = onRefreshAttachment;
 
     this.stream = el("div", { class: "chat-stream" });
     this.streamInner = el("div", { class: "inner" });
@@ -334,6 +336,7 @@ export class MessageFeed {
           onFeedback: m.role === "assistant" ? this.onFeedback : undefined,
           onRetryAssistant: m.role === "assistant" ? this.onRetryAssistantMessage : undefined,
           onExport: m.role === "assistant" ? this.onExport : undefined,
+          onRefreshAttachment: this.onRefreshAttachment,
           entering: enteringId != null && m.id === enteringId,
         });
         entry.element.replaceWith(newNode);
@@ -350,6 +353,7 @@ export class MessageFeed {
           onFeedback: m.role === "assistant" ? this.onFeedback : undefined,
           onRetryAssistant: m.role === "assistant" ? this.onRetryAssistantMessage : undefined,
           onExport: m.role === "assistant" ? this.onExport : undefined,
+          onRefreshAttachment: this.onRefreshAttachment,
           entering: enteringId != null && m.id === enteringId,
         });
         entry = { element: newNode, message: m };

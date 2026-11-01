@@ -2,7 +2,7 @@ import { el, clear } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=75";
 import { getAuth } from "../auth.js";
 import { mountAppShell } from "../app-shell.js";
-import * as api from "../api.js?v=63";
+import * as api from "../api.js?v=64";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
 import { downloadBlob } from "../export.js?v=4";
 
@@ -17,6 +17,10 @@ export async function renderCustomize() {
   shell.content.append(page);
   let disposed = false;
   let closeEditor = null;
+  const loading = label => el("div", { class: "customize-loading" }, [
+    el("span", { class: "blade-spinner", "aria-hidden": "true" }, Array.from({ length: 12 }, (_, index) => el("span", { class: "spinner-blade", style: `animation-delay: ${-index / 12}s` }))),
+    el("span", { text: label }),
+  ]);
   const isCurrent = () => !disposed && page.isConnected && getAuth().auth?.user?.id === auth.user?.id;
   page.append(el("header", { class: "page-head" }, [
     el("h1", { text: "Customize" }),
@@ -78,7 +82,9 @@ export async function renderCustomize() {
     status.setAttribute("role", instructionError ? "alert" : "status");
     status.textContent = saving ? "Saving…" : instructionError || (instructions.value !== saved ? "Unsaved changes" : instructionNotice);
   }
-  panels[0].append(el("div", { class: "workspace-card" }, [
+  const instructionsLoading = loading("Loading instructions…");
+  instructionsLoading.setAttribute("role", "status");
+  panels[0].append(instructionsLoading, el("div", { class: "workspace-card" }, [
     el("label", { for: "global-instructions", class: "customize-label", text: "What would you like Bmo to know?" }),
     el("p", { id: "global-instructions-hint", class: "customize-hint", text: "Your preferences apply to every chat. Bmo’s safety rules still apply." }),
     instructions,
@@ -90,7 +96,7 @@ export async function renderCustomize() {
     el("h3", { text: "A little expertise, on demand" }),
     el("p", { text: "Save a reusable skill, then type / in a chat to use it. Choose up to three at a time." }),
   ]);
-  const skillsStatus = el("div", { class: "skills-load-status", role: "status", text: "Loading skills…" });
+  const skillsStatus = el("div", { class: "skills-load-status", role: "status" });
   const feedback = el("div", { class: "skills-feedback", hidden: true, role: "status" });
   const uploadName = el("span", { class: "skill-upload-name" });
   const uploadStage = el("span", { class: "skill-upload-stage", role: "status" });
@@ -196,14 +202,17 @@ export async function renderCustomize() {
         : el("span", { text: skill.name })]), toggle]),
       el("p", { class: "skill-description", text: skill.description, title: skill.description }),
       el("div", { class: "skill-card-actions" }, [
-        el("button", { type: "button", class: "btn secondary", text: "Edit", onclick: async event => {
+        el("button", { type: "button", class: "btn secondary workspace-action", onclick: async event => {
           const button = event.currentTarget;
           button.disabled = true;
           try { const full = await api.getSkill(auth.token, skill.id); if (isCurrent()) edit(full); }
           catch (error) { showCardError(error); }
           finally { button.disabled = false; }
-        } }),
-        el("button", { type: "button", class: "btn secondary", text: "Export", onclick: async event => {
+        } }, [
+          el("span", { class: "btn-ic", html: icon("pencil", { width: 16, height: 16 }) }),
+          el("span", { text: "Edit" }),
+        ]),
+        el("button", { type: "button", class: "btn secondary workspace-action", onclick: async event => {
           const button = event.currentTarget;
           button.disabled = true;
           try {
@@ -212,8 +221,11 @@ export async function renderCustomize() {
           }
           catch (error) { showCardError(error); }
           finally { button.disabled = false; }
-        } }),
-        el("button", { type: "button", class: "btn secondary", text: "Delete", onclick: () => openConfirmModal({
+        } }, [
+          el("span", { class: "btn-ic", html: icon("download", { width: 16, height: 16 }) }),
+          el("span", { text: "Export" }),
+        ]),
+        el("button", { type: "button", class: "btn secondary workspace-action", onclick: () => openConfirmModal({
           title: "Delete skill?", message: `Delete ${skill.name}? Previous messages will keep their skill labels.`, confirmText: "Delete",
           onConfirm: async () => {
             try {
@@ -221,7 +233,10 @@ export async function renderCustomize() {
               if (isCurrent()) { cards.get(skill.id)?.remove(); cards.delete(skill.id); empty.hidden = cards.size > 0; }
             } catch (error) { showCardError(error); }
           },
-        }) }),
+        }) }, [
+          el("span", { class: "btn-ic", html: icon("trash", { width: 16, height: 16 }) }),
+          el("span", { text: "Delete" }),
+        ]),
       ]),
       cardError,
     ]);
@@ -229,7 +244,10 @@ export async function renderCustomize() {
 
   // Load panels independently; a failed request stays retryable without rebuilding the page.
   async function loadInstructions() {
-    status.textContent = "Loading…";
+    instructionsLoading.hidden = false;
+    panels[0].setAttribute("aria-busy", "true");
+    instructionError = "";
+    status.textContent = "";
     try {
       const result = await api.getInstructions(auth.token);
       if (!isCurrent()) return;
@@ -238,12 +256,20 @@ export async function renderCustomize() {
       instructions.disabled = false;
       status.textContent = "";
       syncInstructions();
-    } catch (error) { if (isCurrent()) status.replaceChildren(el("button", { type: "button", class: "btn secondary", text: "Retry loading instructions", title: error.message, onclick: loadInstructions })); }
+    } catch (error) {
+      if (isCurrent()) {
+        instructionError = error.message || "Could not load instructions.";
+        syncInstructions();
+        status.append(el("button", { type: "button", class: "btn secondary", text: "Retry", onclick: loadInstructions }));
+      }
+    }
+    finally { instructionsLoading.hidden = true; panels[0].setAttribute("aria-busy", "false"); }
   }
   async function loadSkills() {
     skillsStatus.classList.remove("error");
     skillsStatus.setAttribute("role", "status");
-    skillsStatus.textContent = "Loading skills…";
+    panels[1].setAttribute("aria-busy", "true");
+    skillsStatus.replaceChildren(loading("Loading skills…"));
     try {
       const skills = await api.listSkills(auth.token);
       if (!isCurrent()) return;
@@ -256,7 +282,7 @@ export async function renderCustomize() {
         skillsStatus.setAttribute("role", "alert");
         skillsStatus.replaceChildren(el("span", { text: error.message || "Could not load skills." }), el("button", { type: "button", class: "btn secondary", text: "Retry", onclick: loadSkills }));
       }
-    }
+    } finally { panels[1].setAttribute("aria-busy", "false"); }
   }
   loadInstructions();
   loadSkills();

@@ -52,7 +52,7 @@ export class SkillPicker {
 
   renderChips() {
     this.chips.replaceChildren(...this.selected.map(skill => el("span", { class: "skill-chip" }, [
-      el("span", { text: skill.name }),
+      el("span", { text: `/${skill.name}` }),
       el("button", { type: "button", "aria-label": `Remove ${skill.name}`, onclick: () => {
         this.setSelected(this.selectedIds.filter(id => id !== skill.id));
         this.textarea.focus();

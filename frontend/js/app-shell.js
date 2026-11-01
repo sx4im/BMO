@@ -107,7 +107,6 @@ async function handleRename(id, title) {
   const { auth } = getAuth();
   try {
     await api.updateConversation(auth.token, id, { title });
-    toast("Renamed", { tone: "success" });
     await loadConversations();
   } catch (err) {
     toast(err.message || "Couldn't rename", { tone: "error" });
@@ -118,7 +117,6 @@ async function handlePin(id, pinned) {
   const { auth } = getAuth();
   try {
     await api.updateConversation(auth.token, id, { pinned });
-    toast(pinned ? "Pinned" : "Unpinned", { tone: "success" });
     await loadConversations();
   } catch (err) {
     toast(err.message || "Couldn't update pin", { tone: "error" });
@@ -129,8 +127,6 @@ async function handleDelete(id) {
   const { auth } = getAuth();
   try {
     await api.deleteConversation(auth.token, id);
-    // Exclamation only — never a green success tick for delete.
-    toast("Chat deleted", { tone: "warning" });
     if (state.activeId === id) {
       state.activeId = null;
       navigate("#/app/chat");

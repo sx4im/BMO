@@ -54,6 +54,7 @@ export function messageBubble({
   onRetryAssistant,
   onRenderQuiz,
   onExport,
+  onRefreshAttachment,
   entering = false,
 }) {
   const isAssistant = message.role === "assistant";
@@ -102,17 +103,28 @@ export function messageBubble({
       if (isImage && a.url) {
         const img = el("img", {
           src: a.url,
-          alt: a.filename || "image",
+          alt: isAssistant ? "Generated image" : "Attached image",
           loading: "lazy",
           title: "Click to view",
           style: "cursor: zoom-in;",
           onclick: () => openImageModal(a.url, a.filename),
         });
-        img.addEventListener("error", () => {
-          img.style.opacity = "0.35";
-          img.style.cursor = "default";
-          img.onclick = null;
-          img.title = "Image link expired";
+        let refreshed = false;
+        img.addEventListener("error", async () => {
+          if (!refreshed && a.path && onRefreshAttachment) {
+            refreshed = true;
+            try {
+              const url = await onRefreshAttachment(a);
+              if (url && url !== a.url) {
+                a.url = url;
+                img.src = url;
+                const download = img.closest("figure")?.querySelector(".generated-download");
+                if (download) download.href = url;
+                return;
+              }
+            } catch { /* show the unavailable state below */ }
+          }
+          img.replaceWith(el("span", { class: "image-unavailable", role: "status", text: "Image unavailable. Reopen this chat to retry." }));
         });
         if (isAssistant) {
           // Generated image: larger, with a download action beneath it.
@@ -188,7 +200,7 @@ export function messageBubble({
   const bodyChildren = [];
   if (!isAssistant && Array.isArray(message.skills) && message.skills.length) {
     bodyChildren.push(el("div", { class: "message-skill-chips", "aria-label": "Skills used" }, message.skills.map(skill =>
-      el("span", { class: "skill-chip", text: skill.name })
+      el("span", { class: "skill-chip", text: `/${skill.name}` })
     )));
   }
   // The search that produced this answer, kept above it. Set on the live turn

@@ -144,7 +144,7 @@ test("saved skills load as chips, follow-ups send them, and removal clears the n
   const skills = [{ id: "skill", name: "code-review", description: "Review code", enabled: true }];
   const page = await chatPage({ id: "chat", skills, activeSkills: ["skill"] });
   t.after(page.unmount);
-  assert.equal(page.composer.skillPicker.chips.textContent, "code-review");
+  assert.equal(page.composer.skillPicker.chips.textContent, "/code-review");
   await page.turn("Review this");
   assert.deepEqual(page.payloads[0].skill_ids, ["skill"]);
   assert.equal(page.rendered().messages.find(message => message.role === "user").skills[0].name, "code-review");
@@ -160,7 +160,7 @@ test("Use in chat preselects the imported skill and sends its ID", async t => {
     { id: "new-skill", name: "writing-style", description: "Improve writing", enabled: true },
   ] });
   t.after(page.unmount);
-  assert.equal(page.composer.skillPicker.chips.textContent, "writing-style");
+  assert.equal(page.composer.skillPicker.chips.textContent, "/writing-style");
   await page.turn("Improve this paragraph");
   assert.deepEqual(page.payloads[0].skill_ids, ["new-skill"]);
 });

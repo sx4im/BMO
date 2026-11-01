@@ -10,15 +10,15 @@ import { navigate } from "../router.js";
 import { mountAppShell } from "../app-shell.js";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
-import { openShareModal } from "../components/share-modal.js?v=2";
+import { openShareModal } from "../components/share-modal.js?v=3";
 import { openMoveChatModal } from "./projects.js";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=34";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=55";
-import * as api from "../api.js?v=63";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=56";
+import * as api from "../api.js?v=64";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=30";
-import { MessageFeed } from "../chat/message-feed.js?v=40";
-import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=8";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=31";
+import { MessageFeed } from "../chat/message-feed.js?v=41";
+import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=9";
 import { STUDY_SYSTEM_PROMPT } from "../chat/study-mode.js?v=3";
 import {
   detectExportIntent,
@@ -147,7 +147,6 @@ export async function renderChat({ id, incognito }) {
         await api.updateConversation(auth.token, conversation.id, { pinned: nextPinned });
         conversation.pinned = nextPinned;
         updateTopBarTitle();
-        toast(nextPinned ? "Pinned" : "Unpinned", { tone: "success" });
         loadConversations();
       } catch (err) {
         toast(err?.message || "Couldn't update pin", { tone: "error" });
@@ -199,7 +198,6 @@ export async function renderChat({ id, incognito }) {
         danger: true,
         onConfirm: async () => {
           await api.deleteConversation(auth.token, conversation.id);
-          toast("Chat deleted", { tone: "warning" });
           loadConversations();
           navigate("#/app/chat");
         },
@@ -279,7 +277,7 @@ export async function renderChat({ id, incognito }) {
     convoMenu,
   ]);
 
-  const titleWrap = el("div", { class: "chat-topbar-title-wrap", style: "display: none;" }, [
+  const titleWrap = el("div", { class: `chat-topbar-title-wrap${incognito ? " is-incognito" : ""}`, style: "display: none;" }, [
     convoTitleText,
     menuAnchor,
   ]);
@@ -430,7 +428,6 @@ export async function renderChat({ id, incognito }) {
       });
       const blob = new Blob([canonical], { type: "text/markdown;charset=utf-8" });
       downloadBlob(blob, filename);
-      toast("Your document is ready", { tone: "success" });
       return;
     }
 
@@ -441,18 +438,15 @@ export async function renderChat({ id, incognito }) {
         format,
       });
       downloadBlob(blob, filename);
-      toast("Your document is ready", { tone: "success" });
     } catch (err) {
       console.warn("Backend export failed, using instant client export:", err);
       if (format === "docx") {
         const htmlContent = renderMarkdown(content);
         const docxBlob = buildClientDocxBlob({ title: docTitle, htmlContent });
         downloadBlob(docxBlob, filename);
-        toast("Your document is ready", { tone: "success" });
       } else if (format === "pdf") {
         const htmlContent = renderMarkdown(content);
         printDocumentToPdf({ title: docTitle, htmlContent });
-        toast("Your document is ready", { tone: "success" });
       } else {
         toast(err.message || `Failed to download ${format.toUpperCase()}`, { tone: "error" });
       }
@@ -463,7 +457,17 @@ export async function renderChat({ id, incognito }) {
 
 
   // Message Feed
+  let attachmentRefresh = null;
   const messageFeed = new MessageFeed({
+    onRefreshAttachment: async attachment => {
+      const conversationId = conversation?.id || id;
+      if (!conversationId || incognito || unmounted || getAuth().auth?.user?.id !== auth.user?.id) return null;
+      if (!attachmentRefresh) {
+        attachmentRefresh = api.getMessages(auth.token, conversationId).finally(() => { attachmentRefresh = null; });
+      }
+      const data = await attachmentRefresh;
+      return data.messages?.flatMap(message => message.attachments || []).find(a => a.path === attachment.path)?.url;
+    },
     onEditMessage: (message) => editMessage(message),
     onRetryMessage: (message) => retryMessage(message),
     onFeedback: (message, sentiment) => handleMessageFeedback(message, sentiment),
@@ -1126,7 +1130,6 @@ export async function renderChat({ id, incognito }) {
         messages[idx] = { ...messages[idx], feedback: feedback || payload };
         renderUI();
       }
-      toast("Thanks!", { tone: "success" });
     } catch (err) {
       toast(err.message || "Couldn't send feedback", { tone: "error" });
     }

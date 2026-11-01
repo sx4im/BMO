@@ -12,7 +12,7 @@ import { icon } from "../icons.js?v=73";
 import { FileIcon } from "../components/file-icon.js?v=6";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
-import * as api from "../api.js?v=30";
+import * as api from "../api.js?v=64";
 import { getAuth } from "../auth.js";
 import { navigate } from "../router.js";
 import { mountAppShell, loadConversations } from "../app-shell.js";
@@ -281,7 +281,7 @@ async function renderProjectWorkspace(host, auth, projectId) {
   }
   loadingSpinner.remove();
 
-  // Top header: breadcrumbs, title + icon actions, description, primary CTA
+  // Top header: breadcrumbs, title + actions, description, primary CTA
   const breadcrumbs = el("div", { class: "workspace-breadcrumbs" }, [
     el("a", { href: "#/app/projects", class: "crumb-link", text: "Projects" }),
     el("span", { class: "crumb-sep", text: "/" }),
@@ -294,7 +294,7 @@ async function renderProjectWorkspace(host, auth, projectId) {
     "button",
     {
       type: "button",
-      class: "icon-btn",
+      class: "btn secondary workspace-action",
       title: "Edit project name or description",
       "aria-label": "Edit project",
       onclick: () =>
@@ -312,14 +312,17 @@ async function renderProjectWorkspace(host, auth, projectId) {
           },
         }),
     },
-    [el("span", { class: "btn-ic", html: icon("pencil", { width: 16, height: 16 }) })]
+    [
+      el("span", { class: "btn-ic", html: icon("pencil", { width: 16, height: 16 }) }),
+      el("span", { text: "Edit" }),
+    ]
   );
 
   const deleteBtn = el(
     "button",
     {
       type: "button",
-      class: "icon-btn danger",
+      class: "btn secondary workspace-action",
       title: "Delete project",
       "aria-label": "Delete project",
       onclick: () => {
@@ -332,7 +335,6 @@ async function renderProjectWorkspace(host, auth, projectId) {
           onConfirm: async () => {
             try {
               await api.deleteProject(auth.token, project.id);
-              toast("Project deleted", { tone: "warning" });
               navigate("#/app/projects");
             } catch (delErr) {
               toast(delErr.message || "Could not delete project", { tone: "error" });
@@ -341,7 +343,10 @@ async function renderProjectWorkspace(host, auth, projectId) {
         });
       },
     },
-    [el("span", { class: "btn-ic", html: icon("trash", { width: 16, height: 16 }) })]
+    [
+      el("span", { class: "btn-ic", html: icon("trash", { width: 16, height: 16 }) }),
+      el("span", { text: "Delete" }),
+    ]
   );
 
   const workspaceHead = el("header", { class: "workspace-head" }, [
@@ -453,7 +458,6 @@ function renderInstructionsCard(project, auth) {
         el("span", { class: "btn-ic", html: icon("check", { width: 13, height: 13 }) }),
         el("span", { text: "Saved" })
       );
-      toast("Instructions saved", { tone: "success" });
       saving = false;
       saveBtn.disabled = textarea.value.trim() === project.instructions;
       if (!saveBtn.disabled) saveBtn.textContent = "Save instructions";
@@ -602,7 +606,7 @@ function renderFilesCard(project, auth) {
     type: "file",
     multiple: true,
     style: "display: none;",
-    accept: ".txt,.md,.pdf,.docx,.csv,.json,.py,.js,.ts,.html,.css,.sql,.yaml,.yml",
+    accept: ".txt,.md,.pdf,.docx,.pptx,.csv,.json,.py,.js,.ts,.html,.css,.sql,.yaml,.yml",
     onchange: () => {
       const selected = Array.from(fileInput.files || []);
       if (!selected.length) return;
@@ -633,7 +637,7 @@ function renderFilesCard(project, auth) {
       el("div", { class: "dropzone-icon", html: icon("attachFile", { width: 22, height: 22 }) }),
       el("div", { class: "dropzone-text" }, [
         el("strong", { text: "Add files to project knowledge" }),
-        el("span", { text: "PDF, DOCX, TXT, MD, CSV, JSON, code files (up to 10MB)" }),
+        el("span", { text: "PDF, DOCX, PPTX, TXT, MD, CSV, JSON, code files (up to 10MB)" }),
       ]),
     ]
   );
@@ -692,7 +696,6 @@ function renderFilesCard(project, auth) {
                     files = files.filter((f) => f.id !== file.id);
                     syncMeter();
                     renderFileList();
-                    toast("File removed", { tone: "warning" });
                   } catch (err) {
                     toast(err.message || "Could not remove file", { tone: "error" });
                   }
@@ -757,9 +760,6 @@ function renderFilesCard(project, auth) {
         tokensUsed = result.tokens_used ?? tokensUsed + (result.file.token_estimate || 0);
         syncMeter();
         renderFileList();
-        toast(`Added "${file.name}" (${(result.file.token_estimate || 0).toLocaleString()} tokens)`, {
-          tone: "success",
-        });
       }
     } catch (err) {
       toast(err.message || `Upload failed for ${file.name}`, { tone: "error" });
@@ -925,12 +925,10 @@ export function openProjectModal({ auth, project = null, onCreated, onUpdated })
       if (isEdit) {
         const updated = await api.updateProject(auth.token, project.id, { name, description });
         closeModal();
-        toast("Project updated", { tone: "success" });
         onUpdated && onUpdated(updated);
       } else {
         const created = await api.createProject(auth.token, { name, description });
         closeModal();
-        toast("Project created", { tone: "success" });
         onCreated && onCreated(created);
         navigate(`#/app/projects/${created.id}`);
       }
@@ -1036,7 +1034,6 @@ export async function openMoveChatModal({ auth, conversation, onMoved }) {
     try {
       await api.updateConversation(auth.token, conversation.id, { project_id: targetProjectId });
       conversation.project_id = targetProjectId;
-      toast(targetProjectId ? "Chat moved to project" : "Chat removed from project", { tone: "success" });
       onMoved && onMoved(targetProjectId);
       loadConversations();
     } catch (err) {

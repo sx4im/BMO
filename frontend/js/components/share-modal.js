@@ -74,7 +74,6 @@ export async function openShareModal({ conversation, token, onShared, onUnshared
         try {
           await navigator.clipboard.writeText(url);
           copyBtn.innerHTML = `${icon("check", { width: 14, height: 14 })} Copied`;
-          toast("Link copied to clipboard!", { tone: "info" });
           setTimeout(() => {
             copyBtn.innerHTML = `${icon("copy", { width: 14, height: 14 })} Copy link`;
           }, 2000);
@@ -107,7 +106,6 @@ export async function openShareModal({ conversation, token, onShared, onUnshared
           shareData = res;
           inputEl.value = buildShareUrl(res.share_id);
           statusNote.textContent = "Snapshot updated with the latest messages.";
-          toast("Public snapshot updated", { tone: "info" });
           onShared?.(res);
         } catch (err) {
           toast(err.message || "Failed to update link", { tone: "error" });
@@ -131,7 +129,6 @@ export async function openShareModal({ conversation, token, onShared, onUnshared
         deleteBtn.textContent = "Deleting…";
         try {
           await api.deleteConversationShare(token, conversation.id);
-          toast("Public link deleted", { tone: "warning" });
           onUnshared?.(conversation.id);
           close();
         } catch (err) {
