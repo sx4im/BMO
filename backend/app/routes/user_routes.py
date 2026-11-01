@@ -114,7 +114,7 @@ def conversation_messages(user, conversation_id):
     convo = store.get_conversation(conversation_id, user.id)
     if not convo:
         return bad_request("conversation not found", 404)
-    messages = store.get_messages(conversation_id)
+    messages = store.refresh_attachment_urls(store.get_messages(conversation_id), user.id)
     feedback_map = store.message_feedback_map(user.id)
     for m in messages:
         if m["id"] in feedback_map:

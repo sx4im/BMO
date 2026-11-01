@@ -19,7 +19,7 @@ from .routes.helpers import estimate_tokens
 logger = logging.getLogger("bmo.projects")
 
 ALLOWED_EXTENSIONS = {
-    ".txt", ".md", ".pdf", ".docx", ".csv", ".json",
+    ".txt", ".md", ".pdf", ".docx", ".pptx", ".csv", ".json",
     ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css",
     ".c", ".cpp", ".h", ".hpp", ".java", ".go", ".rs",
     ".sql", ".yaml", ".yml", ".sh", ".xml",
@@ -38,6 +38,7 @@ def get_mime_type(filename: str) -> str:
         "md": "text/markdown",
         "pdf": "application/pdf",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "csv": "text/csv",
         "json": "application/json",
         "py": "text/x-python",
@@ -84,6 +85,14 @@ def extract_text_from_file(filename: str, file_bytes: bytes) -> str:
         except Exception as exc:
             logger.warning("PDF extraction failed for %s: %s", filename, exc)
             extracted = "[PDF contains no extractable text]"
+    elif ext == ".pptx":
+        from .document_processor import _extract_pptx
+        try:
+            extracted = "\n\n".join(part["text"] for part in _extract_pptx(file_bytes, max_slides=None))
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("Could not read this presentation. Upload a valid .pptx file.") from exc
     elif ext == ".docx":
         try:
             from docx import Document
@@ -106,7 +115,7 @@ def extract_text_from_file(filename: str, file_bytes: bytes) -> str:
     else:
         # Default text / code decode
         try:
-            extracted = file_bytes.decode("utf-8")
+            extracted = file_bytes.decode("utf-8-sig")
         except UnicodeDecodeError:
             try:
                 extracted = file_bytes.decode("latin-1")

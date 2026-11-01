@@ -242,8 +242,12 @@ def _extract_xlsx(file_bytes: bytes) -> list[dict]:
 
 # --- PPTX ---
 
-def _extract_pptx(file_bytes: bytes, max_slides: int = 10) -> list[dict]:
+def _extract_pptx(file_bytes: bytes, max_slides: int | None = 10) -> list[dict]:
     """Extract text from slides (titles, bullets, notes)."""
+    with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+        members = archive.infolist()
+        if len(members) > 5000 or sum(item.file_size for item in members) > 100 * 1024 * 1024:
+            raise ValueError("Presentation expands beyond the safe processing limit")
     try:
         from pptx import Presentation
     except ImportError as exc:
@@ -252,10 +256,10 @@ def _extract_pptx(file_bytes: bytes, max_slides: int = 10) -> list[dict]:
     prs = Presentation(io.BytesIO(file_bytes))
     chunks: list[str] = []
     total_slides = len(prs.slides)
-    slides_to_process = min(total_slides, max_slides)
+    slides_to_process = total_slides if max_slides is None else min(total_slides, max_slides)
 
-    if total_slides > max_slides:
-        chunks.append(f"[Presentation has {total_slides} slides; showing first {max_slides}]\n")
+    if total_slides > slides_to_process:
+        chunks.append(f"[Presentation has {total_slides} slides; showing first {slides_to_process}]\n")
 
     for idx, slide in enumerate(list(prs.slides)[:slides_to_process], start=1):
         slide_chunks: list[str] = [f"--- Slide {idx} ---"]
@@ -377,7 +381,7 @@ def _extract_zip(
 def _extract_text_file(file_bytes: bytes, filename: str) -> list[dict]:
     """Best-effort decode as UTF-8 text."""
     try:
-        text = file_bytes.decode("utf-8", errors="replace")
+        text = file_bytes.decode("utf-8-sig", errors="replace")
         return [_text_part(f"--- {filename} ---\n{text}")]
     except Exception:
         return [_text_part(f"[Could not decode {filename} as text]")]

@@ -561,6 +561,43 @@ def delete_all_user_data(user_id: str) -> None:
 
 # ---------- storage / attachments ----------
 
+def refresh_attachment_urls(messages: list[dict], user_id: str) -> list[dict]:
+    """Sign owned objects for this read; never persist short-lived URLs again."""
+    paths = list(dict.fromkeys(
+        a["path"] for m in messages for a in m.get("attachments") or []
+        if isinstance(a, dict) and user_owns_path(user_id, a.get("path"))
+    ))
+    urls = {}
+    if paths:
+        bucket = supabase().storage.from_(attachments_bucket())
+        for start in range(0, len(paths), 100):
+            batch = paths[start:start + 100]
+            try:
+                signed_rows = bucket.create_signed_urls(batch, 3600)
+            except (TypeError, KeyError):
+                # storage3's batch decoder can fail on a missing object's null URL.
+                signed_rows = []
+                for path in batch:
+                    try:
+                        signed_rows.append({**bucket.create_signed_url(path, 3600), "path": path})
+                    except Exception:
+                        logger.warning("Could not refresh an attachment URL")
+            except Exception:
+                # An outage must not turn one history read into many network retries.
+                logger.warning("Attachment signing unavailable; retaining existing owned URLs")
+                break
+            for signed in signed_rows:
+                if not signed.get("error") and signed.get("path") in paths:
+                    url = signed.get("signedURL") or signed.get("signedUrl") or signed.get("signed_url")
+                    if url:
+                        urls[signed["path"]] = url
+    return [{**m, "attachments": [
+        {**a, "url": urls.get(a.get("path")) or a.get("url")}
+        if user_owns_path(user_id, a.get("path")) else {**a, "url": None}
+        for a in m.get("attachments") or [] if isinstance(a, dict)
+    ]} for m in messages]
+
+
 def download_attachment(path: str, user_id: str) -> bytes:
     """Pull an attachment's raw bytes back out of Supabase Storage.
 
@@ -726,7 +763,7 @@ def get_public_shared_conversation(share_id: str) -> Optional[dict]:
     res = _execute(
         supabase()
         .table("shared_conversations")
-        .select("id, title, model, snapshot, created_at, updated_at")
+        .select("id,title,model,snapshot,user_id,created_at,updated_at")
         .eq("id", share_id)
     )
     if not res.data:
@@ -736,7 +773,7 @@ def get_public_shared_conversation(share_id: str) -> Optional[dict]:
         "id": row.get("id"),
         "title": row.get("title"),
         "model": row.get("model"),
-        "messages": row.get("snapshot") or [],
+        "messages": refresh_attachment_urls(row.get("snapshot") or [], row.get("user_id")),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }

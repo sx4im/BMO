@@ -129,7 +129,7 @@ WEEKLY_LIMIT = 1_000_000    # weighted tokens / week
 # Upload allowlists
 ALLOWED_UPLOAD_EXTS = {
     "png", "jpg", "jpeg", "gif", "webp", "bmp",
-    "pdf", "docx", "xlsx", "pptx", "zip", "txt", "md", "json",
+    "pdf", "docx", "xlsx", "pptx", "zip", "txt", "md", "json", "csv",
 }
 ALLOWED_UPLOAD_MIMES = {
     "application/pdf",
@@ -168,7 +168,7 @@ def upload_magic_ok(data: bytes, filename: str = "") -> bool:
     if not data:
         return False
     ext = os.path.splitext(filename)[1].lower()
-    if ext in {".txt", ".md", ".json"}:
+    if ext in {".txt", ".md", ".json", ".csv"}:
         try:
             data.decode("utf-8-sig")
         except UnicodeDecodeError:
