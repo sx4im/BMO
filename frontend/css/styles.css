@@ -12170,12 +12170,13 @@ em {
   }
 }
 .composer-box { position: relative; }
-.skill-popup { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; z-index: 50; max-height: min(300px, 40dvh); overflow-y: auto; background: var(--surface-card); border: 1px solid var(--hairline-strong); border-radius: 14px; padding: 6px; box-shadow: 0 8px 24px #0002; }
-.skill-option { padding: 10px 12px; border-radius: 8px; cursor: pointer; }
-.skill-option[aria-selected="true"], .skill-option:hover { background: var(--surface-soft); }
-.skill-option strong { display: block; font-size: 13px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
-.skill-option > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 3px; overflow-wrap: anywhere; }
-.skill-popup-empty { padding: 12px; color: var(--muted); font-size: 13px; }
+.skill-popup { position: absolute; bottom: calc(100% + 8px); left: 0; width: 240px; max-width: calc(100% - 2px); z-index: 50; max-height: min(300px, 40dvh); overflow-y: auto; background: var(--surface-soft); border: 1px solid var(--hairline-strong); border-radius: 12px; padding: 5px; box-shadow: 0 8px 24px #0002; }
+.skill-option { display: flex; align-items: center; gap: 10px; padding: 5px 9px; border-radius: 7px; color: var(--ink); font-size: 14px; line-height: 20px; cursor: pointer; }
+.skill-option[aria-selected="true"] { background: var(--surface-active); }
+.skill-option:hover { background: var(--surface-active-hover); }
+.skill-option-icon { display: inline-flex; flex-shrink: 0; color: var(--muted); }
+.skill-option-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-popup-empty { padding: 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .composer-skill-chips, .message-skill-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .composer-skill-chips { padding: 12px 14px 0; }
 .message-skill-chips { justify-content: flex-end; margin-bottom: 8px; }

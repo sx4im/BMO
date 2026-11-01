@@ -12,7 +12,7 @@ import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 import { getAuth } from "../auth.js";
 import * as api from "../api.js?v=60";
-import { SkillPicker } from "./skill-picker.js";
+import { SkillPicker } from "./skill-picker.js?v=2";
 
 export const URL_REGEX = /(?:https?:\/\/|www\.)[^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’]))|\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?::\d+)?(?:[\/?#][^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’])))?/gi;
 
@@ -372,7 +372,7 @@ export class Composer {
         for (const file of files.slice(0, 3)) this.uploadAndAttach(file);
       },
     });
-    this.skillPicker = new SkillPicker(this.textarea);
+    this.skillPicker = new SkillPicker(this.textarea, { onAddFiles: () => this.documentInput.click() });
     this.inputWrap = el("div", { class: "composer-input-wrap" }, [
       this.backdrop,
       this.textarea,

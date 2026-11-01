@@ -83,7 +83,6 @@ export async function renderCustomize() {
 
   const grid = el("div", { class: "skills-grid" });
   const empty = el("div", { class: "customize-empty" }, [
-    el("span", { html: icon("blocks", { width: 28, height: 28 }) }),
     el("h3", { text: "A little expertise, on demand" }),
     el("p", { text: "Save a reusable skill, then type / in a chat to use it. Choose up to three at a time." }),
   ]);
