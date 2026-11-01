@@ -36,9 +36,9 @@ Research: [Deepgram client messages](https://developers.deepgram.com/docs/flux-t
 - [x] Distill the requested [Humanizer skill](https://github.com/blader/humanizer/blob/main/SKILL.md) into short writing rules in the main prompt: concrete wording, varied cadence, no filler, invented claims or repetitive closers.
 - [x] Default to no emojis and no long dashes. Explicit user style requests can override writing preferences while safety rules retain precedence.
 - [x] Run backend/frontend suites and browser checks; review the final diff.
-- [ ] Commit completed phases and push to main.
+- [x] Commit completed phases and push to main.
 
-No new dependencies or database migration are planned. Keep the existing authentication, escaping, retrieval and incremental rendering architecture.
+No new dependencies or database migration were needed. Keep the existing authentication, escaping, retrieval and incremental rendering architecture.
 
 ## Verification and release notes
 
@@ -47,6 +47,8 @@ No new dependencies or database migration are planned. Keep the existing authent
 - Chrome checks: matching 36px workspace buttons, 175px menus with matching rows/shadows, blue skill tokens, stable composer nodes, busy/error/retry states, renewed image loading, no pin toasts, keyboard focus and desktop/mobile layouts in both themes. No JavaScript exceptions or CSP violations.
 - No new dependencies or database migration. Deploy frontend and backend from the same revision.
 - No local Deepgram credentials were available. Live microphone timing, pronunciation and subjective expression have not been auditioned.
+
+PPTX parsing reads slide text, tables and speaker notes. Chat retains its existing first-ten-slides cap; project knowledge reads all slides within the knowledge budget. CSV chat uploads accept UTF-8, including a BOM.
 
 Flux English uses the existing Sienna voice, speed 1.05 at neutral, 1.0 for gentle and 1.1 for lively delivery; expression is 0, -1 and 1 respectively. Aeon chooses the register in a short metadata prefix, removed before tokens are shown or stored. The client reconnects only when delivery/language changes because expression is fixed per connection. Existing Aura language voices retain their protocol and receive no unsupported expression parameter; wording still follows the conversation's tone.
 
