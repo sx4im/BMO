@@ -474,6 +474,15 @@ def recent_usage_events(user_id: str, since_iso: str) -> list[dict]:
     return res.data or []
 
 
+def usage_history_events(user_id: str, start_iso: str, end_iso: str) -> list[dict]:
+    """Read a bounded UTC period, including rows beyond PostgREST's page cap."""
+    return _fetch_all(
+        supabase().table("usage_events").select("model,tokens,created_at")
+        .eq("user_id", user_id).gte("created_at", start_iso).lt("created_at", end_iso)
+        .order("created_at").order("id")
+    )
+
+
 # ---------- analytics ----------
 
 def analytics_summary(user_id: str) -> dict:

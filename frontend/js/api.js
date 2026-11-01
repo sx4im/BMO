@@ -652,6 +652,12 @@ export async function getUsage(token) {
   return request("/usage", { token });
 }
 
+export async function getUsageHistory(token, { days = 30, end } = {}) {
+  const query = new URLSearchParams({ days: String(days) });
+  if (end) query.set("end", end);
+  return request(`/usage/history?${query}`, { token });
+}
+
 // ---------- projects ----------
 
 export async function listProjects(token, { includeArchived = false } = {}) {

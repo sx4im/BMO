@@ -6,7 +6,8 @@ import { getThemePref, setThemePref } from "../prefs.js";
 import { avatar } from "../components/avatar.js?v=30";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
-import * as api from "../api.js?v=30";
+import * as api from "../api.js?v=31";
+import { usageHistory } from "../components/usage-history.js?v=1";
 
 // Segmented System / Light / Dark control (mirrors the reference Appearance row).
 function appearanceControl() {
@@ -216,9 +217,10 @@ export async function renderSettings() {
     );
   }
 
-  const panel = el("div", { class: "settings-card glass" }, [
-    el("section", { class: "settings-section settings-profile" }, profileChildren),
-    el("section", { class: "settings-section" }, [
+  if (accountActions) profileChildren.push(accountActions);
+  page.append(el("section", { class: "settings-card glass" }, profileChildren));
+  page.append(
+    el("section", { class: "settings-card glass" }, [
       el("div", { class: "section-title" }, [
         el("div", { class: "icon-box", html: icon("preferences", { width: 16, height: 16 }) }),
         el("h2", { text: "Preferences" }),
@@ -226,18 +228,21 @@ export async function renderSettings() {
       el("div", { class: "settings-row" }, [
         el("div", { class: "row-text" }, [
           el("div", { class: "row-label", text: "Appearance" }),
+          el("div", { class: "row-hint", text: "Match your system, or pick light or dark." }),
         ]),
         appearanceControl(),
       ]),
-    ]),
-  ]);
-  page.append(panel);
+    ])
+  );
+  let history;
   if (auth) {
-    const usageSection = el("section", { class: "settings-section" });
-    panel.append(usageSection);
-    renderUsageInto(usageSection, auth.token);
+    const usageCard = el("section", { class: "settings-card glass" });
+    page.append(usageCard);
+    renderUsageInto(usageCard, auth.token);
+    history = usageHistory(auth.token);
+    page.append(history.card);
   }
-  if (accountActions) panel.append(el("section", { class: "settings-section settings-account-actions" }, [accountActions]));
 
   host.append(page);
+  return () => history?.destroy();
 }

@@ -269,7 +269,7 @@ test("onboarding completes without a removed Support step", async () => {
   assert.equal(saved.length, 1);
 });
 
-test("Settings shares one panel and keeps appearance and usage controls", async () => {
+test("Settings separates cards and keeps appearance and usage controls", async () => {
   let app;
   const themes = [];
   const usage = { session: { percent: 29, resets_in_seconds: 120 }, weekly: { percent: 10, resets_in_seconds: 240 } };
@@ -279,13 +279,13 @@ test("Settings shares one panel and keeps appearance and usage controls", async 
     "app-shell.js": { mountAppShell: async () => ({ content: app.dom.window.document.querySelector("#app"), setActiveConversation() {}, setIncognitoActive() {} }), tearDownShell() {}, getShellState: () => ({ usage }) },
     "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner", name: "Saim", email: "user@example.invalid" } } }), signOut() {}, setUserDisplayName() {} },
     "prefs.js": { getThemePref: () => "light", setThemePref: value => themes.push(value) },
-    "toast.js": { toast() {} }, "confirm-modal.js": { openConfirmModal() {} }, "api.js": { getUsage: async () => usage },
+    "toast.js": { toast() {} }, "confirm-modal.js": { openConfirmModal() {} }, "api.js": { getUsage: async () => usage, getUsageHistory: async () => ({ points: Array.from({ length: 7 }, (_, i) => ({ date: `2026-10-${20 + i}`, total: 0, models: {} })), totals: {} }) },
   });
   const { renderSettings } = await app.load("js/pages/settings.js");
   await renderSettings();
   const doc = app.dom.window.document;
-  assert.equal(doc.querySelectorAll(".settings-card").length, 1);
-  assert.deepEqual([...doc.querySelectorAll(".section-title h2")].map(n => n.textContent), ["Profile", "Preferences", "Plan usage"]);
+  assert.equal(doc.querySelectorAll(".settings-card").length, 4);
+  assert.deepEqual([...doc.querySelectorAll(".section-title h2")].map(n => n.textContent), ["Profile", "Preferences", "Plan usage", "Usage history"]);
   doc.querySelector('[title="Dark"]').click();
   assert.deepEqual(themes, ["dark"]);
   assert.equal(doc.querySelector('[title="Dark"]').getAttribute('aria-pressed'), 'true');
