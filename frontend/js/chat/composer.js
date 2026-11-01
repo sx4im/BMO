@@ -12,6 +12,7 @@ import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 import { getAuth } from "../auth.js";
 import * as api from "../api.js?v=60";
+import { SkillPicker } from "./skill-picker.js";
 
 export const URL_REGEX = /(?:https?:\/\/|www\.)[^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’]))|\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?::\d+)?(?:[\/?#][^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’])))?/gi;
 
@@ -341,6 +342,7 @@ export class Composer {
         }
       },
       onkeydown: (e) => {
+        if (this.skillPicker?.handleKey(e) || e.isComposing) return;
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           this.sendBtn.click();
@@ -370,6 +372,7 @@ export class Composer {
         for (const file of files.slice(0, 3)) this.uploadAndAttach(file);
       },
     });
+    this.skillPicker = new SkillPicker(this.textarea);
     this.inputWrap = el("div", { class: "composer-input-wrap" }, [
       this.backdrop,
       this.textarea,
@@ -411,6 +414,8 @@ export class Composer {
     ]);
 
     this.composerBox = el("div", { class: "composer-box glass" }, [
+      this.skillPicker.popup,
+      this.skillPicker.chips,
       this.attachmentsBar,
       this.inputWrap,
       this.composerToolbar,
@@ -448,6 +453,7 @@ export class Composer {
         }
         if (!text && this.pendingAttachments.length === 0) return;
         this.textarea.value = "";
+        this.skillPicker.close();
         this.autoSize(this.textarea);
         this.syncSendEnabled();
         this.syncUrlHighlight();
@@ -458,6 +464,7 @@ export class Composer {
           reasoningEffort: this.getReasoningEffort(),
           autoSearch: this.autoSearch,
           studyMode: this.studyMode,
+          skills: this.skillPicker.selected,
         });
         this.pendingAttachments = [];
         this.renderAttachmentsBar();
@@ -1241,6 +1248,7 @@ export class Composer {
   }
 
   destroy() {
+    this.skillPicker.destroy();
     this.stopRecordTimer();
     this.stopWaveMeter();
     if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {

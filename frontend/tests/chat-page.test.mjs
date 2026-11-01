@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleLoader } from "./modules.mjs";
 
-async function chatPage({ incognito = false, messages = [], id } = {}) {
+async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [] } = {}) {
   let composer, feed, voice, lastRender;
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
   let app;
@@ -19,9 +19,10 @@ async function chatPage({ incognito = false, messages = [], id } = {}) {
     updateStreamingBubble() {} finishStreamingBubble() {} setStatusText() {} setStreamingReasoningTimer() {}
   }
   const api = {
+    listSkills: async () => skills,
     listModels: async () => ({ models: [{ id: "thinking", label: "Stanza" }], default: "thinking" }),
     listConversations: async () => [],
-    getMessages: async () => ({ conversation: { id, model: "thinking", title: "Original chat" }, messages }),
+    getMessages: async () => ({ conversation: { id, model: "thinking", title: "Original chat", active_skills: activeSkills }, messages }),
     branchConversation: async (_token, parentId, messageId) => {
       branchCalls.push({ parentId, messageId });
       const prefix = messages.slice(0, messages.findIndex(m => m.id === messageId));
@@ -32,7 +33,8 @@ async function chatPage({ incognito = false, messages = [], id } = {}) {
       payloads.push(structuredClone(payload));
       const turn = payloads.length;
       callbacks.onConversation({ id: incognito ? "incognito_test" : payload.conversation_id || "saved", model: "thinking" });
-      callbacks.onUserMessage({ id: `user-${turn}`, role: "user", content: payload.message, attachments: payload.attachments });
+      callbacks.onUserMessage({ id: `user-${turn}`, role: "user", content: payload.message, attachments: payload.attachments,
+        skills: (payload.skill_ids || []).map(id => ({ id, name: skills.find(skill => skill.id === id)?.name || "Skill" })) });
       callbacks.onToken({ delta: `Answer ${turn}` });
       callbacks.onComplete();
       callbacks.onAssistantMessage({ id: `assistant-${turn}`, role: "assistant", content: `Answer ${turn}` });
@@ -136,3 +138,18 @@ for (const action of ["edit", "retry-user", "retry-assistant"]) {
     assert.equal(page.notices.length, 0);
   });
 }
+
+test("saved skills load as chips, follow-ups send them, and removal clears the next request", async t => {
+  const skills = [{ id: "skill", name: "code-review", description: "Review code", enabled: true }];
+  const page = await chatPage({ id: "chat", skills, activeSkills: ["skill"] });
+  t.after(page.unmount);
+  assert.equal(page.composer.skillPicker.chips.textContent, "code-review");
+  await page.turn("Review this");
+  assert.deepEqual(page.payloads[0].skill_ids, ["skill"]);
+  assert.equal(page.rendered().messages.find(message => message.role === "user").skills[0].name, "code-review");
+  await page.turn("Continue");
+  assert.deepEqual(page.payloads[1].skill_ids, ["skill"]);
+  page.composer.skillPicker.chips.querySelector("button").click();
+  await page.turn("Without skills");
+  assert.deepEqual(page.payloads[2].skill_ids, []);
+});
