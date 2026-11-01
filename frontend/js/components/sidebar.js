@@ -34,30 +34,43 @@ function closeConvoMenus() {
   for (const node of document.querySelectorAll(".sidebar-convo-menu.open")) {
     node.classList.remove("open");
   }
+  for (const trigger of document.querySelectorAll('.sidebar .item-menu[aria-expanded="true"]')) {
+    trigger.setAttribute("aria-expanded", "false");
+  }
 }
 
 if (typeof document !== "undefined") {
   document.addEventListener("click", closeConvoMenus);
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeConvoMenus();
+    if (e.key === "Escape") {
+      const trigger = document.querySelector(".sidebar-convo-menu.open")?.parentElement.querySelector(".item-menu");
+      closeConvoMenus();
+      trigger?.focus();
+    }
   });
 }
 
 function menuItem({ label, iconName, iconSize = 16, danger = false, onClick }) {
   return el("button", {
     type: "button",
+    role: "menuitem",
     class: `sidebar-convo-menu-item${danger ? " danger" : ""}`,
     // Run on mousedown so the action happens before the menu unmounts / click is lost.
     onmousedown: (e) => {
+      if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       closeConvoMenus();
       onClick();
     },
-    // preventDefault on mousedown suppresses click; eat it anyway.
+    // Keyboard and assistive activation produce clicks without a mousedown.
     onclick: (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (e.detail === 0) {
+        closeConvoMenus();
+        onClick();
+      }
     },
   }, [
     el("span", { class: "sidebar-convo-menu-icon", html: icon(iconName, { width: iconSize, height: iconSize }) }),
@@ -359,9 +372,9 @@ export function renderSidebar(container, props) {
   } else if (!conversations) {
     recentList.setAttribute("aria-busy", "true");
     recentList.setAttribute("aria-label", "Loading recent chats");
-    for (const width of [84, 68, 92, 74, 80]) {
-      recentList.append(el("li", { class: "sidebar-chat-skeleton", "aria-hidden": "true" }, [
-        el("span", { class: "skeleton", style: `width:${width}%` }),
+    for (const [index, width] of [88, 72, 94, 78, 84].entries()) {
+      recentList.append(el("li", { class: "sidebar-chat-skeleton", "aria-hidden": "true", style: `--skeleton-delay:${index * 140}ms` }, [
+        el("span", { class: "sidebar-chat-skeleton-title", style: `width:${width}%` }),
       ]));
     }
   } else if (!conversations.length) {

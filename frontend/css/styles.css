@@ -3052,12 +3052,46 @@ button:hover .icon-dislike,
   font-family: var(--font-sans);
 }
 
-.sidebar-chat-skeleton { height: 36px; padding: 0 12px; display: flex; align-items: center; }
-.sidebar-chat-skeleton .skeleton { display: block; height: 12px; border-radius: 4px; }
+.sidebar-chat-skeleton {
+  height: 30px;
+  padding: 0 36px 0 12px;
+  display: flex;
+  align-items: center;
+  font-size: 13.5px;
+}
+.sidebar-chat-skeleton-title {
+  position: relative;
+  display: block;
+  height: 1em;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--hairline-soft);
+}
+/* Each title brightens in sequence, sending one colour wave down the list. */
+.sidebar-chat-skeleton-title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--muted);
+  opacity: 0;
+  animation: sidebar-title-wave 1.8s ease-in-out infinite;
+  animation-delay: var(--skeleton-delay);
+}
+@keyframes sidebar-title-wave {
+  0%, 55%, 100% { opacity: 0; }
+  20%, 30% { opacity: .45; }
+}
+.sidebar.mobile .sidebar-chat-skeleton {
+  height: calc(30px * 1.05);
+  padding-left: calc(12px * 1.05);
+  padding-right: calc(36px * 1.05);
+  font-size: calc(13.5px * 1.05);
+}
 .sidebar-chats-error { padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
 .sidebar-chats-error button { border: 0; padding: 4px; background: none; color: var(--ink); font: inherit; text-decoration: underline; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-chat-skeleton .skeleton { animation: none; }
+  .sidebar-chat-skeleton-title::after { animation: none; }
 }
 
 .sidebar-convo-lists .item,
