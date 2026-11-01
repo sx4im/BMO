@@ -18,8 +18,8 @@ RLS protects preferences, skills and references. The skill reference FK includes
 | `/skills` | GET / POST | Metadata list / create `{name, description, instructions}` |
 | `/skills/<id>` | GET / PUT / DELETE | Full skill with reference files / update text / delete |
 | `/skills/<id>/enabled` | PUT | `{enabled: boolean}` |
-| `/skills/upload` | POST | Multipart `file`: `SKILL.md` or `.zip` |
-| `/skills/<id>/export` | GET | ZIP containing `<name>/SKILL.md` and text references |
+| `/skills/upload` | POST | Multipart `file`: a Markdown `.md` skill |
+| `/skills/<id>/export` | GET | `SKILL.md`; older skills with references export a ZIP |
 | `/chat`, `/chat/incognito` | POST | Optional `skill_ids`: at most three distinct enabled, owned UUIDs |
 
 Skill names are 1–64 lowercase ASCII letters, numbers and single hyphens, without leading or trailing hyphens, and unique per user. Description is required (1–1,024 characters). Instructions may be empty and are limited to 20,000 characters. An update preserves imported references.
@@ -30,9 +30,19 @@ Prompt order is global instructions, base prompt and its explicit safety precede
 
 ## Imports
 
-The [Agent Skills format](https://agentskills.io/specification) uses YAML frontmatter (`name`, `description`) followed by the Markdown instructions body. Optional frontmatter fields are not used to grant tools or run code. A ZIP may place `SKILL.md` at the root or inside one directory matching its declared name. All references must be inside that directory.
+Upload a `.md` file (up to 128 KB) using the [Agent Skills format](https://agentskills.io/specification): YAML frontmatter with a required `name` and `description`, followed by Markdown instructions. For example:
 
-Only `yaml.safe_load` parses frontmatter. Imports are never extracted to disk or executed. Limits: 1 MB uploaded, 512 KB expanded, 64 ZIP entries / 32 files, 100:1 compression ratio, 128 KB for SKILL.md and 64 KB per reference. References must be UTF-8 `.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`, `.tsv`, `.rst`, `.toml`, `LICENSE` or `NOTICE` files. Unsafe paths, duplicate paths, NUL/control bytes, links, executable files, scripts, nested archives, binaries, encryption and unsupported compression are rejected with validation errors. Archives containing a `scripts/` directory are rejected.
+```markdown
+---
+name: code-review
+description: Review code for bugs and suggest focused fixes.
+---
+Explain the root cause and keep suggested changes small.
+```
+
+Only `yaml.safe_load` parses frontmatter. Missing/invalid metadata, binary content, NUL/control bytes and scripts are rejected. ZIPs and other extensions are rejected before parsing. The frontmatter limit is 16,384 characters and the instructions limit is 20,000 characters. Optional frontmatter fields do not grant tools or execute code.
+
+Text-only skills export as `SKILL.md`, ready to reupload. Existing skills with previously imported reference files still retain those references in chat, editing and archive exports.
 
 ## Verification
 
@@ -48,7 +58,7 @@ npm --prefix frontend run test:run
 ## Manual test checklist
 
 - Save, reload and clear Instructions; check the counter at 4,000 characters and its effect in a normal, project, incognito and voice chat.
-- Write a skill; edit its prefilled fields, toggle it, export it, delete it and reimport its ZIP. Duplicate names must fail for the same user.
-- Import SKILL.md and a ZIP with text references. Try a script, binary, NUL-bearing file and traversal ZIP; each must show a clear error.
+- Write a skill; edit its prefilled fields, toggle it, export it, delete it and reimport its SKILL.md. Duplicate names must fail for the same user.
+- Import SKILL.md or another .md file with valid frontmatter. Try missing name/description, a script, binary, NUL-bearing file or ZIP; each must show a clear error.
 - Type `/`, filter, navigate with arrows, select with Enter/Tab or touch, close with Esc, and remove chips. Check the three-skill limit, sent chips and follow-ups after reload; edit/retry/attachments/streaming must still work.
 - Repeat in light/dark, desktop/mobile and reduced motion. Sign into a second account and confirm the first account’s instructions and skills are unavailable.
