@@ -119,5 +119,9 @@ def export_skill(user, skill_id):
     skill = owned_skill(skill_id, user.id)
     if not skill:
         return bad_request("skill not found", 404)
-    data = skill_service.export_skill(skill, store.list_skill_files(skill["id"], user.id))
+    files = store.list_skill_files(skill["id"], user.id)
+    if not files:
+        return send_file(io.BytesIO(skill_service.export_skill_markdown(skill)), mimetype="text/markdown",
+                         as_attachment=True, download_name="SKILL.md")
+    data = skill_service.export_skill(skill, files)
     return send_file(io.BytesIO(data), mimetype="application/zip", as_attachment=True, download_name=f'{skill["name"]}.zip')

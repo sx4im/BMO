@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import io
 import json
-import random
 import stat
 import time
 import uuid
@@ -207,72 +206,81 @@ def test_malicious_yaml_is_never_executed(yaml, monkeypatch):
         skill_service.parse_skill_md(f"---\n{yaml}\n---\nBody".encode())
 
 
-def test_skill_md_upload_and_zip_export_round_trip(gateway, headers, db):
-    response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(markdown(description='Quoted "text"\nSecond line')), "SKILL.md")})
+@pytest.mark.parametrize("filename", ["SKILL.md", "code-review.md", "review.MD"])
+def test_markdown_upload_and_export_round_trip(gateway, headers, db, filename):
+    response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(markdown(description='Quoted "text"\nSecond line')), filename)})
     assert response.status_code == 201
     sid = response.json["id"]
     exported = gateway.get(f"/skills/{sid}/export", headers=headers)
-    assert exported.status_code == 200 and exported.mimetype == "application/zip"
-    restored, files = skill_service.import_skill("skill.zip", exported.data)
+    assert exported.status_code == 200 and exported.mimetype == "text/markdown"
+    assert "SKILL.md" in exported.headers["Content-Disposition"]
+    restored, files = skill_service.import_skill("SKILL.md", exported.data)
     assert restored == values(description='Quoted "text"\nSecond line')
     assert files == []
 
 
-def test_zip_references_import_and_export(gateway, headers, db):
-    data = archive([("code-review/SKILL.md", markdown()), ("code-review/references/guide.md", b"Use clear names")])
-    response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(data), "review.zip")})
-    assert response.status_code == 201
-    sid = response.json["id"]
+def test_existing_references_remain_available_and_exportable(gateway, headers, db):
+    saved = store.create_skill("owner", values(), [{"filename": "references/guide.md", "content": "Use clear names", "size_bytes": 15}])
+    sid = saved["id"]
     assert gateway.get(f"/skills/{sid}", headers=headers).json["files"][0]["content"] == "Use clear names"
-    exported = gateway.get(f"/skills/{sid}/export", headers=headers).data
-    restored, files = skill_service.import_skill("review.zip", exported)
-    assert restored == values()
-    assert files == [{"filename": "references/guide.md", "content": "Use clear names", "size_bytes": 15}]
+    exported = gateway.get(f"/skills/{sid}/export", headers=headers)
+    assert exported.mimetype == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(exported.data)) as zipped:
+        assert zipped.read("code-review/references/guide.md") == b"Use clear names"
+        assert skill_service.parse_skill_md(zipped.read("code-review/SKILL.md")) == values()
     assert "Use clear names" in skill_service.assemble_prompt("", "BASE", skill_service.resolve_skills("owner", [sid]))
 
 
-@pytest.mark.parametrize("filename", ["../outside.txt", "/tmp/evil.txt", "a/../../evil.txt", "C:/evil.txt", "a\\evil.txt", "a//evil.txt", "./evil.txt"])
-def test_zip_slip_is_rejected(filename):
-    with pytest.raises(ValueError, match="Unsafe ZIP path"):
-        skill_service.import_skill("attack.zip", archive([("SKILL.md", markdown()), (filename, b"evil")]))
+@pytest.mark.parametrize("filename", ["skill.zip", "SKILL.md.zip", "skill.ZIP", "skill.txt", "skill.py", "", "skill\x00.md"])
+def test_non_markdown_uploads_are_rejected_before_parsing(gateway, headers, db, monkeypatch, filename):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Non-Markdown upload reached a parser")
+    monkeypatch.setattr(skill_service, "parse_skill_md", forbidden)
+    with pytest.raises(ValueError, match="Markdown "):
+        skill_service.import_skill(filename, markdown())
+    if "\x00" not in filename and filename:
+        response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(markdown()), filename)})
+        assert response.status_code == 422
+        assert "Markdown (.md)" in response.json["detail"]
+    assert not db.rows.get("skills")
 
 
-def test_zip_nul_filename_symlink_and_executable_are_rejected():
-    nul = archive([("SKILL.md", markdown()), ("nulX.txt", b"evil")]).replace(b"nulX.txt", b"nul\x00.txt")
-    with pytest.raises(ValueError, match="Unsafe ZIP path"):
-        skill_service.import_skill("attack.zip", nul)
+def test_zip_attacks_are_all_rejected_without_opening_archives(gateway, headers, db, monkeypatch):
+    attacks = [archive([("SKILL.md", markdown()), (filename, b"evil")])
+               for filename in ("../outside.txt", "/tmp/evil.txt", "C:/evil.txt", "a\\evil.txt")]
+    attacks.extend([
+        archive([("SKILL.md", markdown())]),
+        archive([("bomb.txt", b"x" * 100000)], zipfile.ZIP_DEFLATED),
+        archive([(f"f-{i}.txt", b"") for i in range(65)]),
+        archive([("SKILL.md", markdown()), ("nulX.txt", b"evil")]).replace(b"nulX.txt", b"nul\x00.txt"),
+        b"not a ZIP",
+    ])
     for mode in [stat.S_IFLNK | 0o777, stat.S_IFREG | 0o755]:
-        entry = zipfile.ZipInfo("link.txt")
+        entry = zipfile.ZipInfo("run.txt")
         entry.create_system = 3
         entry.external_attr = mode << 16
-        with pytest.raises(ValueError, match="links|executable"):
-            skill_service.import_skill("attack.zip", archive([("SKILL.md", markdown()), (entry, b"target")]))
+        attacks.append(archive([("SKILL.md", markdown()), (entry, b"target")]))
+    def forbidden(*args, **kwargs):
+        pytest.fail("ZIP upload reached the archive parser")
+    monkeypatch.setattr(zipfile, "ZipFile", forbidden)
+    for data in attacks:
+        response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(data), "attack.zip")})
+        assert response.status_code == 422
+        assert "Markdown (.md)" in response.json["detail"]
+    assert not db.rows.get("skills")
 
 
-@pytest.mark.parametrize("filename,data,match", [
-    ("scripts/run.txt", b"run", "Scripts"), ("run.py", b"print(1)", "scripts and binaries"),
-    ("run.sh", b"echo hi", "scripts and binaries"), ("image.png", b"PNG", "scripts and binaries"),
-    ("references/data.txt", b"\x00bad", "NUL"), ("references/data.md", b"\xff\xfe", "binary"),
-    ("references/script.txt", b"#!/bin/sh\necho hi", "scripts"),
-])
-def test_scripts_and_binary_references_rejected(filename, data, match):
-    with pytest.raises(ValueError, match=match):
-        skill_service.import_skill("attack.zip", archive([("SKILL.md", markdown()), (filename, data)]))
+@pytest.mark.parametrize("content", [b"\x00bad", b"\xff\xfe", b"#!/bin/sh\necho hi", b"PK\x03\x04\x00binary", b"plain text without frontmatter"])
+def test_invalid_markdown_content_is_rejected(gateway, headers, db, content):
+    response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(content), "SKILL.md")})
+    assert response.status_code == 422
+    assert not db.rows.get("skills")
 
 
-def test_zip_bombs_entry_limits_missing_skill_and_invalid_archive():
-    with pytest.raises(ValueError, match="compression ratio"):
-        skill_service.import_skill("bomb.zip", archive([("large.txt", b"x" * 100000)], zipfile.ZIP_DEFLATED))
-    with pytest.raises(ValueError, match="expanded size"):
-        skill_service.import_skill("bomb.zip", archive([(f"f-{i}.txt", random.Random(i).randbytes(128000)) for i in range(5)], zipfile.ZIP_DEFLATED))
-    with pytest.raises(ValueError, match="too many entries"):
-        skill_service.import_skill("bomb.zip", archive([(f"f-{i}.txt", b"") for i in range(65)]))
-    with pytest.raises(ValueError, match="exactly one SKILL.md"):
-        skill_service.import_skill("empty.zip", archive([("readme.txt", b"hello")]))
-    with pytest.raises(ValueError, match="Invalid or corrupt"):
-        skill_service.import_skill("broken.zip", b"not a zip")
-    with pytest.raises(ValueError, match="at most 1 MB"):
-        skill_service.import_skill("large.zip", b"x" * (skill_service.MAX_UPLOAD_BYTES + 1))
+@pytest.mark.parametrize("data", [b"", b"x" * (skill_service.MAX_UPLOAD_BYTES + 1)])
+def test_markdown_file_size_is_bounded(data):
+    with pytest.raises(ValueError, match="non-empty and at most 128 KB"):
+        skill_service.import_skill("SKILL.md", data)
 
 
 def test_upload_errors_are_clear_and_do_not_write(gateway, headers, db):
@@ -300,15 +308,10 @@ def test_yaml_and_body_limits_and_deep_yaml_are_bounded():
         skill_service.parse_skill_md(b"---\nname: " + b"[" * 2000 + b"a" + b"]" * 2000 + b"\ndescription: text\n---\n")
 
 
-def test_duplicate_archive_roots_outside_files_and_large_reference_are_rejected():
-    with pytest.raises(ValueError, match="duplicate paths"):
-        skill_service.import_skill("duplicate.zip", archive([("SKILL.md", markdown()), ("skill.md", b"duplicate")]))
-    with pytest.raises(ValueError, match="directory name must match"):
-        skill_service.import_skill("wrong-root.zip", archive([("other/SKILL.md", markdown())]))
-    with pytest.raises(ValueError, match="inside the skill directory"):
-        skill_service.import_skill("outside.zip", archive([("code-review/SKILL.md", markdown()), ("outside.md", b"text")]))
-    with pytest.raises(ValueError, match="64 KB"):
-        skill_service.import_skill("large-ref.zip", archive([("SKILL.md", markdown()), ("reference.txt", b"x" * 65537)]))
+@pytest.mark.parametrize("filename", ["../ref.md", "/tmp/ref.md", "C:/ref.md", "ref\\file.md", "ref\x00.md"])
+def test_existing_reference_export_rejects_unsafe_paths(db, filename):
+    with pytest.raises(ValueError, match="Unsafe ZIP path"):
+        skill_service.export_skill(values(), [{"filename": filename, "content": "data"}])
 
 
 def test_branch_drops_deleted_and_disabled_selections_but_keeps_historical_labels(db):
@@ -336,6 +339,16 @@ def test_skill_reference_failure_rolls_back_skill(db, monkeypatch):
 
 
 def test_multipart_request_is_bounded_before_reading_upload(gateway, headers, db):
-    response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(b"x" * (skill_service.MAX_UPLOAD_BYTES + 128 * 1024)), "large.zip")})
+    response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(b"x" * (skill_service.MAX_UPLOAD_BYTES + 128 * 1024)), "large.md")})
     assert response.status_code == 413
     assert not db.rows.get("skills")
+
+
+@pytest.mark.parametrize("name", ["on", "off", "true", "null", "123", "2026-11-01"])
+def test_export_quotes_yaml_special_names_for_reimport(gateway, headers, db, name):
+    created = gateway.post("/skills", headers=headers, json=values(name=name))
+    assert created.status_code == 201
+    exported = gateway.get(f'/skills/{created.json["id"]}/export', headers=headers)
+    restored, files = skill_service.import_skill("SKILL.md", exported.data)
+    assert restored == values(name=name)
+    assert files == []

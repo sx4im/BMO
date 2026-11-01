@@ -12138,10 +12138,11 @@ em {
 .skill-toggle[aria-checked="true"] { background: var(--ink); border-color: var(--ink); }
 .skill-toggle[aria-checked="true"] span { background: var(--canvas); transform: translateX(14px); }
 .skills-add { position: relative; flex-shrink: 0; }
-.skills-add summary { list-style: none; cursor: pointer; }
+.skills-add summary { list-style: none; cursor: pointer; gap: 8px; }
+.skills-menu-icon { display: inline-flex; align-items: center; flex-shrink: 0; }
 .skills-add summary::-webkit-details-marker { display: none; }
 .skills-add-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 170px; padding: 5px; background: var(--surface-card); border: 1px solid var(--hairline-strong); border-radius: 10px; box-shadow: 0 8px 24px #0002; }
-.skills-add-menu button { display: block; width: 100%; padding: 10px; border: none; border-radius: 6px; text-align: left; font: inherit; font-size: 13px; background: none; color: var(--ink); cursor: pointer; }
+.skills-add-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; border: none; border-radius: 6px; text-align: left; font: inherit; font-size: 13px; background: none; color: var(--ink); cursor: pointer; }
 .skills-add-menu button:hover, .skills-add-menu button:focus-visible { background: var(--surface-soft); }
 .customize-empty { text-align: center; color: var(--muted); padding: 60px 20px; }
 .customize-empty h3 { color: var(--ink); font-size: 18px; font-weight: 500; }
@@ -12153,9 +12154,21 @@ em {
 .skill-editor-field .char-count { align-self: flex-end; }
 .skill-editor-body { min-height: 200px; }
 .skill-editor-error { color: var(--primary); font-size: 13px; overflow-wrap: anywhere; }
-.sidebar-nav a .briefcase-sway { transform-origin: 50% 16.67%; transform: rotate(0deg); transition: transform 0.3s ease-out; }
-.sidebar-nav a:hover .briefcase-sway, .sidebar-nav a:focus-within .briefcase-sway { animation: briefcase-sway 0.9s ease-in-out; }
-@keyframes briefcase-sway { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(4deg); } 50% { transform: rotate(-3deg); } 75% { transform: rotate(2deg); } }
+/* Lucide Animated motion, ported to CSS for the existing inline SVG icons. */
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-nav a .blocks-tile { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .sidebar-nav a:is(:hover, :focus-within) .blocks-tile { transform: translate(-4px, 4px); }
+  .skills-add-menu .icon-feather { transform-origin: center; transition: transform 0.3s ease-out; }
+  .skills-add-menu button:is(:hover, :focus-visible) .icon-feather { animation: skill-feather 1.6s ease-in-out; }
+  .skill-upload-arrow { transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .skills-add-menu button:is(:hover, :focus-visible) .skill-upload-arrow { transform: translateY(-2px); }
+  @keyframes skill-feather {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    25% { transform: translate(2px, -4px) rotate(-8deg); }
+    50% { transform: translate(-2px, -2px) rotate(4deg); }
+    75% { transform: translate(1px, -1px) rotate(-3deg); }
+  }
+}
 .composer-box { position: relative; }
 .skill-popup { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; z-index: 50; max-height: min(300px, 40dvh); overflow-y: auto; background: var(--surface-card); border: 1px solid var(--hairline-strong); border-radius: 14px; padding: 6px; box-shadow: 0 8px 24px #0002; }
 .skill-option { padding: 10px 12px; border-radius: 8px; cursor: pointer; }
@@ -12170,6 +12183,5 @@ em {
 .skill-chip button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; margin: -4px -5px -4px 0; padding: 0; background: none; border: 0; border-radius: 4px; color: var(--muted); cursor: pointer; }
 @media (max-width: 600px) { .skill-editor { padding: 20px; } .skills-heading { gap: 12px; } }
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-nav a .briefcase-sway, .sidebar-nav a:hover .briefcase-sway, .sidebar-nav a:focus-within .briefcase-sway { animation: none; transition: none; }
   .skill-toggle span { transition: none; }
 }

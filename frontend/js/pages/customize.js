@@ -1,5 +1,5 @@
 import { el, clear } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=74";
+import { icon } from "../icons.js?v=75";
 import { getAuth } from "../auth.js";
 import { mountAppShell } from "../app-shell.js";
 import * as api from "../api.js?v=62";
@@ -83,7 +83,7 @@ export async function renderCustomize() {
 
   const grid = el("div", { class: "skills-grid" });
   const empty = el("div", { class: "customize-empty" }, [
-    el("span", { html: icon("briefcaseBusiness", { width: 28, height: 28 }) }),
+    el("span", { html: icon("blocks", { width: 28, height: 28 }) }),
     el("h3", { text: "A little expertise, on demand" }),
     el("p", { text: "Save a reusable skill, then type / in a chat to use it. Choose up to three at a time." }),
   ]);
@@ -101,10 +101,14 @@ export async function renderCustomize() {
     closeEditor?.();
     closeEditor = openSkillEditor({ auth, skill, onSaved: updated => { if (isCurrent()) upsertCard(updated); } });
   }
-  const upload = el("input", { type: "file", accept: ".md,.zip", hidden: true, onchange: async () => {
+  const upload = el("input", { type: "file", accept: ".md", hidden: true, onchange: async () => {
     const file = upload.files?.[0];
     upload.value = "";
     if (!file) return;
+    if (!/\.md$/i.test(file.name)) {
+      skillsStatus.textContent = "Choose a .md skill file with name and description in YAML frontmatter.";
+      return;
+    }
     skillsStatus.textContent = `Uploading ${file.name}…`;
     upload.disabled = true;
     try {
@@ -114,15 +118,16 @@ export async function renderCustomize() {
     finally { upload.disabled = false; }
   } });
   const add = el("details", { class: "skills-add" });
-  add.append(el("summary", { class: "btn secondary", text: "Add skill" }), el("div", { class: "skills-add-menu" }, [
-    el("button", { type: "button", text: "Write skill", onclick: () => { add.open = false; edit(null); } }),
-    el("button", { type: "button", text: "Upload skill", onclick: () => { add.open = false; upload.click(); } }),
+  const menuIcon = name => el("span", { class: "skills-menu-icon", html: icon(name, { width: 18, height: 18 }) });
+  add.append(el("summary", { class: "btn secondary" }, [menuIcon("plus"), el("span", { text: "Add skill" })]), el("div", { class: "skills-add-menu" }, [
+    el("button", { type: "button", onclick: () => { add.open = false; edit(null); } }, [menuIcon("feather"), el("span", { text: "Write skill" })]),
+    el("button", { type: "button", onclick: () => { add.open = false; upload.click(); } }, [menuIcon("upload"), el("span", { text: "Upload skill" })]),
   ]));
   const closeAdd = event => { if (!add.contains(event.target) || event.key === "Escape") add.open = false; };
   document.addEventListener("pointerdown", closeAdd);
   add.addEventListener("keydown", closeAdd);
   panels[1].append(el("div", { class: "skills-heading" }, [
-    el("div", {}, [el("h2", { text: "Skills" }), el("p", { class: "customize-hint", text: "Reusable instructions and text references for the work you do often." })]), add,
+    el("div", {}, [el("h2", { text: "Skills" }), el("p", { class: "customize-hint", text: "Upload .md skills with name and description in YAML frontmatter." })]), add,
   ]), upload, skillsStatus, grid, empty);
 
   function skillCard(skill) {
@@ -149,7 +154,10 @@ export async function renderCustomize() {
         el("button", { type: "button", class: "btn secondary", text: "Export", onclick: async event => {
           const button = event.currentTarget;
           button.disabled = true;
-          try { downloadBlob(await api.exportSkill(auth.token, skill.id), `${skill.name}.zip`); }
+          try {
+            const blob = await api.exportSkill(auth.token, skill.id);
+            downloadBlob(blob, blob.type === "application/zip" ? `${skill.name}.zip` : "SKILL.md");
+          }
           catch (error) { toast(error.message, { tone: "error" }); }
           finally { button.disabled = false; }
         } }),

@@ -79,19 +79,22 @@ test("touch selection, selection cap, URL slashes and untrusted labels stay safe
 
 test("Customize tabs, instructions save races, skill editor and toggles update incrementally", async t => {
   let app, finishSave;
-  const toggles = [], savedSkills = [];
+  const toggles = [], savedSkills = [], uploads = [], downloads = [];
+  let exportType = "text/markdown";
   const api = {
     getInstructions: async () => ({ instructions: "Old preference" }),
     saveInstructions: (_token, text) => new Promise(resolve => { finishSave = () => resolve({ instructions: text }); }),
     listSkills: async () => catalog,
     setSkillEnabled: async (_token, id, enabled) => { toggles.push({ id, enabled }); return { ...catalog.find(s => s.id === id), enabled }; },
     createSkill: async (_token, value) => { savedSkills.push(value); return { ...value, enabled: true, id: "new" }; },
+    uploadSkill: async (_token, file) => { uploads.push(file); return { id: "uploaded", name: "uploaded", description: "Valid skill", enabled: true }; },
+    exportSkill: async () => ({ type: exportType }),
   };
   app = moduleLoader({
     "api.js": api,
     "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner" } } }) },
     "app-shell.js": { mountAppShell: async () => ({ content: app.dom.window.document.querySelector("#app"), setActiveConversation() {}, setIncognitoActive() {} }) },
-    "toast.js": { toast() {} }, "confirm-modal.js": { openConfirmModal() {} }, "export.js": { downloadBlob() {} },
+    "toast.js": { toast() {} }, "confirm-modal.js": { openConfirmModal() {} }, "export.js": { downloadBlob: (blob, filename) => downloads.push(filename) },
   });
   app.dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   app.dom.window.HTMLDialogElement.prototype.close = function () { this.open = false; };
@@ -113,6 +116,9 @@ test("Customize tabs, instructions save races, skill editor and toggles update i
   assert.equal(save.disabled, false);
   assert.match(doc.querySelector(".customize-status").textContent, /Unsaved/);
   doc.querySelector("#tab-skills").click();
+  assert.ok(doc.querySelector(".skills-add summary .icon-plus"));
+  assert.ok(doc.querySelector(".skills-add-menu button:first-child .icon-feather"));
+  assert.ok(doc.querySelector(".skills-add-menu button:last-child .skill-upload-arrow"));
   assert.equal(doc.querySelector("#customize-instructions").hidden, true);
   assert.equal(doc.querySelector("#tab-skills").getAttribute("aria-selected"), "true");
   const preserved = doc.querySelectorAll(".skill-card")[1];
@@ -130,6 +136,25 @@ test("Customize tabs, instructions save races, skill editor and toggles update i
   assert.equal(savedSkills[0].instructions, "<script>text only</script>");
   assert.equal(doc.querySelector("dialog"), null);
   assert.equal(doc.querySelectorAll(".skill-card").length, 5);
+  const upload = doc.querySelector('input[type="file"]');
+  assert.equal(upload.accept, ".md");
+  Object.defineProperty(upload, "files", { configurable: true, value: [{ name: "invalid.zip" }] });
+  upload.dispatchEvent(new app.dom.window.Event("change"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(uploads.length, 0);
+  assert.match(doc.querySelector("#customize-skills [role=status]").textContent, /Choose a \.md/);
+  Object.defineProperty(upload, "files", { configurable: true, value: [{ name: "review.md" }] });
+  upload.dispatchEvent(new app.dom.window.Event("change"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(uploads.length, 1);
+  const exportButton = doc.querySelectorAll(".skill-card-actions button")[1];
+  exportButton.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(downloads[0], "SKILL.md");
+  exportType = "application/zip";
+  exportButton.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(downloads[1], "code-review.zip");
 });
 
 test("sent messages render their immutable skill chips as text", async () => {
