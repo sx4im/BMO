@@ -1,5 +1,5 @@
 import { el } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=74";
+import { icon } from "../icons.js?v=76";
 
 let sequence = 0;
 
@@ -82,7 +82,7 @@ export class SkillPicker {
         title: choice.description || choice.name, "aria-description": choice.description,
         onpointerdown: event => event.preventDefault(), onclick: () => this.select(i),
       }, [
-        el("span", { class: "skill-option-icon", "aria-hidden": "true", html: icon(choice.isAttachment ? "attachFile" : "fileText", { width: 16, height: 16 }) }),
+        el("span", { class: "skill-option-icon", "aria-hidden": "true", html: icon(choice.isAttachment ? "attachFile" : "filePenLine", { width: 16, height: 16 }) }),
         el("span", { class: "skill-option-name", text: choice.name }),
       ]));
     });

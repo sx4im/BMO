@@ -85,8 +85,9 @@ test("slash menu lists Add files first and keeps attachment selection available 
   const rows = app.picker.popup.querySelectorAll('[role="option"]');
   assert.equal(rows.length, 4);
   assert.equal(rows[0].textContent, "Add files");
-  assert.ok(rows[0].querySelector("svg"));
+  assert.ok(rows[0].querySelector(".icon-attachFile"));
   assert.equal(rows[1].textContent, "code-review");
+  assert.ok(rows[1].querySelector(".icon-filePenLine"));
   assert.equal(rows[1].getAttribute("aria-description"), "Review code");
   app.key("Enter");
   assert.equal(opened, 1);
