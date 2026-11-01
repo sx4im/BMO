@@ -375,11 +375,15 @@ test("Customize panels expose independent busy states and loading indicators", a
   t.after(page.cleanup);
   assert.equal(page.doc.querySelector('#customize-instructions').getAttribute('aria-busy'), 'true');
   assert.equal(page.doc.querySelectorAll('.customize-loading .spinner-blade').length, 24);
+  assert.equal(page.doc.querySelectorAll('.customize-loading .blade-spinner.center').length, 2);
+  assert.equal(page.doc.querySelector('.customize-loading').textContent, '');
+  assert.equal(page.doc.querySelector('#customize-instructions .workspace-card').hidden, true);
   assert.equal(page.doc.querySelector('#customize-skills').getAttribute('aria-busy'), 'true');
   finishInstructions({ instructions: 'Read carefully' });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(page.doc.querySelector('#customize-instructions').getAttribute('aria-busy'), 'false');
   assert.equal(page.doc.querySelector('#customize-instructions .customize-loading').hidden, true);
+  assert.equal(page.doc.querySelector('#customize-instructions .workspace-card').hidden, false);
   assert.equal(page.doc.querySelector('#customize-skills').getAttribute('aria-busy'), 'true');
   finishSkills([]);
   await new Promise(resolve => setImmediate(resolve));

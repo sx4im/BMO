@@ -386,6 +386,7 @@ export async function renderChat({ id, incognito }) {
   });
 
   function syncTopBarActions() {
+    if (unmounted || !page.isConnected) return;
     const isSavedChat = Boolean(id && !incognito && (messages.length > 0 || (conversation && !conversation._new)));
     if (isSavedChat) {
       incognitoBtn.style.display = "none";

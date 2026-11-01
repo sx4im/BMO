@@ -13,4 +13,6 @@
   } catch (e) {
     document.documentElement.dataset.theme = "dark";
   }
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", document.documentElement.dataset.theme === "dark" ? "#151515" : "#faf9f5");
 })();

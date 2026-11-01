@@ -246,7 +246,7 @@ export function renderSidebar(container, props) {
         },
       },
       [
-        el("span", { class: "sidebar-nav-icon", html: icon("squarePen", { width: 18, height: 18 }) }),
+        el("span", { class: "sidebar-nav-icon", html: icon("squarePen", { width: 20, height: 20 }) }),
         el("span", { class: "sidebar-nav-label", text: "New" }),
       ]
     )
@@ -275,7 +275,7 @@ export function renderSidebar(container, props) {
           },
         },
         [
-          el("span", { class: "sidebar-nav-icon", html: icon(iconName, { width: 18, height: 18 }) }),
+          el("span", { class: "sidebar-nav-icon", html: icon(iconName, { width: 20, height: 20 }) }),
           el("span", { class: "sidebar-nav-label", text: label }),
         ]
       )

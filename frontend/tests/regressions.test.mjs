@@ -60,9 +60,14 @@ test("Chat and Projects reuse the same shell and teardown clears projects", asyn
   }
   const firstModule = await app.load(paths[0]);
   const first = await firstModule.mountAppShell();
+  first.setShareActive(true, () => assert.fail("Stale chat share handler"));
+  assert.equal(app.dom.window.document.querySelector(".mobile-share-btn").style.display, "inline-flex");
   const secondModule = await app.load(paths[1]);
   const second = await secondModule.mountAppShell();
   assert.equal(first.content, second.content);
+  assert.equal(app.dom.window.document.querySelector(".mobile-share-btn").style.display, "none");
+  app.dom.window.document.querySelector(".mobile-share-btn").click();
+  assert.equal(app.dom.window.document.querySelector(".app-footer").textContent.trim(), "Saim Shafique");
   await firstModule.loadProjects();
   assert.equal(firstModule.getShellState().projects.length, 1);
   firstModule.tearDownShell();

@@ -384,6 +384,7 @@ code,
 body:has(.app-shell),
 .app-root:has(.app-shell) {
   height: 100dvh;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -2959,8 +2960,8 @@ button:hover .icon-dislike,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   background: transparent !important;
   box-shadow: none !important;
@@ -2970,8 +2971,8 @@ button:hover .icon-dislike,
 .sidebar-nav-icon svg,
 .sidebar-nav-new .sidebar-nav-icon svg {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .sidebar-nav-label {
@@ -3389,8 +3390,8 @@ button:hover .icon-dislike,
 .sidebar.mobile .sidebar-nav-new .sidebar-nav-icon,
 .sidebar.mobile .sidebar-nav-icon svg,
 .sidebar.mobile .sidebar-nav-new .sidebar-nav-icon svg {
-  width: calc(18px * 1.03);
-  height: calc(18px * 1.03);
+  width: 20px;
+  height: 20px;
 }
 
 .sidebar.mobile .sidebar-section-head,
@@ -4569,7 +4570,7 @@ button:hover .icon-dislike,
 
 .app-footer {
   flex-shrink: 0;
-  padding: 4px 16px 6px;
+  padding: 0 16px 2px;
   font-size: 11.5px;
   color: var(--muted);
   text-align: center;
@@ -4681,7 +4682,7 @@ body:has(.chat-page.is-empty) .tools-menu,
   .app-footer {
     /* Minimal footprint on small phones (iPhone SE/XR class): tiny padding,
        no divider band, and respect the iOS home-indicator safe area. */
-    padding: 1px 8px max(2px, env(safe-area-inset-bottom));
+    padding: 0 8px env(safe-area-inset-bottom, 0px);
     font-size: 10px;
     line-height: 1.15;
     border-top: none;
@@ -12105,9 +12106,10 @@ em {
 
 /* Customize shares Projects' shell, cards, inputs and theme tokens. */
 .customize-page { max-width: 1040px; }
-.customize-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
-.customize-tabs .btn { padding: 0 14px; }
-.customize-tabs [aria-selected="true"] { background: var(--surface-soft); border-color: var(--ink); }
+.customize-tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--hairline); margin-bottom: 28px; }
+.customize-tabs [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent; padding: 12px 2px; color: var(--muted); font: inherit; cursor: pointer; }
+.customize-tabs [role="tab"]:hover { color: var(--ink); }
+.customize-tabs [aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
 .customize-page [hidden], .skill-popup[hidden], .composer-skill-chips[hidden] { display: none; }
 .customize-label { color: var(--ink); font-size: 14px; font-weight: 600; }
 .customize-hint { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 8px 0 18px; }
@@ -12117,8 +12119,8 @@ em {
 .customize-status.error, .skills-feedback.error, .skills-load-status.error, .skill-card-error { color: var(--error); }
 .skills-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .skills-heading h2 { margin: 0; font-size: 20px; }
-.skills-grid { display: grid; grid-template-columns: repeat(auto-fill, min(100%, 320px)); gap: 16px; }
-.skill-card { min-width: 0; }
+.skills-grid { display: grid; grid-template-columns: repeat(auto-fill, min(100%, 280px)); gap: 16px; }
+.skill-card { min-width: 0; min-height: 210px; padding: 12px; }
 .skill-card-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .skill-card h3 { margin: 0; color: var(--ink); font-size: 15px; overflow-wrap: anywhere; }
 .skill-use-link { color: inherit; text-decoration: none; }
@@ -12138,6 +12140,7 @@ em {
 .skill-upload-track.processing .skill-upload-fill { animation: skill-upload-processing 1.2s ease-in-out infinite; }
 @keyframes skill-upload-processing { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 .skill-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.skill-card .skill-card-actions { gap: 6px; margin-top: auto; padding-top: 18px; }
 .skill-card-actions .btn { font-size: 12px; padding: 7px 12px; }
 .btn.workspace-action { height: 36px; padding: 0 12px; font-size: 12px; gap: 6px; }
 .workspace-action .btn-ic { display: inline-flex; }
@@ -12202,12 +12205,13 @@ em {
 :root[data-theme="dark"] .skill-chip { color: #81b9ed; }
 .skill-chip button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; padding: 0; background: none; border: 0; border-radius: 4px; color: inherit; opacity: 0.7; cursor: pointer; }
 .skill-chip button:hover, .skill-chip button:focus-visible { opacity: 1; background: var(--surface-soft); }
-.customize-loading { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin-bottom: 16px; }
-.customize-loading .blade-spinner { flex-shrink: 0; font-size: 18px; }
-.skills-load-status .customize-loading { margin-bottom: 0; }
+.customize-loading { position: relative; width: 100%; min-height: 240px; }
 .image-unavailable { color: var(--muted); font-size: 13px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); }
 @media (max-width: 600px) { .skill-editor { padding: 20px; } .skills-heading { gap: 12px; } }
-@media (max-width: 360px) { .skill-card { padding: 14px; } }
+@media (hover: none) {
+  .sidebar.mobile .sidebar-nav .sidebar-nav-icon svg,
+  .sidebar.mobile .sidebar-nav .sidebar-nav-icon svg * { animation: none; transition: none; transform: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .skill-toggle span { transition: none; }
   .customize-loading .spinner-blade { animation: none; background-color: var(--muted); opacity: 0.5; }

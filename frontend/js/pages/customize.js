@@ -17,9 +17,8 @@ export async function renderCustomize() {
   shell.content.append(page);
   let disposed = false;
   let closeEditor = null;
-  const loading = label => el("div", { class: "customize-loading" }, [
-    el("span", { class: "blade-spinner", "aria-hidden": "true" }, Array.from({ length: 12 }, (_, index) => el("span", { class: "spinner-blade", style: `animation-delay: ${-index / 12}s` }))),
-    el("span", { text: label }),
+  const loading = label => el("div", { class: "customize-loading", "aria-label": label }, [
+    el("div", { class: "blade-spinner center", "aria-hidden": "true" }, Array.from({ length: 12 }, () => el("div", { class: "spinner-blade" }))),
   ]);
   const isCurrent = () => !disposed && page.isConnected && getAuth().auth?.user?.id === auth.user?.id;
   page.append(el("header", { class: "page-head" }, [
@@ -30,7 +29,7 @@ export async function renderCustomize() {
   const panels = [el("section", { id: "customize-instructions", role: "tabpanel", "aria-labelledby": "tab-instructions" }),
     el("section", { id: "customize-skills", role: "tabpanel", "aria-labelledby": "tab-skills", hidden: true })];
   const tabs = ["Instructions", "Skills"].map((name, i) => el("button", {
-    type: "button", class: "btn secondary", id: `tab-${name.toLowerCase()}`, role: "tab", "aria-selected": String(i === 0),
+    type: "button", id: `tab-${name.toLowerCase()}`, role: "tab", "aria-selected": String(i === 0),
     "aria-controls": panels[i].id, tabindex: i === 0 ? "0" : "-1", text: name,
     onclick: () => selectTab(i),
     onkeydown: event => {
@@ -84,12 +83,13 @@ export async function renderCustomize() {
   }
   const instructionsLoading = loading("Loading instructions…");
   instructionsLoading.setAttribute("role", "status");
-  panels[0].append(instructionsLoading, el("div", { class: "workspace-card" }, [
+  const instructionsCard = el("div", { class: "workspace-card", hidden: true }, [
     el("label", { for: "global-instructions", class: "customize-label", text: "What would you like Bmo to know?" }),
     el("p", { id: "global-instructions-hint", class: "customize-hint", text: "Your preferences apply to every chat. Bmo’s safety rules still apply." }),
     instructions,
     el("div", { class: "customize-save-row" }, [counter, status, save]),
-  ]));
+  ]);
+  panels[0].append(instructionsLoading, instructionsCard);
 
   const grid = el("div", { class: "skills-grid" });
   const empty = el("div", { class: "customize-empty", hidden: true }, [
@@ -245,6 +245,7 @@ export async function renderCustomize() {
   // Load panels independently; a failed request stays retryable without rebuilding the page.
   async function loadInstructions() {
     instructionsLoading.hidden = false;
+    instructionsCard.hidden = true;
     panels[0].setAttribute("aria-busy", "true");
     instructionError = "";
     status.textContent = "";
@@ -263,7 +264,7 @@ export async function renderCustomize() {
         status.append(el("button", { type: "button", class: "btn secondary", text: "Retry", onclick: loadInstructions }));
       }
     }
-    finally { instructionsLoading.hidden = true; panels[0].setAttribute("aria-busy", "false"); }
+    finally { instructionsLoading.hidden = true; instructionsCard.hidden = false; panels[0].setAttribute("aria-busy", "false"); }
   }
   async function loadSkills() {
     skillsStatus.classList.remove("error");

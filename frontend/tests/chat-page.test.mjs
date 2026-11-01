@@ -5,6 +5,7 @@ import { moduleLoader } from "./modules.mjs";
 async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash } = {}) {
   let composer, feed, voice, lastRender;
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
+  const shareStates = [], shareCallbacks = [];
   let app;
   class Feed {
     constructor(callbacks) {
@@ -47,11 +48,11 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     "router.js": { navigate() {} },
     "app-shell.js": { mountAppShell: async () => ({
       content: app.dom.window.document.querySelector("#app"),
-      setActiveConversation() {}, setConversations() {}, setShareActive() {}, setIncognitoActive() {},
+      setActiveConversation() {}, setConversations() {}, setShareActive: (...args) => shareStates.push(args), setIncognitoActive() {},
     }) },
     "toast.js": { toast: notice => notices.push(notice) },
     "confirm-modal.js": { openConfirmModal() {}, openPromptModal() {} },
-    "share-modal.js": { openShareModal() {} }, "projects.js": { openMoveChatModal() {} },
+    "share-modal.js": { openShareModal: callbacks => shareCallbacks.push(callbacks) }, "projects.js": { openMoveChatModal() {} },
     "markdown.js": { whenMarkdownReady() {}, renderMarkdown: text => text },
     "voice-overlay.js": { openVoiceOverlay: options => { voice = options; return { close() {} }; } },
     "api.js": api,
@@ -78,9 +79,20 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
   const unmount = await page.renderChat({ id, incognito });
   await new Promise(resolve => setImmediate(resolve));
   const turn = (text, extras = {}) => composer.onSubmit({ text, attachments: [], model: "thinking", studyMode: false, autoSearch: false, ...extras });
-  return { app, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, turn, unmount,
+  return { app, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, shareStates, shareCallbacks, turn, unmount,
            voice: () => voice, rendered: () => lastRender };
 }
+
+test("a closed chat's Share modal cannot reactivate the mobile Share button", async () => {
+  const page = await chatPage({ id: "saved-chat", messages: [{ id: "one", role: "user", content: "Hello" }] });
+  page.app.dom.window.document.querySelector('.chat-topbar-share-btn').click();
+  assert.equal(page.shareCallbacks.length, 1);
+  page.unmount();
+  const count = page.shareStates.length;
+  page.shareCallbacks[0].onShared();
+  page.shareCallbacks[0].onUnshared();
+  assert.equal(page.shareStates.length, count);
+});
 
 test("document export falls back to client rendering when the gateway is unavailable", async t => {
   const page = await chatPage();

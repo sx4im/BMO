@@ -1,6 +1,6 @@
 import { $, el, clear } from "./utils.js?v=30";
 import { icon } from "./icons.js?v=72";
-import { renderSidebar } from "./components/sidebar.js?v=66";
+import { renderSidebar } from "./components/sidebar.js?v=67";
 import { openChatSearch } from "./components/chat-search.js?v=31";
 import { toast } from "./components/toast.js?v=58";
 import * as api from "./api.js?v=30";
@@ -160,7 +160,9 @@ export async function mountAppShell() {
   applyTheme();
   const root = $("#app");
   if (nodes && nodes.content && nodes.content.isConnected) {
-    return shellApi();
+    const shell = shellApi();
+    shell.setShareActive(false);
+    return shell;
   }
 
   clear(root);
@@ -215,7 +217,6 @@ export async function mountAppShell() {
   const footer = el("footer", {
     class: "app-footer",
   }, [
-    el("span", { text: "Built by " }),
     el("a", {
       href: "https://saimshafique.com",
       target: "_blank",
