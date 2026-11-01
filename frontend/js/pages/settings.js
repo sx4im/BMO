@@ -219,6 +219,10 @@ export async function renderSettings() {
   const panel = el("div", { class: "settings-card glass" }, [
     el("section", { class: "settings-section" }, profileChildren),
     el("section", { class: "settings-section" }, [
+      el("div", { class: "section-title" }, [
+        el("div", { class: "icon-box", html: icon("preferences", { width: 16, height: 16 }) }),
+        el("h2", { text: "Preferences" }),
+      ]),
       el("div", { class: "settings-row" }, [
         el("div", { class: "row-text" }, [
           el("div", { class: "row-label", text: "Appearance" }),

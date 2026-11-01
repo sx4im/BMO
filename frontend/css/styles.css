@@ -1,9 +1,17 @@
 /* =============================================================
    Bmo — streaming AI chat workspace
    Warm-canvas editorial design system. Cream / coral / dark navy.
-   Fraunces (display serif) · Inter (body) · JetBrains Mono (code).
+   Fraunces (display serif) · Rubik (body) · JetBrains Mono (code).
    Adapted from the attached Claude-design-analysis spec.
    ============================================================= */
+
+@font-face {
+  font-family: "Rubik";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/fonts/Rubik-Regular.ttf") format("truetype");
+}
 
 :root {
   /* Surface */
@@ -61,9 +69,9 @@
   --r-pill: 9999px;
 
   /* Type */
-  --font-display: "Wise Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-serif: "EB Garamond", Garamond, "Fraunces", "Tiempos Headline", "Cormorant Garamond", "Times New Roman", serif;
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -4570,8 +4578,9 @@ button:hover .icon-dislike,
 
 .app-footer {
   flex-shrink: 0;
-  padding: 0 16px 2px;
-  font-size: 11.5px;
+  padding: 4px 16px max(8px, env(safe-area-inset-bottom, 0px));
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
   text-align: center;
   border-top: none;
@@ -4670,11 +4679,7 @@ body:has(.chat-page.is-empty) .tools-menu,
 @media (max-width: 480px),
 (max-height: 700px) {
   .app-footer {
-    /* Minimal footprint on small phones (iPhone SE/XR class): tiny padding,
-       no divider band, and respect the iOS home-indicator safe area. */
-    padding: 0 8px env(safe-area-inset-bottom, 0px);
-    font-size: 10px;
-    line-height: 1.15;
+    padding: 4px 12px max(8px, env(safe-area-inset-bottom, 0px));
     border-top: none;
   }
 }
@@ -9176,7 +9181,7 @@ em {
   overflow: visible;
 }
 
-/* Beat the bubble's Inter stack — composite math glyphs need KaTeX's own fonts
+/* Beat the bubble's body font — composite math glyphs need KaTeX's own fonts
    or the \neq overlay misaligns (katex#2109). */
 .message .bubble.markdown-body .katex {
   font-family: KaTeX_Main, "Times New Roman", serif;

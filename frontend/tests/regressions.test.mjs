@@ -285,7 +285,7 @@ test("Settings shares one panel and keeps appearance and usage controls", async 
   await renderSettings();
   const doc = app.dom.window.document;
   assert.equal(doc.querySelectorAll(".settings-card").length, 1);
-  assert.deepEqual([...doc.querySelectorAll(".section-title h2")].map(n => n.textContent), ["Profile", "Plan usage"]);
+  assert.deepEqual([...doc.querySelectorAll(".section-title h2")].map(n => n.textContent), ["Profile", "Preferences", "Plan usage"]);
   doc.querySelector('[title="Dark"]').click();
   assert.deepEqual(themes, ["dark"]);
   assert.equal(doc.querySelector('[title="Dark"]').getAttribute('aria-pressed'), 'true');
