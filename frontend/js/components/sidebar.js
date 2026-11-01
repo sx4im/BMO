@@ -1,5 +1,5 @@
 import { el, clear, formatTitle } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=72";
+import { icon } from "../icons.js?v=74";
 import { avatar } from "./avatar.js?v=30";
 import { getRoute, navigate } from "../router.js";
 import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=58";
@@ -10,6 +10,7 @@ import { getAuth } from "../auth.js";
 const NAV = [
   { hash: "#/app/chat", label: "Search", icon: "search" },
   { hash: "#/app/projects", label: "Projects", icon: "projects" },
+  { hash: "#/app/customize", label: "Customize", icon: "briefcaseBusiness" },
   { hash: "#/app/settings", label: "Settings", icon: "settings" },
 ];
 

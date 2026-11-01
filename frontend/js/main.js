@@ -3,11 +3,12 @@ import { bootstrap, getAuth, onAuthChange } from "./auth.js";
 import { initThemeSync } from "./prefs.js";
 import * as api from "./api.js?v=32";
 import { renderLanding } from "./pages/landing.js?v=52";
-import { renderChat } from "./pages/chat.js?v=173";
+import { renderChat } from "./pages/chat.js?v=174";
 import { renderSettings } from "./pages/settings.js?v=73";
 import { renderNotFound } from "./pages/not-found.js?v=54";
 import { renderSharedChat } from "./pages/shared-chat.js?v=2";
 import { renderProjects } from "./pages/projects.js";
+import { renderCustomize } from "./pages/customize.js";
 import { bootVersionGuard } from "./version-guard.js?v=1";
 
 
@@ -45,6 +46,7 @@ defineRoute("#/app/chat/incognito", requireAuth(() => renderChat({ incognito: tr
 defineRoute("#/app/chat/:id", requireAuth(renderChat));
 defineRoute("#/app/projects", requireAuth(renderProjects));
 defineRoute("#/app/projects/:id", requireAuth(renderProjects));
+defineRoute("#/app/customize", requireAuth(renderCustomize));
 defineRoute("#/app/settings", renderSettings);
 defineRoute("#/share/:shareId", renderSharedChat);
 defineRoute("*", renderNotFound);

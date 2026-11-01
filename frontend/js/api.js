@@ -13,16 +13,16 @@ function authHeaders(token) {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-async function request(path, { method = "GET", body, token, signal } = {}) {
+async function request(path, { method = "GET", body, form, blob = false, token, signal } = {}) {
   const execute = async (t) => {
     console.debug(`[bimo-api] ${method} ${path} auth=${t ? "yes" : "none"}`);
     const response = await fetch(`${config.apiUrl}${path}`, {
       method,
       headers: {
-        "Content-Type": "application/json",
+        ...(!form ? { "Content-Type": "application/json" } : {}),
         ...authHeaders(t),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: form || (body ? JSON.stringify(body) : undefined),
       signal,
     });
     console.debug(`[bimo-api] ${method} ${path} -> ${response.status}`);
@@ -33,6 +33,7 @@ async function request(path, { method = "GET", body, token, signal } = {}) {
       throw error;
     }
     if (response.status === 204) return null;
+    if (blob) return response.blob();
     return response.json();
   };
 
@@ -42,15 +43,13 @@ async function request(path, { method = "GET", body, token, signal } = {}) {
   } catch (error) {
     if (error.status === 401) {
       console.warn(`[bimo-api] 401 on ${path}, attempting silent session refresh...`);
+      let newAuth;
       try {
-        const newAuth = await refreshSession();
-        if (newAuth?.token) {
-          console.info(`[bimo-api] Session refreshed successfully, retrying ${method} ${path}...`);
-          return await execute(newAuth.token);
-        }
+        newAuth = await refreshSession();
       } catch (refreshError) {
         console.error("[bimo-api] Silent session refresh failed:", refreshError);
       }
+      if (newAuth?.token) return execute(newAuth.token);
     }
     throw error;
   }
@@ -125,7 +124,7 @@ export async function shareConversation(token, conversationId) {
         while (true) {
           const { data: page, error: msgErr } = await client
             .from("messages")
-            .select("id, role, content, reasoning, attachments, created_at")
+            .select("id, role, content, reasoning, attachments, skills, created_at")
             .eq("conversation_id", conversationId)
             .order("created_at", { ascending: true })
             .order("id", { ascending: true })
@@ -141,6 +140,7 @@ export async function shareConversation(token, conversationId) {
           content: m.content,
           reasoning: m.reasoning,
           attachments: m.attachments,
+          skills: m.skills || [],
           created_at: m.created_at,
         }));
 
@@ -743,3 +743,23 @@ export async function health() {
     return { status: "down" };
   }
 }
+
+// ---------- Customize ----------
+export const getInstructions = token => request("/preferences", { token });
+export const saveInstructions = (token, instructions) => request("/preferences", {
+  method: "PUT", token, body: { instructions },
+});
+export const listSkills = token => request("/skills", { token });
+export const getSkill = (token, id) => request(`/skills/${encodeURIComponent(id)}`, { token });
+export const createSkill = (token, body) => request("/skills", { method: "POST", token, body });
+export const updateSkill = (token, id, body) => request(`/skills/${encodeURIComponent(id)}`, { method: "PUT", token, body });
+export const deleteSkill = (token, id) => request(`/skills/${encodeURIComponent(id)}`, { method: "DELETE", token });
+export const setSkillEnabled = (token, id, enabled) => request(`/skills/${encodeURIComponent(id)}/enabled`, {
+  method: "PUT", token, body: { enabled },
+});
+export function uploadSkill(token, file) {
+  const form = new FormData();
+  form.append("file", file);
+  return request("/skills/upload", { method: "POST", token, form });
+}
+export const exportSkill = (token, id) => request(`/skills/${encodeURIComponent(id)}/export`, { token, blob: true });

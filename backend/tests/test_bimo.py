@@ -16,6 +16,8 @@ import pytest
 
 @pytest.fixture()
 def client(monkeypatch):
+    from app import store
+    monkeypatch.setattr(store, "get_preferences", lambda user_id: {"instructions": ""})
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-jwt-secret")

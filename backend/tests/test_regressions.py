@@ -15,7 +15,7 @@ from flask import Flask
 
 from app import cancellation, nvidia_client, store
 from app.limiter import limiter
-from app.routes import chat_routes, media_routes, project_routes, user_routes
+from app.routes import chat_routes, customize_routes, media_routes, project_routes, user_routes
 
 
 class MemoryQuery:
@@ -33,6 +33,7 @@ class MemoryQuery:
     def range(self, start, end): self.start, self.stop = start, end + 1; return self
     def limit(self, count): self.stop = count; return self
     def insert(self, values): self.action, self.values = "insert", values; return self
+    def upsert(self, values, on_conflict): self.action, self.values, self.conflict = "upsert", values, on_conflict; return self
     def delete(self): self.action = "delete"; return self
     def update(self, values): self.action, self.values = "update", values; return self
 
@@ -53,8 +54,17 @@ class MemoryQuery:
     def execute(self):
         self.db.calls.append((self.table, self.action, self.columns))
         rows = self.db.rows.setdefault(self.table, [])
+        if self.action == "upsert":
+            existing = next((row for row in rows if row.get(self.conflict) == self.values[self.conflict]), None)
+            if existing is not None:
+                existing.update(self.values)
+                return SimpleNamespace(data=[copy.deepcopy(existing)])
+            self.action = "insert"
         if self.action == "insert":
             values = self.values if isinstance(self.values, list) else [self.values]
+            if self.table == "skills" and any(row["user_id"] == value["user_id"] and row["name"] == value["name"] for row in rows for value in values):
+                from postgrest.exceptions import APIError
+                raise APIError({"code": "23505", "message": "duplicate name", "details": "", "hint": ""})
             inserted = [{"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat(), **v} for v in values]
             rows.extend(copy.deepcopy(inserted))
             return SimpleNamespace(data=inserted)
@@ -66,6 +76,8 @@ class MemoryQuery:
                 self.db.rows["messages"] = [m for m in self.db.rows["messages"] if m["conversation_id"] not in ids]
             if self.table == "projects":
                 self.db.rows["project_files"] = [f for f in self.db.rows["project_files"] if f["project_id"] not in ids]
+            if self.table == "skills":
+                self.db.rows["skill_files"] = [f for f in self.db.rows.get("skill_files", []) if f["skill_id"] not in ids]
             return SimpleNamespace(data=copy.deepcopy(selected))
         if self.action == "update":
             for row in selected: row.update(self.values)
@@ -103,7 +115,7 @@ def gateway(monkeypatch, tmp_path):
     app.testing = True
     app.config["RATELIMIT_ENABLED"] = False
     limiter.init_app(app)
-    for blueprint in (chat_routes.chat_bp, media_routes.media_bp, project_routes.project_bp, user_routes.user_bp):
+    for blueprint in (chat_routes.chat_bp, customize_routes.customize_bp, media_routes.media_bp, project_routes.project_bp, user_routes.user_bp):
         app.register_blueprint(blueprint)
     with app.test_client() as client:
         yield client

@@ -14,10 +14,10 @@ import { openShareModal } from "../components/share-modal.js?v=2";
 import { openMoveChatModal } from "./projects.js";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=34";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=55";
-import * as api from "../api.js?v=61";
+import * as api from "../api.js?v=62";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=27";
-import { MessageFeed } from "../chat/message-feed.js?v=38";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=28";
+import { MessageFeed } from "../chat/message-feed.js?v=39";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=8";
 import { STUDY_SYSTEM_PROMPT } from "../chat/study-mode.js?v=3";
 import {
@@ -764,6 +764,7 @@ export async function renderChat({ id, incognito }) {
         activeProjectId = conversation.project_id;
       }
       messages = Array.isArray(data?.messages) ? data.messages : [];
+      composer.skillPicker.setSelected(conversation?.active_skills || []);
       if (conversation?.model) {
         composer.currentModel = conversation.model;
       }
@@ -783,6 +784,7 @@ export async function renderChat({ id, incognito }) {
 
   async function handleComposerSubmit(turn) {
     const { text, attachments, model, reasoningEffort, studyMode, autoSearch = true, systemPrompt } = turn;
+    const skills = turn.skills || composer.skillPicker.selected;
 
     if (model === "image") {
       await sendImageMessage(text, attachments);
@@ -812,6 +814,7 @@ export async function renderChat({ id, incognito }) {
       id: uid(),
       role: "user",
       content: text,
+      skills,
       attachments: attachments.length ? attachments : null,
       created_at: new Date().toISOString(),
       conversation_id: id || "pending",
@@ -887,6 +890,7 @@ export async function renderChat({ id, incognito }) {
           project_id: (!incognito && activeProjectId) ? activeProjectId : undefined,
           attachments,
           history: incognitoHistory,
+          skill_ids: skills.map(skill => skill.id),
           model: activeModel,
           system_prompt: [studyMode ? STUDY_SYSTEM_PROMPT : conversation?.system_prompt, systemPrompt].filter(Boolean).join("\n\n") || undefined,
           reasoning_effort: reasoningEffort || composer.getReasoningEffort(activeModel),
@@ -1051,6 +1055,7 @@ export async function renderChat({ id, incognito }) {
     if (!await branchBeforeMessage(message)) return;
     messages = messages.slice(0, idx);
     composer.pendingAttachments = [...(message.attachments || [])];
+    composer.skillPicker.setSelected((message.skills || []).map(skill => skill.id));
     composer.renderAttachmentsBar();
     composer.setText(message.content);
     renderUI();
@@ -1064,6 +1069,7 @@ export async function renderChat({ id, incognito }) {
     if (!await branchBeforeMessage(message)) return;
     messages = messages.slice(0, idx);
     renderUI();
+    composer.skillPicker.setSelected((message.skills || []).map(skill => skill.id));
     if (composer.isImageMode()) {
       sendImageMessage(message.content, message.attachments || []);
     } else {
@@ -1091,6 +1097,7 @@ export async function renderChat({ id, incognito }) {
     if (!await branchBeforeMessage(userMsg)) return;
     messages = messages.slice(0, userIdx);
     renderUI();
+    composer.skillPicker.setSelected((userMsg.skills || []).map(skill => skill.id));
     if (composer.isImageMode()) {
       sendImageMessage(userMsg.content, userMsg.attachments || []);
     } else {
@@ -1125,6 +1132,7 @@ export async function renderChat({ id, incognito }) {
   function resetToNewConversation() {
     id = null;
     conversation = null;
+    composer.skillPicker.setSelected([]);
     messages = [];
     history.replaceState(null, "", "#/app/chat");
     shell.setActiveConversation(null);
@@ -1202,6 +1210,14 @@ export async function renderChat({ id, incognito }) {
   document.addEventListener("visibilitychange", onVisibilityChange);
 
   // Initial load
+  api.listSkills(auth.token).then(skills => {
+    if (!unmounted) composer.skillPicker.setCatalog(skills);
+  }).catch(error => {
+    if (!unmounted) {
+      composer.skillPicker.setLoadError();
+      console.warn("Could not load skills", error);
+    }
+  });
   loading = Boolean(id);
   renderUI({ initial: true });
 
