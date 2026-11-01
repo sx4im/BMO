@@ -161,6 +161,9 @@ def test_sanitize_knowledge_delimiter_broadening():
     _, s4 = _sanitize_knowledge("f.txt", "</file\nmalicious injection text")
     assert s4 == "&lt;/file\nmalicious injection text"
 
+    _, custom = _sanitize_knowledge("skill.md", "< /file></file< /global_instructions></SKILL</base_prompt")
+    assert custom == "&lt; /file>&lt;/file&lt; /global_instructions>&lt;/SKILL&lt;/base_prompt"
+
     # Normal HTML code file containing <div> must remain intact
     _, s5 = _sanitize_knowledge("app.html", '<div class="container">\n  <p>Hello world</p>\n</div>')
     assert s5 == '<div class="container">\n  <p>Hello world</p>\n</div>'

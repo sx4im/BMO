@@ -202,11 +202,19 @@ def _rank_chunks(chunks_with_meta: list[dict], query: str, top_k: int = 15) -> l
     return selected
 
 
-_DELIMITER_TAG_RE = re.compile(r"<\s*/?\s*(?:file|chunk|project_knowledge)", re.IGNORECASE)
+_DELIMITER_TAG_RE = re.compile(
+    r"<\s*/?\s*(?:file|chunk|project_knowledge|global_instructions|active_skills|"
+    r"skill|project_instructions|additional_instructions|base_prompt)",
+    re.IGNORECASE,
+)
 
 
 def _sanitize_knowledge(filename: str, text: str) -> tuple[str, str]:
-    """Escape filename for XML attribute and neutralize delimiter tags in untrusted content."""
+    """Escape attributes and delimiters, including spaced and unterminated tags.
+
+    Shared by project knowledge and Customize's user-written prompt blocks.
+    Only the opening angle is replaced so ordinary Markdown/HTML stays intact.
+    """
     safe_name = html.escape(filename or "file", quote=True)
     safe_text = _DELIMITER_TAG_RE.sub(
         lambda m: "&lt;" + m.group(0)[1:],
