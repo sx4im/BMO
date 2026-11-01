@@ -212,7 +212,8 @@ WHATSAPP_SYSTEM_PROMPT = (
     "  * For italic, use single underscore: _italic text_.\n"
     "  * For strikethrough, use single tilde: ~strikethrough~.\n"
     "  * For bullet points, use '• ' (Unicode bullet) or clean indentation, never raw markdown dashes or asterisks.\n"
-    "  * Never output double asterisks (**), hashtags for titles (###), or markdown tables."
+    "  * Never output double asterisks (**), hashtags for titles (###), or markdown tables.\n\n"
+    + NATURAL_WRITING_PROMPT
 )
 
 AEON_SYSTEM_PROMPT = (

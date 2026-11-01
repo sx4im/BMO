@@ -199,9 +199,9 @@ export function messageBubble({
 
   const bodyChildren = [];
   if (!isAssistant && Array.isArray(message.skills) && message.skills.length) {
-    bodyChildren.push(el("div", { class: "message-skill-chips", "aria-label": "Skills used" }, message.skills.map(skill =>
+    bubbleNodes[0].prepend(el("span", { class: "message-skill-chips", "aria-label": "Skills used" }, message.skills.map(skill =>
       el("span", { class: "skill-chip", text: `/${skill.name}` })
-    )));
+    )), document.createTextNode(" "));
   }
   // The search that produced this answer, kept above it. Set on the live turn
   // only — replies loaded from history have no search to show.

@@ -236,6 +236,8 @@ test("sent messages render skill labels safely and use compact document icons", 
   const { messageBubble } = await app.load("js/components/message.js");
   const bubble = messageBubble({ message: { role: "user", content: "Review this", skills: [{ id: "one", name: "<img src=x>" }], attachments: [{ filename: "test.pptx" }] } });
   assert.equal(bubble.querySelector(".message-skill-chips").textContent, "/<img src=x>");
+  assert.equal(bubble.querySelector(".bubble .message-skill-chips").textContent, "/<img src=x>");
+  assert.equal(bubble.querySelector(".bubble").textContent, "/<img src=x> Review this");
   assert.equal(bubble.querySelector("img"), null);
   assert.equal(bubble.querySelector(".file-chip svg").getAttribute("width"), "24");
   assert.equal(bubble.querySelector(".file-chip-name").textContent, "test.pptx");
