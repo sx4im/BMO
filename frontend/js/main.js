@@ -8,7 +8,7 @@ import { renderSettings } from "./pages/settings.js?v=73";
 import { renderNotFound } from "./pages/not-found.js?v=54";
 import { renderSharedChat } from "./pages/shared-chat.js?v=3";
 import { renderProjects } from "./pages/projects.js";
-import { renderCustomize } from "./pages/customize.js?v=6";
+import { renderCustomize } from "./pages/customize.js?v=7";
 import { bootVersionGuard } from "./version-guard.js?v=1";
 
 

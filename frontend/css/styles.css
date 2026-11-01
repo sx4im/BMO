@@ -5925,10 +5925,11 @@ body:has(.chat-page.is-empty) .tools-menu,
   z-index: 30;
   border-radius: 999px;
   height: auto;
-  padding: 14px 22px;
+  padding: 14px;
   font-size: 15px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
+.projects-empty-state .btn { padding-inline: 14px; }
 
 .projects-fab:hover {
   transform: translateY(-2px);
@@ -5943,7 +5944,7 @@ body:has(.chat-page.is-empty) .tools-menu,
   .projects-fab {
     bottom: calc(20px + env(safe-area-inset-bottom, 0px));
     right: 20px;
-    padding: 13px 20px;
+    padding: 13px 14px;
   }
 }
 
@@ -6162,17 +6163,11 @@ body:has(.chat-page.is-empty) .tools-menu,
 }
 
 .workspace-cta {
-  width: 100%;
+  width: auto;
+  align-self: flex-start;
+  padding: 0 14px;
   height: 48px;
   font-size: 15px;
-}
-
-@media (min-width: 768px) {
-  .workspace-cta {
-    width: auto;
-    align-self: flex-start;
-    padding: 0 28px;
-  }
 }
 
 .workspace-summary-desc {
@@ -12110,9 +12105,9 @@ em {
 
 /* Customize shares Projects' shell, cards, inputs and theme tokens. */
 .customize-page { max-width: 1040px; }
-.customize-tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--hairline); margin-bottom: 28px; }
-.customize-tabs [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent; padding: 12px 2px; color: var(--muted); font: inherit; cursor: pointer; }
-.customize-tabs [aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.customize-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+.customize-tabs .btn { padding: 0 14px; }
+.customize-tabs [aria-selected="true"] { background: var(--surface-soft); border-color: var(--ink); }
 .customize-page [hidden], .skill-popup[hidden], .composer-skill-chips[hidden] { display: none; }
 .customize-label { color: var(--ink); font-size: 14px; font-weight: 600; }
 .customize-hint { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 8px 0 18px; }
@@ -12122,7 +12117,7 @@ em {
 .customize-status.error, .skills-feedback.error, .skills-load-status.error, .skill-card-error { color: var(--error); }
 .skills-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .skills-heading h2 { margin: 0; font-size: 20px; }
-.skills-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; }
+.skills-grid { display: grid; grid-template-columns: repeat(auto-fill, min(100%, 320px)); gap: 16px; }
 .skill-card { min-width: 0; }
 .skill-card-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .skill-card h3 { margin: 0; color: var(--ink); font-size: 15px; overflow-wrap: anywhere; }
@@ -12151,7 +12146,7 @@ em {
 .skill-toggle[aria-checked="true"] { background: var(--ink); border-color: var(--ink); }
 .skill-toggle[aria-checked="true"] span { background: var(--canvas); transform: translateX(14px); }
 .skills-add { position: relative; flex-shrink: 0; }
-.skills-add summary { list-style: none; cursor: pointer; gap: 8px; }
+.skills-add summary { list-style: none; cursor: pointer; gap: 6px; padding: 0 12px; }
 .skills-menu-icon { display: inline-flex; align-items: center; flex-shrink: 0; }
 .skills-add summary::-webkit-details-marker { display: none; }
 .skills-add-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 170px; padding: 5px; background: var(--surface-card); border: 1px solid var(--hairline-strong); border-radius: 10px; box-shadow: 0 8px 24px #0002; }
@@ -12212,6 +12207,7 @@ em {
 .skills-load-status .customize-loading { margin-bottom: 0; }
 .image-unavailable { color: var(--muted); font-size: 13px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); }
 @media (max-width: 600px) { .skill-editor { padding: 20px; } .skills-heading { gap: 12px; } }
+@media (max-width: 360px) { .skill-card { padding: 14px; } }
 @media (prefers-reduced-motion: reduce) {
   .skill-toggle span { transition: none; }
   .customize-loading .spinner-blade { animation: none; background-color: var(--muted); opacity: 0.5; }

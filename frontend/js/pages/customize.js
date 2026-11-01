@@ -30,7 +30,7 @@ export async function renderCustomize() {
   const panels = [el("section", { id: "customize-instructions", role: "tabpanel", "aria-labelledby": "tab-instructions" }),
     el("section", { id: "customize-skills", role: "tabpanel", "aria-labelledby": "tab-skills", hidden: true })];
   const tabs = ["Instructions", "Skills"].map((name, i) => el("button", {
-    type: "button", id: `tab-${name.toLowerCase()}`, role: "tab", "aria-selected": String(i === 0),
+    type: "button", class: "btn secondary", id: `tab-${name.toLowerCase()}`, role: "tab", "aria-selected": String(i === 0),
     "aria-controls": panels[i].id, tabindex: i === 0 ? "0" : "-1", text: name,
     onclick: () => selectTab(i),
     onkeydown: event => {
