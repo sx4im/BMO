@@ -25,6 +25,7 @@ from ..config import (
     get_vision_model,
 )
 from ..limiter import limiter
+from ..reply_style import ProseDashFilter, allows_long_dashes
 from ..prompts import (
     AEON_SYSTEM_PROMPT,
     DEFAULT_SYSTEM_PROMPT,
@@ -707,6 +708,11 @@ def chat(user):
                     active_project_id = convo.get("project_id")
                     project = store.get_project(active_project_id, user.id) if active_project_id else None
                     project_files = store.list_project_files(active_project_id, user.id, include_text=True) if project else None
+                    long_dashes_allowed = allows_long_dashes(
+                        global_instructions, convo.get("system_prompt"),
+                        (project or {}).get("instructions"),
+                        *(skill.get("instructions") for skill in active_skills), message_text,
+                    )
 
                     base_sys = AEON_SYSTEM_PROMPT if chosen_friendly == "aeon" else DEFAULT_SYSTEM_PROMPT
                     past_user_texts = [
@@ -746,6 +752,7 @@ def chat(user):
                 batch_reply = ""
                 max_tokens_override = 450 if chosen_friendly == "aeon" else None
                 voice_filter = VoiceReplyFilter() if chosen_friendly == "aeon" else None
+                prose_filter = ProseDashFilter(enabled=not long_dashes_allowed)
                 retry_delays = (1.5, 3.0)
                 for attempt in range(len(retry_delays) + 1):
                     streamed = False
@@ -768,6 +775,7 @@ def chat(user):
                                     tone, delta = voice_filter.feed(delta)
                                     if tone:
                                         yield sse_event({"type": "voice_style", "data": {"tone": tone}})
+                                delta = prose_filter.feed(delta)
                                 full_reply += delta
                                 if delta:
                                     yield sse_event({"type": "token", "data": {"delta": delta}})
@@ -776,10 +784,13 @@ def chat(user):
                                 full_reasoning += ev["data"]
                                 yield sse_event({"type": "reasoning_token", "data": {"delta": ev["data"]}})
                             elif ev["type"] == "done":
-                                if voice_filter and not streamed:
-                                    tone, delta = voice_filter.feed(ev.get("content") or "", final=True)
-                                    if tone:
-                                        yield sse_event({"type": "voice_style", "data": {"tone": tone}})
+                                if not streamed:
+                                    delta = ev.get("content") or ""
+                                    if voice_filter:
+                                        tone, delta = voice_filter.feed(delta, final=True)
+                                        if tone:
+                                            yield sse_event({"type": "voice_style", "data": {"tone": tone}})
+                                    delta = prose_filter.feed(delta)
                                     full_reply += delta
                                     if delta:
                                         yield sse_event({"type": "token", "data": {"delta": delta}})
@@ -789,9 +800,14 @@ def chat(user):
                             tone, delta = voice_filter.feed("", final=True)
                             if tone:
                                 yield sse_event({"type": "voice_style", "data": {"tone": tone}})
+                            delta = prose_filter.feed(delta)
                             full_reply += delta
                             if delta:
                                 yield sse_event({"type": "token", "data": {"delta": delta}})
+                        delta = prose_filter.feed("", final=True)
+                        full_reply += delta
+                        if delta:
+                            yield sse_event({"type": "token", "data": {"delta": delta}})
                         break
                     except Exception as exc:  # noqa: BLE001
                         # Retrying after tokens reached the client would duplicate them.
@@ -807,6 +823,10 @@ def chat(user):
                             "chat: model %s failed for convo=%s batch=%d: %s",
                             chosen_model, convo.get("id"), batch_idx + 1, exc,
                         )
+                        delta = prose_filter.feed("", final=True)
+                        full_reply += delta
+                        if delta:
+                            yield sse_event({"type": "token", "data": {"delta": delta}})
                         if len(batches) > 1:
                             error_note = f"\n\n[Part {batch_idx + 1} couldn't be read. {MODEL_BUSY_REPLY}]\n\n"
                         elif full_reply.strip():
