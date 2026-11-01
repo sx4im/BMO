@@ -45,8 +45,9 @@ test("slash listbox supports filtering, arrows, Enter, Tab, Escape and removable
   assert.equal(app.picker.popup.hidden, true);
   assert.equal(textarea.value, "/sum");
   assert.equal(textarea.hasAttribute("aria-activedescendant"), false);
-  app.picker.chips.querySelector('button[aria-label="Remove write-tests"]').click();
-  assert.deepEqual(Array.from(app.picker.selectedIds), ["one"]);
+  app.type("");
+  app.key("Backspace");
+  assert.deepEqual(Array.from(app.picker.selectedIds), ["two"]);
 });
 
 test("touch selection, selection cap, URL slashes and untrusted labels stay safe", async t => {

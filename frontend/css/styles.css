@@ -12204,9 +12204,6 @@ em {
 :root[data-theme="dark"] .skill-chip { color: #81b9ed; }
 .skill-name { min-width: 0; padding: 0; background: transparent; border: 0; color: inherit; font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .skill-name:hover, .skill-name:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
-.skill-remove { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; padding: 0; background: none; border: 0; border-radius: 4px; color: inherit; opacity: 0; cursor: pointer; }
-.skill-chip:hover .skill-remove, .skill-chip:focus-within .skill-remove { opacity: 0.7; }
-.skill-remove:hover, .skill-remove:focus-visible { opacity: 1; background: var(--surface-soft); }
 .skill-description-preview { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 60; width: 280px; max-width: 100%; padding: 12px 14px; background: var(--surface-card); border: 1px solid var(--hairline-strong); border-radius: 10px; box-shadow: 0 6px 20px #0002; color: var(--ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .skill-description-preview strong { display: block; margin-bottom: 5px; font-weight: 600; }
 .skill-description-preview p { margin: 0; max-height: min(120px, 25dvh); overflow-y: auto; color: var(--muted); }
@@ -12214,7 +12211,6 @@ em {
 .image-unavailable { color: var(--muted); font-size: 13px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); }
 @media (max-width: 600px) { .skill-editor { padding: 20px; } .skills-heading { gap: 12px; } }
 @media (hover: none) {
-  .skill-remove { opacity: 0.7; }
   .sidebar.mobile .sidebar-nav .sidebar-nav-icon svg,
   .sidebar.mobile .sidebar-nav .sidebar-nav-icon svg * { animation: none; transition: none; transform: none; }
 }

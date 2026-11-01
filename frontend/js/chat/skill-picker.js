@@ -69,11 +69,7 @@ export class SkillPicker {
         onpointerleave: () => this.schedulePreviewClose(), onblur: () => this.schedulePreviewClose(),
         onfocus: event => this.showPreview(skill, event.currentTarget), onclick: event => this.showPreview(skill, event.currentTarget),
       }),
-      el("button", { type: "button", class: "skill-remove", "aria-label": `Remove ${skill.name}`, onclick: () => {
-        this.setSelected(this.selectedIds.filter(id => id !== skill.id));
-        this.textarea.focus();
-        this.update();
-      } }, [el("span", { "aria-hidden": "true", html: icon("x", { width: 12, height: 12 }) })]),
+
     ])));
     this.chips.hidden = this.selectedIds.length === 0;
     this.onSelectionChange?.();
