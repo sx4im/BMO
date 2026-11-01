@@ -107,7 +107,7 @@ async function renderUsageInto(host, token) {
       el("div", { class: "icon-box", html: icon("planUsage", { width: 16, height: 16 }) }),
       el("h2", { text: "Plan usage" }),
     ]),
-    el("p", { class: "field-hint", style: "margin: 4px 0 14px", text: "Shared across all models; deeper models use it faster. No upgrade, capacity restores when each window resets." }),
+    el("p", { class: "field-hint", style: "margin: 4px 0 14px", text: "Usage is shared across models." }),
     list
   );
 }
@@ -121,7 +121,7 @@ export async function renderSettings() {
   const host = shell.content;
   clear(host);
 
-  const page = el("div", { class: "page-shell" });
+  const page = el("div", { class: "page-shell settings-page" });
   page.append(
     el("header", { class: "page-head" }, [
       el("h1", { html: "<em>Settings</em>" }),
@@ -146,17 +146,19 @@ export async function renderSettings() {
     ]),
     profileRow,
   ];
+  let accountActions = null;
 
   if (auth) {
     // Editable display name — overrides the OAuth name everywhere (sidebar,
     // avatar, this page). Stored locally; clearing reverts to the OAuth name.
     const nameInput = el("input", {
       class: "settings-input",
+      id: "settings-display-name",
       type: "text",
       value: auth.user?.name || "",
       placeholder: auth.user?.base_name || "Your name",
       maxlength: "60",
-      "aria-label": "What should we call you?",
+      "aria-label": "Display name",
     });
     const saveName = () => {
       const applied = setUserDisplayName(nameInput.value);
@@ -171,43 +173,41 @@ export async function renderSettings() {
     });
     profileChildren.push(
       el("div", { class: "settings-field" }, [
-        el("label", { class: "field-label", text: "What should we call you?" }),
+        el("label", { class: "field-label", for: "settings-display-name", text: "Display name" }),
         nameInput,
-        el("p", { class: "field-hint", text: "Shown across Bmo. Leave empty to use your account name." }),
+        el("p", { class: "field-hint", text: "Leave blank to use your account name." }),
       ])
     );
-    profileChildren.push(
-      el("div", { class: "settings-actions" }, [
-        el("button", {
-          type: "button",
-          class: "btn danger",
-          onclick: () => {
-            openConfirmModal({
-              title: "Delete account",
-              message:
-                "This permanently deletes your account, conversations, messages, and feedback. This cannot be undone.",
-              confirmText: "Delete",
-              cancelText: "Cancel",
-              confirmPhrase: "DELETE",
-              confirmPhraseLabel: "Type DELETE to confirm",
-              danger: true,
-              onConfirm: async () => {
-                try {
-                  await api.deleteAccount(auth.token);
-                  await signOut();
-                  tearDownShell();
-                  toast("Account deleted", { tone: "warning" });
-                  window.location.hash = "#/";
-                } catch (err) {
-                  toast(err.message || "Couldn't delete account", { tone: "error" });
-                }
-              },
-            });
-          },
-          html: `${icon("delete", { width: 14, height: 14 })} <span>Delete account</span>`,
-        }),
-      ])
-    );
+    accountActions = el("div", { class: "settings-actions" }, [
+      el("button", {
+        type: "button",
+        class: "btn danger",
+        onclick: () => {
+          openConfirmModal({
+            title: "Delete account",
+            message:
+              "This permanently deletes your account, conversations, messages, and feedback. This cannot be undone.",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            confirmPhrase: "DELETE",
+            confirmPhraseLabel: "Type DELETE to confirm",
+            danger: true,
+            onConfirm: async () => {
+              try {
+                await api.deleteAccount(auth.token);
+                await signOut();
+                tearDownShell();
+                toast("Account deleted", { tone: "warning" });
+                window.location.hash = "#/";
+              } catch (err) {
+                toast(err.message || "Couldn't delete account", { tone: "error" });
+              }
+            },
+          });
+        },
+        html: `${icon("delete", { width: 14, height: 14 })} <span>Delete account</span>`,
+      }),
+    ]);
   } else {
     profileChildren.push(
       el("div", { style: "margin-top:16px" }, [
@@ -217,7 +217,7 @@ export async function renderSettings() {
   }
 
   const panel = el("div", { class: "settings-card glass" }, [
-    el("section", { class: "settings-section" }, profileChildren),
+    el("section", { class: "settings-section settings-profile" }, profileChildren),
     el("section", { class: "settings-section" }, [
       el("div", { class: "section-title" }, [
         el("div", { class: "icon-box", html: icon("preferences", { width: 16, height: 16 }) }),
@@ -226,7 +226,6 @@ export async function renderSettings() {
       el("div", { class: "settings-row" }, [
         el("div", { class: "row-text" }, [
           el("div", { class: "row-label", text: "Appearance" }),
-          el("div", { class: "row-hint", text: "Match your system, or pick light or dark." }),
         ]),
         appearanceControl(),
       ]),
@@ -238,6 +237,7 @@ export async function renderSettings() {
     panel.append(usageSection);
     renderUsageInto(usageSection, auth.token);
   }
+  if (accountActions) panel.append(el("section", { class: "settings-section settings-account-actions" }, [accountActions]));
 
   host.append(page);
 }
