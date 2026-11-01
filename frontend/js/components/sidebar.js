@@ -197,6 +197,7 @@ export function renderSidebar(container, props) {
   const {
     user,
     conversations,
+    conversationsError,
     projects,
     activeId,
     onNewChat,
@@ -350,8 +351,19 @@ export function renderSidebar(container, props) {
   }
 
   const recentList = el("ul", {});
-  if (!conversations) {
-    // empty while loading
+  if (!conversations && conversationsError) {
+    recentList.append(el("li", { class: "sidebar-chats-error" }, [
+      el("span", { text: conversationsError }),
+      el("button", { type: "button", text: "Retry", onclick: () => onRefreshConversations?.() }),
+    ]));
+  } else if (!conversations) {
+    recentList.setAttribute("aria-busy", "true");
+    recentList.setAttribute("aria-label", "Loading recent chats");
+    for (const width of [84, 68, 92, 74, 80]) {
+      recentList.append(el("li", { class: "sidebar-chat-skeleton", "aria-hidden": "true" }, [
+        el("span", { class: "skeleton", style: `width:${width}%` }),
+      ]));
+    }
   } else if (!conversations.length) {
     recentList.append(el("li", { class: "empty", text: "No conversations yet" }));
   } else {

@@ -746,6 +746,7 @@ export async function renderChat({ id, incognito }) {
   async function loadModels() {
     try {
       const data = await api.listModels(auth.token);
+      if (unmounted) return;
       if (Array.isArray(data?.models)) {
         availableModels = data.models.filter((m) => m.id !== "image");
         defaultModel = data.default || defaultModel;
@@ -758,8 +759,10 @@ export async function renderChat({ id, incognito }) {
     } catch (err) {
       console.warn("Could not load model catalog", err);
     } finally {
-      composer.renderModelBadge(incognito);
-      composer.renderModelDropdown();
+      if (!unmounted) {
+        composer.renderModelBadge(incognito);
+        composer.renderModelDropdown();
+      }
     }
   }
 
@@ -1252,7 +1255,8 @@ export async function renderChat({ id, incognito }) {
   loading = Boolean(id);
   renderUI({ initial: true });
 
-  Promise.all([loadModels(), loadMessages()]).then(() => {
+  loadModels();
+  loadMessages().then(() => {
     if (unmounted) return;
     loading = false;
     renderUI({ initial: true });

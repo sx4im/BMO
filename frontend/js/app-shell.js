@@ -1,6 +1,6 @@
 import { $, el, clear } from "./utils.js?v=30";
 import { icon } from "./icons.js?v=72";
-import { renderSidebar } from "./components/sidebar.js?v=67";
+import { renderSidebar } from "./components/sidebar.js?v=68";
 import { openChatSearch } from "./components/chat-search.js?v=31";
 import { toast } from "./components/toast.js?v=58";
 import * as api from "./api.js?v=30";
@@ -16,6 +16,7 @@ import { applyTheme } from "./prefs.js";
 
 let state = {
   conversations: null,
+  conversationsError: null,
   projects: null,
   activeId: null,
   pageRefresh: null,
@@ -31,6 +32,8 @@ export function getShellState() {
 export async function loadConversations() {
   const { auth } = getAuth();
   if (!auth) return;
+  state.conversationsError = null;
+  if (!state.conversations && nodes) renderSidebars();
   try {
     const conversations = await api.listConversations(auth.token);
     if (getAuth().auth?.user?.id !== auth.user?.id) return;
@@ -42,7 +45,9 @@ export async function loadConversations() {
       );
     }
   } catch (err) {
-    toast(err.message || "Couldn't load chats", { tone: "error" });
+    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    state.conversationsError = "Couldn't load chats";
+    if (nodes) renderSidebars();
   }
 }
 
@@ -81,6 +86,7 @@ function renderSidebars() {
   const props = {
     user: auth?.user,
     conversations: state.conversations,
+    conversationsError: state.conversationsError,
     projects: state.projects,
     activeId: state.activeId,
     onNewChat: () => navigate("#/app/chat"),
@@ -243,8 +249,7 @@ export async function mountAppShell() {
   nodes = { sidebarDesktop, sidebarMobile, backdrop, content, mobileIncognitoBtn, mobileShareBtn };
 
   renderSidebars();
-  // Fire off background fetch for usage stats so they're ready for Settings
-  loadUsage();
+  // Settings fetches usage when opened; prioritize chats on app startup.
   loadConversations();
   loadProjects();
   return shellApi();
@@ -259,6 +264,7 @@ function shellApi() {
     },
     setConversations(list) {
       state.conversations = Array.isArray(list) ? list : [];
+      state.conversationsError = null;
       renderSidebars();
       if (typeof window !== "undefined") {
         window.dispatchEvent(
@@ -303,5 +309,5 @@ function shellApi() {
  */
 export function tearDownShell() {
   nodes = null;
-  state = { conversations: null, projects: null, activeId: null, pageRefresh: null, usage: null };
+  state = { conversations: null, conversationsError: null, projects: null, activeId: null, pageRefresh: null, usage: null };
 }

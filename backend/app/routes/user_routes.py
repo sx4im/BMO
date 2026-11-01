@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, datetime, time, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
 from .. import store
 from ..auth import auth_diagnostics, require_user
-from ..config import KNOWN_MODEL_IDS, UI_MODELS, USAGE_WEIGHTS
-from .helpers import bad_request, friendly_error, get_usage_status, parse_iso, validate_project_id
+from ..config import KNOWN_MODEL_IDS, UI_MODELS
+from .helpers import bad_request, friendly_error, get_usage_status, validate_project_id
 
 logger = logging.getLogger("bmo.routes.user")
 
@@ -54,51 +53,6 @@ def onboarding(user):
 @require_user
 def usage(user):
     return jsonify(get_usage_status(user.id))
-
-
-@user_bp.get("/usage/history")
-@require_user
-def usage_history(user):
-    today = datetime.now(timezone.utc).date()
-    try:
-        days = int(request.args.get("days", "30"))
-        end_text = request.args.get("end", today.isoformat())
-        end = date.fromisoformat(end_text)
-        if days not in (7, 30) or end.isoformat() != end_text or end > today:
-            raise ValueError
-        start = end - timedelta(days=days - 1)
-        stop = end + timedelta(days=1)
-    except (ValueError, OverflowError):
-        return bad_request("Choose 7 or 30 days and a valid end date no later than today.", 422)
-
-    models = [*USAGE_WEIGHTS, "other"]
-    points = [{"date": (start + timedelta(days=i)).isoformat(), "total": 0,
-               "models": dict.fromkeys(models, 0)} for i in range(days)]
-    totals = dict.fromkeys(models, 0)
-    try:
-        events = store.usage_history_events(
-            user.id, datetime.combine(start, time.min, timezone.utc).isoformat(),
-            datetime.combine(stop, time.min, timezone.utc).isoformat(),
-        )
-        for event in events:
-            timestamp = parse_iso(event.get("created_at", ""))
-            if timestamp is None:
-                continue
-            timestamp = timestamp.replace(tzinfo=timestamp.tzinfo or timezone.utc)
-            index = (timestamp.astimezone(timezone.utc).date() - start).days
-            if not 0 <= index < days:
-                continue
-            model = event.get("model", "")
-            units = int(max(0, event.get("tokens") or 0) * USAGE_WEIGHTS.get(model, 1.0))
-            category = model if model in USAGE_WEIGHTS else "other"
-            points[index]["models"][category] += units
-            points[index]["total"] += units
-            totals[category] += units
-    except Exception:
-        logger.exception("usage history read failed for user=%s", user.id)
-        return bad_request("Could not load usage history. Please try again.", 503)
-    return jsonify({"days": days, "start": start.isoformat(), "end": end.isoformat(),
-                    "timezone": "UTC", "points": points, "totals": totals})
 
 
 @user_bp.delete("/me")

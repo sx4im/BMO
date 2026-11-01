@@ -7,7 +7,6 @@ import { avatar } from "../components/avatar.js?v=30";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
 import * as api from "../api.js?v=31";
-import { usageHistory } from "../components/usage-history.js?v=1";
 
 // Segmented System / Light / Dark control (mirrors the reference Appearance row).
 function appearanceControl() {
@@ -234,15 +233,11 @@ export async function renderSettings() {
       ]),
     ])
   );
-  let history;
   if (auth) {
     const usageCard = el("section", { class: "settings-card glass" });
     page.append(usageCard);
     renderUsageInto(usageCard, auth.token);
-    history = usageHistory(auth.token);
-    page.append(history.card);
   }
 
   host.append(page);
-  return () => history?.destroy();
 }

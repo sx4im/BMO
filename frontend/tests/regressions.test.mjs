@@ -279,13 +279,13 @@ test("Settings separates cards and keeps appearance and usage controls", async (
     "app-shell.js": { mountAppShell: async () => ({ content: app.dom.window.document.querySelector("#app"), setActiveConversation() {}, setIncognitoActive() {} }), tearDownShell() {}, getShellState: () => ({ usage }) },
     "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner", name: "Saim", email: "user@example.invalid" } } }), signOut() {}, setUserDisplayName() {} },
     "prefs.js": { getThemePref: () => "light", setThemePref: value => themes.push(value) },
-    "toast.js": { toast() {} }, "confirm-modal.js": { openConfirmModal() {} }, "api.js": { getUsage: async () => usage, getUsageHistory: async () => ({ points: Array.from({ length: 7 }, (_, i) => ({ date: `2026-10-${20 + i}`, total: 0, models: {} })), totals: {} }) },
+    "toast.js": { toast() {} }, "confirm-modal.js": { openConfirmModal() {} }, "api.js": { getUsage: async () => usage },
   });
   const { renderSettings } = await app.load("js/pages/settings.js");
   await renderSettings();
   const doc = app.dom.window.document;
-  assert.equal(doc.querySelectorAll(".settings-card").length, 4);
-  assert.deepEqual([...doc.querySelectorAll(".section-title h2")].map(n => n.textContent), ["Profile", "Preferences", "Plan usage", "Usage history"]);
+  assert.equal(doc.querySelectorAll(".settings-card").length, 3);
+  assert.deepEqual([...doc.querySelectorAll(".section-title h2")].map(n => n.textContent), ["Profile", "Preferences", "Plan usage"]);
   doc.querySelector('[title="Dark"]').click();
   assert.deepEqual(themes, ["dark"]);
   assert.equal(doc.querySelector('[title="Dark"]').getAttribute('aria-pressed'), 'true');
