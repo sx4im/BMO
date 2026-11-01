@@ -134,6 +134,7 @@ def create_conversation(
     model: Optional[str] = None,
     system_prompt: Optional[str] = None,
     project_id: Optional[str] = None,
+    active_skills: Optional[list] = None,
 ) -> dict:
     title = (first_message or "New conversation").strip().replace("\n", " ")[:80] or "New conversation"
     payload = {
@@ -144,6 +145,8 @@ def create_conversation(
     }
     if project_id:
         payload["project_id"] = project_id
+    if active_skills:
+        payload["active_skills"] = active_skills
     res = _execute(supabase().table("conversations").insert(payload))
     if not res.data:
         raise RuntimeError("Could not create conversation")
@@ -151,7 +154,7 @@ def create_conversation(
 
 
 def update_conversation(conversation_id: str, user_id: str, patch: dict) -> Optional[dict]:
-    allowed = {k: v for k, v in patch.items() if k in {"title", "model", "system_prompt", "pinned", "project_id"}}
+    allowed = {k: v for k, v in patch.items() if k in {"title", "model", "system_prompt", "pinned", "project_id", "active_skills"}}
     if not allowed:
         return get_conversation(conversation_id, user_id)
     allowed["updated_at"] = _now_iso()
@@ -279,13 +282,16 @@ def branch_conversation(conversation_id: str, user_id: str, before_message_id: s
         return None
     for message in messages[:index]:
         validate_attachment_paths(message.get("attachments") or [], user_id)
+    active_skills = [skill_id for skill_id in original.get("active_skills") or []
+                     if (skill := get_skill(skill_id, user_id)) and skill.get("enabled")]
     branch = create_conversation(
         user_id, first_message=original["title"], model=original.get("model"),
         system_prompt=original.get("system_prompt"), project_id=original.get("project_id"),
+        active_skills=active_skills,
     )
     rows = [
         {"conversation_id": branch["id"], **{key: message.get(key) for key in
-         ("role", "content", "attachments", "reasoning", "created_at") if message.get(key) is not None}}
+         ("role", "content", "attachments", "reasoning", "created_at", "skills") if message.get(key) is not None}}
         for message in messages[:index]
     ]
     previous_time = None
@@ -333,6 +339,7 @@ def add_message(
     content: str,
     attachments: Optional[list] = None,
     reasoning: Optional[str] = None,
+    skills: Optional[list] = None,
 ) -> dict:
     if not get_conversation(conversation_id, user_id):
         raise PermissionError("conversation not found")
@@ -345,6 +352,8 @@ def add_message(
     }
     if reasoning:
         payload["reasoning"] = reasoning
+    if skills:
+        payload["skills"] = skills
     try:
         res = _execute(supabase().table("messages").insert(payload))
     except Exception as exc:
@@ -540,6 +549,8 @@ def delete_all_user_data(user_id: str) -> None:
     # 2) Conversations -> cascades to messages (FK on delete cascade)
     _execute(sb.table("conversations").delete().eq("user_id", user_id))
     _execute(sb.table("projects").delete().eq("user_id", user_id))
+    _execute(sb.table("skills").delete().eq("user_id", user_id))
+    _execute(sb.table("preferences").delete().eq("user_id", user_id))
     # 3) Feedback (in case any orphaned rows survived the cascade)
     _execute(sb.table("feedback").delete().eq("user_id", user_id))
     # 4) Usage events (FK is on auth.users, so they outlive a data-only wipe)
@@ -637,6 +648,7 @@ def create_or_update_shared_conversation(conversation_id: str, user_id: str) -> 
             "content": m.get("content"),
             "reasoning": m.get("reasoning"),
             "attachments": m.get("attachments"),
+            "skills": m.get("skills") or [],
             "created_at": m.get("created_at"),
         }
         for m in messages
@@ -961,3 +973,56 @@ def list_project_conversations(project_id: str, user_id: str) -> list[dict]:
     )
     return res.data or []
 
+
+
+# ---------- Customize ----------
+
+def get_preferences(user_id: str) -> dict:
+    rows = _execute(supabase().table("preferences").select("instructions").eq("user_id", user_id).limit(1)).data
+    return (rows or [{"instructions": ""}])[0]
+
+
+def save_preferences(user_id: str, instructions: str) -> dict:
+    payload = {"user_id": user_id, "instructions": instructions, "updated_at": _now_iso()}
+    rows = _execute(supabase().table("preferences").upsert(payload, on_conflict="user_id")).data
+    return (rows or [payload])[0]
+
+
+def list_skills(user_id: str) -> list[dict]:
+    return _fetch_all(supabase().table("skills").select(
+        "id,name,description,enabled,created_at,updated_at"
+    ).eq("user_id", user_id).order("name").order("id"))
+
+
+def get_skill(skill_id: str, user_id: str) -> Optional[dict]:
+    rows = _execute(supabase().table("skills").select("*").eq("id", skill_id).eq("user_id", user_id).limit(1)).data
+    return (rows or [None])[0]
+
+
+def list_skill_files(skill_id: str, user_id: str) -> list[dict]:
+    return _fetch_all(supabase().table("skill_files").select("filename,content,size_bytes")
+                      .eq("skill_id", skill_id).eq("user_id", user_id).order("filename"))
+
+
+def create_skill(user_id: str, values: dict, files: list[dict]) -> dict:
+    skill = _execute(supabase().table("skills").insert({**values, "enabled": True, "user_id": user_id})).data[0]
+    try:
+        if files:
+            _execute(supabase().table("skill_files").insert([
+                {**file, "skill_id": skill["id"], "user_id": user_id} for file in files
+            ]))
+    except Exception:
+        delete_skill(skill["id"], user_id)
+        raise
+    return skill
+
+
+def update_skill(skill_id: str, user_id: str, values: dict) -> Optional[dict]:
+    patch = {key: value for key, value in values.items() if key in {"name", "description", "instructions", "enabled"}}
+    rows = _execute(supabase().table("skills").update({**patch, "updated_at": _now_iso()})
+                    .eq("id", skill_id).eq("user_id", user_id)).data
+    return (rows or [None])[0]
+
+
+def delete_skill(skill_id: str, user_id: str) -> bool:
+    return bool(_execute(supabase().table("skills").delete().eq("id", skill_id).eq("user_id", user_id)).data)
