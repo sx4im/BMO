@@ -1,5 +1,5 @@
 /* =============================================================
-   BMO — streaming AI chat workspace
+   Bmo — streaming AI chat workspace
    Warm-canvas editorial design system. Cream / coral / dark navy.
    Fraunces (display serif) · Inter (body) · JetBrains Mono (code).
    Adapted from the attached Claude-design-analysis spec.
@@ -5424,7 +5424,7 @@ body:has(.chat-page.is-empty) .tools-menu,
 }
 
 /* ---------- Search card ----------
-   The record of a web search: the query, the pages BMO read, and the round
+   The record of a web search: the query, the pages Bmo read, and the round
    trip time. Chromeless by design — it reads as a trail of steps in the
    conversation, not a panel sitting on top of it. */
 .search-card {
@@ -5649,7 +5649,7 @@ body:has(.chat-page.is-empty) .tools-menu,
   }
 }
 
-/* BMO's spoken line before it goes off to search. It leads the sequence, so
+/* Bmo's spoken line before it goes off to search. It leads the sequence, so
    the search bubble below is held back briefly and reads as a reaction to it. */
 .message.assistant .bubble.search-preamble {
   width: fit-content;
@@ -7693,7 +7693,7 @@ body:has(.chat-page.is-empty) .tools-menu,
 }
 
 /* =============================================================
-   Onboarding / "What's new in BMO 5" modal — blocking overlay
+   Onboarding / "What's new in Bmo 5" modal — blocking overlay
    ============================================================= */
 .ob-overlay {
   position: fixed;
@@ -8906,7 +8906,7 @@ html {
 }
 
 /* =============================================================
-   BMO · markdown rendering + code blocks
+   Bmo · markdown rendering + code blocks
    ============================================================= */
 
 .markdown-body {
@@ -8932,7 +8932,7 @@ html {
   font-weight: 600;
 }
 
-/* BMO UI never uses italic for emphasis. This element-level reset is beaten by
+/* Bmo UI never uses italic for emphasis. This element-level reset is beaten by
    the class rules below (markdown content + hljs), so only chrome <em> goes
    upright; user-authored markdown italics and code comments keep theirs. */
 em {
@@ -9566,7 +9566,7 @@ em {
 }
 
 /* =============================================================
-   BMO · model badge + persona button + composer attachments
+   Bmo · model badge + persona button + composer attachments
    ============================================================= */
 
 .model-badge.model-badge-button {
@@ -9847,7 +9847,7 @@ em {
 }
 
 /* =============================================================
-   BMO · model picker modal
+   Bmo · model picker modal
    ============================================================= */
 
 .modal.modal-wide {
@@ -10433,7 +10433,7 @@ em {
 }
 
 /* =============================================================
-   BMO Voice — full-screen voice assistant overlay + composer button
+   Bmo Voice — full-screen voice assistant overlay + composer button
    ============================================================= */
 
 /* Composer button that occupies the send slot when the box is empty. Matches

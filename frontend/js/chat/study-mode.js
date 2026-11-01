@@ -1,5 +1,5 @@
 /**
- * Study Mode system prompts and utilities for BMO.
+ * Study Mode system prompts and utilities for Bmo.
  */
 
 export const STUDY_SYSTEM_PROMPT = `You are Bmo, an expert study tutor. Help students learn by structuring your response with EXACTLY these three headings:

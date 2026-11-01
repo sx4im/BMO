@@ -1,4 +1,4 @@
-"""Shared helper functions for BMO route blueprints."""
+"""Shared helper functions for Bmo route blueprints."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Production-ready document export service for BMO.
+"""Production-ready document export service for Bmo.
 
 Provides a canonical Markdown-first parsing and rendering engine that produces:
 1. Valid UTF-8 Markdown documents (.md)
@@ -594,7 +594,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
     clean_title = (title or "").strip() or "Bmo AI response"
 
     # Numbered Canvas for running Header and Footer ("Page X of Y")
-    class BMONumberedCanvas(canvas.Canvas):
+    class BmoNumberedCanvas(canvas.Canvas):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self._saved_page_states = []
@@ -656,7 +656,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
 
     getSampleStyleSheet()
 
-    # Define color palette matching BMO's design system
+    # Define color palette matching Bmo's design system
     c_primary = colors.HexColor("#d97757")
     c_ink = colors.HexColor("#141413")
     c_body = colors.HexColor("#3d3d3a")
@@ -667,7 +667,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
 
     # Typography Styles
     title_style = ParagraphStyle(
-        "BMOTitle",
+        "BmoTitle",
         fontName="Helvetica-Bold",
         fontSize=20,
         leading=24,
@@ -676,7 +676,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
         keepWithNext=True,
     )
     meta_style = ParagraphStyle(
-        "BMOMeta",
+        "BmoMeta",
         fontName="Helvetica-Oblique",
         fontSize=9,
         leading=12,
@@ -685,7 +685,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
         keepWithNext=True,
     )
     h1_style = ParagraphStyle(
-        "BMOH1",
+        "BmoH1",
         fontName="Helvetica-Bold",
         fontSize=15,
         leading=19,
@@ -695,7 +695,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
         keepWithNext=True,
     )
     h2_style = ParagraphStyle(
-        "BMOH2",
+        "BmoH2",
         fontName="Helvetica-Bold",
         fontSize=13,
         leading=17,
@@ -705,7 +705,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
         keepWithNext=True,
     )
     h3_style = ParagraphStyle(
-        "BMOH3",
+        "BmoH3",
         fontName="Helvetica-Bold",
         fontSize=11.5,
         leading=15,
@@ -715,7 +715,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
         keepWithNext=True,
     )
     body_style = ParagraphStyle(
-        "BMOBody",
+        "BmoBody",
         fontName="Helvetica",
         fontSize=9.5,
         leading=14,
@@ -723,7 +723,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
         spaceAfter=8,
     )
     list_item_style = ParagraphStyle(
-        "BMOListItem",
+        "BmoListItem",
         fontName="Helvetica",
         fontSize=9.5,
         leading=13.5,
@@ -731,28 +731,28 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
         spaceAfter=4,
     )
     code_text_style = ParagraphStyle(
-        "BMOCodeText",
+        "BmoCodeText",
         fontName="Courier",
         fontSize=8.5,
         leading=11.5,
         textColor=c_ink,
     )
     quote_text_style = ParagraphStyle(
-        "BMOQuoteText",
+        "BmoQuoteText",
         fontName="Helvetica-Oblique",
         fontSize=9.5,
         leading=14,
         textColor=c_body,
     )
     table_cell_style = ParagraphStyle(
-        "BMOTableCell",
+        "BmoTableCell",
         fontName="Helvetica",
         fontSize=8.5,
         leading=11.5,
         textColor=c_body,
     )
     table_head_style = ParagraphStyle(
-        "BMOTableHead",
+        "BmoTableHead",
         fontName="Helvetica-Bold",
         fontSize=8.5,
         leading=11.5,
@@ -942,7 +942,7 @@ def export_pdf(title: Optional[str], markdown_content: str, generated_at: Option
                 story.append(table)
                 story.append(Spacer(1, 8))
 
-    doc.build(story, canvasmaker=BMONumberedCanvas)
+    doc.build(story, canvasmaker=BmoNumberedCanvas)
     return buf.getvalue()
 
 

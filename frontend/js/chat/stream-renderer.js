@@ -1,5 +1,5 @@
 /**
- * Incremental streaming renderer for BMO's assistant bubbles.
+ * Incremental streaming renderer for Bmo's assistant bubbles.
  *
  * Replaces the token-loop's full `bubble.innerHTML = renderMarkdown(all)`
  * (O(n²) parse cost, total DOM churn, lost scroll/code-copy state) with:

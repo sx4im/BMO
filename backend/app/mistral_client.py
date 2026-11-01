@@ -1,6 +1,6 @@
-"""Mistral AI client for BMO.
+"""Mistral AI client for Bmo.
 
-BMO interacts with Mistral AI's official OpenAI-compatible chat completions
+Bmo interacts with Mistral AI's official OpenAI-compatible chat completions
 endpoint (https://api.mistral.ai/v1) using the OpenAI Python SDK. This provides
 high reliability, connection pooling, and standardized error handling without
 requiring extra third-party dependencies.

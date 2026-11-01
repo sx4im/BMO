@@ -1,4 +1,4 @@
-"""Projects and Project Files REST API for BMO."""
+"""Projects and Project Files REST API for Bmo."""
 
 from __future__ import annotations
 

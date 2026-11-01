@@ -1,4 +1,4 @@
-"""Flask gateway for BMO.
+"""Flask gateway for Bmo.
 
 Modular application factory registering blueprints for chat, media, user,
 analytics, and WhatsApp integrations. Configured with rate limiting,

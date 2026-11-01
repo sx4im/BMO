@@ -1,4 +1,4 @@
-// Full-screen voice assistant (BMO Voice).
+// Full-screen voice assistant (Bmo Voice).
 //
 // Flow: open -> listen (live transcription) -> on silence, send the turn ->
 // voice-themed wait text while the reply streams -> read the reply aloud
@@ -211,7 +211,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose } = {}) {
   let discardTake = false;    // drop the in-flight recording on stop (typed turn)
   let recordStartedAt = 0;    // performance.now() when the current take began
 
-  const TTS_COOLDOWN_MS = 500; // pause after BMO speaks before listening again
+  const TTS_COOLDOWN_MS = 500; // pause after Bmo speaks before listening again
 
   // ---------- DOM ----------
   // The orb is a muted, looping video of the iridescent bubble. CSS blends its

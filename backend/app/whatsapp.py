@@ -1,7 +1,7 @@
-"""WhatsApp Cloud API integration for BMO.
+"""WhatsApp Cloud API integration for Bmo.
 
 Provides Webhook endpoints for Meta WhatsApp Cloud API to allow users to chat
-directly with BMO (Stanza 2.5 model) over WhatsApp.
+directly with Bmo (Stanza 2.5 model) over WhatsApp.
 """
 
 from __future__ import annotations

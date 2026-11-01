@@ -1,4 +1,4 @@
-"""User, profile, usage, and conversation management routes for BMO."""
+"""User, profile, usage, and conversation management routes for Bmo."""
 
 from __future__ import annotations
 

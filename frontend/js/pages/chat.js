@@ -1,5 +1,5 @@
 /**
- * Chat page controller for BMO.
+ * Chat page controller for Bmo.
  * Coordinates the message feed, composer, stream handler, voice assistant, and image generation.
  */
 

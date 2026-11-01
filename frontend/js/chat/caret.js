@@ -1,4 +1,4 @@
-// BMO — live-streaming caret policy (single source of truth).
+// Bmo — live-streaming caret policy (single source of truth).
 //
 // The streaming bubble shows AT MOST ONE caret: a single orange ▋ at the
 // very end of the newest text. Nothing else in any block ever renders one.

@@ -1,4 +1,4 @@
-// "What's new in BMO 5" — a one-time, blocking onboarding modal.
+// "What's new in Bmo 5" — a one-time, blocking onboarding modal.
 //
 // Shown once per user (tracked by profiles.onboarding_seen in Supabase, with a
 // localStorage backstop). The overlay covers the whole app so the background

@@ -1,5 +1,5 @@
 /**
- * Share modal for BMO conversations.
+ * Share modal for Bmo conversations.
  * Allows users to generate, copy, update, or revoke a public snapshot link for any chat.
  */
 

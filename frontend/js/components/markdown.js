@@ -1,4 +1,4 @@
-// Markdown rendering for BMO's assistant messages.
+// Markdown rendering for Bmo's assistant messages.
 //
 // The heavy libraries (marked, marked-highlight, highlight.js, DOMPurify,
 // KaTeX) are LAZY-loaded from an ESM CDN via dynamic import() rather than

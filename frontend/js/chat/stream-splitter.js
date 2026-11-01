@@ -1,5 +1,5 @@
 /**
- * Incremental stream splitter for BMO's streaming renderer.
+ * Incremental stream splitter for Bmo's streaming renderer.
  *
  * Splits the accumulating response text into BLOCK-LEVEL chunks whose
  * boundaries are stable as the text grows: a chunk, once closed, never

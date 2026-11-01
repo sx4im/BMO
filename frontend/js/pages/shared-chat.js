@@ -1,5 +1,5 @@
 /**
- * Public shared chat page view for BMO.
+ * Public shared chat page view for Bmo.
  * Displays a clean, read-only snapshot of a shared conversation without requiring authentication.
  */
 
@@ -26,7 +26,7 @@ export async function renderSharedChat({ shareId } = {}) {
       type: "button",
       class: "shared-header-logo-btn",
       onclick: () => navigate("#/"),
-      title: "BMO Home",
+      title: "Bmo Home",
     },
     [el("span", { class: "mark", html: brandMark() })]
   );
@@ -67,7 +67,7 @@ export async function renderSharedChat({ shareId } = {}) {
         el("button", {
           type: "button",
           class: "confirm-modal-btn primary",
-          text: "Go to BMO",
+          text: "Go to Bmo",
           onclick: () => navigate("#/"),
         }),
       ])

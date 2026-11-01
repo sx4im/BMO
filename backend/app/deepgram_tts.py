@@ -1,4 +1,4 @@
-"""Deepgram Aura-1 streaming text-to-speech bridge for BMO.
+"""Deepgram Aura-1 streaming text-to-speech bridge for Bmo.
 
 Bridges incoming client WebSockets (authenticated via Supabase JWT) to
 Deepgram's real-time Aura-1 streaming text-to-speech WebSocket API

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "BMO frontend tests (zero-dep except jsdom for DOM regressions)",
+  "description": "Bmo frontend tests (zero-dep except jsdom for DOM regressions)",
   "scripts": {
     "test:run": "node --experimental-vm-modules --test tests/*.test.mjs"
   },

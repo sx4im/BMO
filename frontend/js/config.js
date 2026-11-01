@@ -1,10 +1,10 @@
-// BMO runtime configuration.
+// Bmo runtime configuration.
 //
 // Hard-code production defaults below before deploying. During development or
 // when pointing at a different Render / Supabase project, every value can be
 // overridden at runtime via Settings → Environment (stored in localStorage).
 //
-// `apiUrl`          — Render Flask gateway URL (BMO backend).
+// `apiUrl`          — Render Flask gateway URL (Bmo backend).
 // `supabaseUrl`     — Supabase project URL.
 // `supabaseAnonKey` — Supabase anon (public) key — safe to ship to the browser.
 

@@ -1,5 +1,5 @@
 /**
- * SSE Stream handler for BMO chat completions.
+ * SSE Stream handler for Bmo chat completions.
  * Manages token assembly, reasoning timer, background buffering, status phrases, and stream cancellation.
  */
 
@@ -38,7 +38,7 @@ export const ROTATING_PHRASES = [
   "Extemporizing…",
 ];
 
-// Shown for the moment between "BMO decided to search" and the results
+// Shown for the moment between "Bmo decided to search" and the results
 // landing. Transient chrome, never persisted into the reply.
 export const SEARCH_PREAMBLES = [
   "Let me check the latest on that.",

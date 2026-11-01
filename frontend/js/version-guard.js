@@ -1,6 +1,6 @@
 /* Build-version guard.
  *
- * Problem this solves: BIMO is a fully client-side SPA. Once index.html +
+ * Problem this solves: Bmo is a fully client-side SPA. Once index.html +
  * the module graph are loaded, the app runs from memory forever — a user
  * who leaves the tab (or an iOS PWA) open across a deploy keeps executing
  * the OLD build indefinitely, seeing bugs that were already fixed and

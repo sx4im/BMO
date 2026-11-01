@@ -1,4 +1,4 @@
-"""Route blueprints for BMO Flask gateway."""
+"""Route blueprints for Bmo Flask gateway."""
 
 from __future__ import annotations
 

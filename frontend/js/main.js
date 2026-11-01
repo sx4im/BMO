@@ -70,7 +70,7 @@ onAuthChange(async (s) => {
     }
     const app = document.getElementById("app");
     app?.classList.add("app-enter");
-    if (s.auth) maybeShowOnboarding(s.auth); // one-time "What's new in BMO 5"
+    if (s.auth) maybeShowOnboarding(s.auth); // one-time "What's new in Bmo 5"
   }
 });
 

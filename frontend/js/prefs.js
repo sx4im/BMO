@@ -1,4 +1,4 @@
-// BMO local preferences — theme + display-name overrides, stored in
+// Bmo local preferences — theme + display-name overrides, stored in
 // localStorage (client-only, no backend). The pre-paint <script> in index.html
 // reads the same THEME_KEY synchronously to set data-theme before first paint,
 // so there's no light->dark flash; this module owns runtime changes.

@@ -1,5 +1,5 @@
 /**
- * Export module for BMO AI assistant responses.
+ * Export module for Bmo AI assistant responses.
  *
  * Coordinates canonical Markdown construction, format definitions, export intent
  * detection in chat prompts, filename sanitization, and browser Blob downloads.

@@ -1,4 +1,4 @@
-"""Project knowledge, file processing, and prompt assembly for BMO Projects."""
+"""Project knowledge, file processing, and prompt assembly for Bmo Projects."""
 
 from __future__ import annotations
 
@@ -304,7 +304,7 @@ def assemble_project_system_prompt(
 
     Order:
     1. project.instructions (if defined)
-    2. base_system_prompt (BMO's core personality and instructions)
+    2. base_system_prompt (Bmo's core personality and instructions)
     3. project knowledge context (delimited untrusted files)
     """
     parts = []

@@ -1,4 +1,4 @@
-// BMO time-of-day and personalized greeting generator.
+// Bmo time-of-day and personalized greeting generator.
 // Generates short, elegant, single-line greetings tailored to the user's local time
 // and display first name.
 

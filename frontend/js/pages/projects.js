@@ -419,7 +419,7 @@ function renderInstructionsCard(project, auth) {
   const textarea = el("textarea", {
     class: "instructions-textarea",
     placeholder:
-      "What should BMO know when working in this project? (e.g. 'Use Python 3.12, keep answers concise, prefer functional patterns.')",
+      "What should Bmo know when working in this project? (e.g. 'Use Python 3.12, keep answers concise, prefer functional patterns.')",
     maxlength: "8000",
     rows: 6,
     oninput: () => {
@@ -487,7 +487,7 @@ function renderInstructionsCard(project, auth) {
 
 /**
  * ---------------------------------------------------------------------------
- * File Preview Modal — shows the extracted text BMO parsed from a file.
+ * File Preview Modal — shows the extracted text Bmo parsed from a file.
  * ---------------------------------------------------------------------------
  */
 function openFilePreviewModal(project, auth, file) {
@@ -859,7 +859,7 @@ export function openProjectModal({ auth, project = null, onCreated, onUpdated })
   const nameInput = el("input", {
     type: "text",
     class: "confirm-modal-input",
-    placeholder: "Project name (e.g. BMO 2.0 Redesign)",
+    placeholder: "Project name (e.g. Bmo 2.0 Redesign)",
     maxlength: "100",
     value: project ? project.name : "",
     required: true,

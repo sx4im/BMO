@@ -1,4 +1,4 @@
-// BMO API client — talks only to the Render Flask gateway.
+// Bmo API client — talks only to the Render Flask gateway.
 //
 // Authentication uses the Supabase access token (a JWT). The frontend never
 // hits Supabase Postgres directly: all reads/writes go through the gateway,
@@ -65,7 +65,7 @@ export async function deleteAccount(token) {
   return request("/me", { method: "DELETE", token });
 }
 
-// Save the "What's new in BMO 5" survey (birthday/role) and mark it seen.
+// Save the "What's new in Bmo 5" survey (birthday/role) and mark it seen.
 // "Not now" sends an empty body — the backend still flips onboarding_seen.
 export async function saveOnboarding(token, payload) {
   return request("/onboarding", { method: "POST", token, body: payload });
@@ -273,7 +273,7 @@ export async function getPublicShare(shareId) {
  * events with one of these `type`s:
  *   - "conversation"      conversation row (whether new or existing)
  *   - "user_message"      the persisted user message row
- *   - "searching"         { query } BMO chose to search; results are pending
+ *   - "searching"         { query } Bmo chose to search; results are pending
  *   - "search_complete"   { count, elapsed_ms, results } search finished (count may be 0)
  *   - "token"             { delta, content } incremental text
  *   - "assistant_message" the persisted assistant message row (final)
@@ -368,7 +368,7 @@ export async function streamChat(token, payload, handlers = {}) {
           onUserMessage?.(event.data);
           break;
         case "searching":
-          // BMO decided this turn needs live results and is fetching them.
+          // Bmo decided this turn needs live results and is fetching them.
           onSearching?.({ query: event.query || "" });
           break;
         case "search_complete":

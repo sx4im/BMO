@@ -20,7 +20,7 @@ export async function renderCustomize() {
   const isCurrent = () => !disposed && page.isConnected && getAuth().auth?.user?.id === auth.user?.id;
   page.append(el("header", { class: "page-head" }, [
     el("h1", { text: "Customize" }),
-    el("p", { text: "Make BIMO work your way." }),
+    el("p", { text: "Make Bmo work your way." }),
   ]));
 
   const panels = [el("section", { id: "customize-instructions", role: "tabpanel", "aria-labelledby": "tab-instructions" }),
@@ -79,8 +79,8 @@ export async function renderCustomize() {
     status.textContent = saving ? "Saving…" : instructionError || (instructions.value !== saved ? "Unsaved changes" : instructionNotice);
   }
   panels[0].append(el("div", { class: "workspace-card" }, [
-    el("label", { for: "global-instructions", class: "customize-label", text: "What would you like BIMO to know?" }),
-    el("p", { id: "global-instructions-hint", class: "customize-hint", text: "Your preferences apply to every chat. BIMO’s safety rules still apply." }),
+    el("label", { for: "global-instructions", class: "customize-label", text: "What would you like Bmo to know?" }),
+    el("p", { id: "global-instructions-hint", class: "customize-hint", text: "Your preferences apply to every chat. Bmo’s safety rules still apply." }),
     instructions,
     el("div", { class: "customize-save-row" }, [counter, status, save]),
   ]));

@@ -1,4 +1,4 @@
-// Inline record of a web search BMO ran for a turn: the query it settled on,
+// Inline record of a web search Bmo ran for a turn: the query it settled on,
 // the pages it read, and how long the round trip took. The same card covers
 // both phases — placeholder rows while the search is in flight, then the results
 // — so it fills in rather than being swapped out under the reader.
@@ -77,7 +77,7 @@ function pendingRow() {
 /**
  * Build the search card.
  * @param {object} opts
- * @param {string} [opts.query] The query BMO searched for.
+ * @param {string} [opts.query] The query Bmo searched for.
  * @param {Array<{title,url,snippet,published_date}>} [opts.results]
  * @param {number|null} [opts.elapsedMs] Round-trip time, shown once finished.
  * @param {boolean} [opts.searching] True while the request is still open.

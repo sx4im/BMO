@@ -1,4 +1,4 @@
-"""Chat, streaming completions, and stream cancellation routes for BMO."""
+"""Chat, streaming completions, and stream cancellation routes for Bmo."""
 
 from __future__ import annotations
 
@@ -633,7 +633,7 @@ def chat(user):
                 t_search = time.time()
                 results = search_router.run_search(search_query)
                 elapsed = time.time() - t_search
-                # Everything the search card renders: the results BMO actually
+                # Everything the search card renders: the results Bmo actually
                 # read, plus how long the round trip took.
                 yield sse_event({
                     "type": "search_complete",

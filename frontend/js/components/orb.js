@@ -1,4 +1,4 @@
-// BMO wrapper around the vendored thinking-orbs web component
+// Bmo wrapper around the vendored thinking-orbs web component
 // (https://orbs.jakubantalik.com — canvas orb animations by Jakub Antalik &
 // Alex Brinza). The runtime auto-detects theme from ancestor data-theme /
 // .dark / .light, pauses offscreen and under prefers-reduced-motion, and
