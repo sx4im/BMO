@@ -14,10 +14,10 @@ import { openShareModal } from "../components/share-modal.js?v=2";
 import { openMoveChatModal } from "./projects.js";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=34";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=55";
-import * as api from "../api.js?v=62";
+import * as api from "../api.js?v=63";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=30";
-import { MessageFeed } from "../chat/message-feed.js?v=39";
+import { MessageFeed } from "../chat/message-feed.js?v=40";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=8";
 import { STUDY_SYSTEM_PROMPT } from "../chat/study-mode.js?v=3";
 import {
@@ -97,12 +97,15 @@ export async function renderChat({ id, incognito }) {
   let unmounted = false;
   let reconciling = false;
   let branching = false;
+  let skillCatalogRequest = 0;
+  let requestedSkillIds = [];
 
   let activeProjectId = null;
   const hashParts = (location.hash || "").split("?");
   if (hashParts.length > 1) {
     const params = new URLSearchParams(hashParts[1]);
     activeProjectId = params.get("project_id") || null;
+    if (!id) requestedSkillIds = params.getAll("skill_id").slice(0, 3);
   }
   let projectMeta = null;
 
@@ -1181,6 +1184,7 @@ export async function renderChat({ id, incognito }) {
 
   const onVisibilityChange = async () => {
     if (document.hidden) return;
+    loadSkills();
     if (streamHandler.isStreaming && streamHandler.hiddenBuffer.length) {
       streamHandler.hiddenBuffer = [];
       messageFeed.updateStreamingBubble(streamHandler.streamingText, streamHandler.streamingReasoning);
@@ -1210,14 +1214,25 @@ export async function renderChat({ id, incognito }) {
   document.addEventListener("visibilitychange", onVisibilityChange);
 
   // Initial load
-  api.listSkills(auth.token).then(skills => {
-    if (!unmounted) composer.skillPicker.setCatalog(skills);
-  }).catch(error => {
-    if (!unmounted) {
-      composer.skillPicker.setLoadError();
-      console.warn("Could not load skills", error);
+  async function loadSkills() {
+    const request = ++skillCatalogRequest;
+    try {
+      const skills = await api.listSkills(auth.token);
+      if (unmounted || request !== skillCatalogRequest || getAuth().auth?.user?.id !== auth.user?.id) return;
+      composer.skillPicker.setCatalog(skills);
+      if (requestedSkillIds.length) {
+        composer.skillPicker.setSelected(requestedSkillIds);
+        requestedSkillIds = [];
+      }
+    } catch (error) {
+      if (!unmounted && request === skillCatalogRequest) {
+        composer.skillPicker.setLoadError();
+        console.warn("Could not load skills", error);
+      }
     }
-  });
+  }
+  window.addEventListener("focus", loadSkills);
+  loadSkills();
   loading = Boolean(id);
   renderUI({ initial: true });
 
@@ -1242,6 +1257,7 @@ export async function renderChat({ id, incognito }) {
     composer.destroy();
     if (voiceHandle) { try { voiceHandle.close(); } catch {} voiceHandle = null; }
     window.removeEventListener("focus", attemptFocus);
+    window.removeEventListener("focus", loadSkills);
     window.removeEventListener("pageshow", attemptFocus);
     document.removeEventListener("click", onDocClickConvoMenu);
     document.removeEventListener("pointerdown", handleUniversalFocus);

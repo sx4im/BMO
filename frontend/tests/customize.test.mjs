@@ -169,7 +169,7 @@ test("Customize tabs, instructions save races, skill editor and toggles update i
   upload.dispatchEvent(new app.dom.window.Event("change"));
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(uploads.length, 0);
-  assert.match(doc.querySelector("#customize-skills [role=status]").textContent, /Choose a \.md/);
+  assert.match(doc.querySelector(".skills-feedback.error").textContent, /Markdown \(\.md\)/);
   Object.defineProperty(upload, "files", { configurable: true, value: [{ name: "review.md" }] });
   upload.dispatchEvent(new app.dom.window.Event("change"));
   await new Promise(resolve => setImmediate(resolve));
@@ -184,13 +184,15 @@ test("Customize tabs, instructions save races, skill editor and toggles update i
   assert.equal(downloads[1], "code-review.zip");
 });
 
-test("sent messages render their immutable skill chips as text", async () => {
+test("sent messages render skill labels safely and use compact document icons", async () => {
   const app = moduleLoader({ "markdown.js": { renderMarkdown: text => text },
     "orb.js": { thoughtOrb() {}, searchOrb() {} } });
   const { messageBubble } = await app.load("js/components/message.js");
-  const bubble = messageBubble({ message: { role: "user", content: "Review this", skills: [{ id: "one", name: "<img src=x>" }] } });
+  const bubble = messageBubble({ message: { role: "user", content: "Review this", skills: [{ id: "one", name: "<img src=x>" }], attachments: [{ filename: "test.pptx" }] } });
   assert.equal(bubble.querySelector(".message-skill-chips").textContent, "<img src=x>");
   assert.equal(bubble.querySelector("img"), null);
+  assert.equal(bubble.querySelector(".file-chip svg").getAttribute("width"), "24");
+  assert.equal(bubble.querySelector(".file-chip-name").textContent, "test.pptx");
 });
 
 test("editing a skill prefills both textareas and preserves references", async () => {
@@ -220,14 +222,123 @@ test("skill upload keeps multipart headers and reports validation errors after t
     "auth.js": { getAuth: () => ({ auth: { token: currentToken } }), refreshSession: async () => ({ token: currentToken = "new" }) },
     "supabaseClient.js": { isSupabaseConfigured: () => false, supabaseClient() {} },
   });
-  app.context.fetch = async (url, options) => {
-    calls.push({ url, options });
-    return { ok: false, status: calls.length === 1 ? 401 : 422, json: async () => ({ detail: calls.length === 1 ? "expired" : "Invalid YAML" }) };
+  app.context.FormData = class { fields = []; append(...args) { this.fields.push(args); } };
+  app.context.XMLHttpRequest = class {
+    upload = {}; headers = {};
+    open(method, url) { this.url = url; }
+    setRequestHeader(name, value) { this.headers[name] = value; }
+    send(body) {
+      calls.push({ url: this.url, headers: this.headers, body });
+      this.status = calls.length === 1 ? 401 : 422;
+      this.responseText = JSON.stringify({ detail: calls.length === 1 ? "expired" : "Invalid YAML" });
+      queueMicrotask(() => this.onload());
+    }
   };
   const api = await app.load("js/api.js");
   await assert.rejects(api.uploadSkill("old", {}), error => error.status === 422 && error.message === "Invalid YAML");
   assert.equal(calls.length, 2);
-  assert.equal(calls[0].options.headers["Content-Type"], undefined);
-  assert.equal(calls[1].options.headers.Authorization, "Bearer new");
-  assert.equal(calls[0].options.body, calls[1].options.body);
+  assert.equal(calls[0].headers["Content-Type"], undefined);
+  assert.equal(calls[1].headers.Authorization, "Bearer new");
+  assert.deepEqual(calls[0].body.fields, calls[1].body.fields);
+});
+
+async function customizePage(api) {
+  let app;
+  app = moduleLoader({
+    "api.js": { getInstructions: async () => ({ instructions: "" }), listSkills: async () => [], ...api },
+    "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner" } } }) },
+    "app-shell.js": { mountAppShell: async () => ({ content: app.dom.window.document.querySelector("#app"), setActiveConversation() {}, setIncognitoActive() {} }) },
+    "confirm-modal.js": { openConfirmModal() {} }, "export.js": { downloadBlob() {} },
+    "toast.js": { toast() { assert.fail("Customize errors must stay inline"); } },
+  });
+  const page = await app.load("js/pages/customize.js");
+  const cleanup = await page.renderCustomize();
+  const doc = app.dom.window.document;
+  return { ...app, doc, cleanup, selectFile(file) {
+    const input = doc.querySelector('input[type="file"]');
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new app.dom.window.Event("change"));
+  } };
+}
+
+test("skill uploads show real progress, preserve inline errors across list loading, and use metadata names", async t => {
+  const requests = [];
+  let finishList;
+  const page = await customizePage({
+    listSkills: () => new Promise(resolve => { finishList = resolve; }),
+    uploadSkill: (_token, file, progress) => new Promise((resolve, reject) => requests.push({ file, progress, resolve, reject })),
+  });
+  t.after(page.cleanup);
+  const { doc } = page;
+  assert.equal(doc.body.textContent.includes("Upload .md skills with name and description"), false);
+  page.selectFile({ name: "arbitrary-filename.md", size: 1024 });
+  const progress = doc.querySelector(".skill-upload-progress");
+  const track = progress.querySelector('[role="progressbar"]');
+  assert.equal(progress.hidden, false);
+  assert.equal(doc.querySelector(".skill-upload-name").textContent, "arbitrary-filename.md");
+  requests[0].progress(0.42);
+  assert.equal(track.getAttribute("aria-valuenow"), "42");
+  assert.equal(doc.querySelector(".skill-upload-fill").style.width, "42%");
+  requests[0].progress(1);
+  assert.equal(track.hasAttribute("aria-valuenow"), false);
+  assert.match(doc.querySelector(".skill-upload-stage").textContent, /Checking skill/);
+  requests[0].reject(Error("description is required"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(progress.hidden, true);
+  assert.equal(doc.querySelector(".skills-feedback.error").getAttribute("role"), "alert");
+  assert.equal(doc.querySelector(".skills-feedback.error").textContent, "description is required");
+  finishList([]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(doc.querySelector(".skills-feedback.error").textContent, "description is required");
+  page.selectFile({ name: "renamed-download.md", size: 1024 });
+  requests[1].resolve({ id: "new-id", name: "no-ai-slop", description: "Edit drafts with clear examples and preserve the writer's voice.", enabled: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(doc.querySelector(".skill-card h3").textContent, "no-ai-slop");
+  assert.equal(doc.querySelector(".skill-description").title, "Edit drafts with clear examples and preserve the writer's voice.");
+  assert.equal(doc.querySelector(".skills-feedback.error"), null);
+  assert.equal(doc.querySelector(".skills-feedback a").getAttribute("href"), "#/app/chat?skill_id=new-id");
+  assert.equal(doc.querySelector(".skill-use-link").getAttribute("href"), "#/app/chat?skill_id=new-id");
+});
+
+test("instruction save errors persist and skill action errors render inside the card", async t => {
+  const page = await customizePage({
+    listSkills: async () => catalog,
+    saveInstructions: async () => { throw Error("Save unavailable"); },
+    setSkillEnabled: async () => { throw Error("Could not disable this skill"); },
+  });
+  t.after(page.cleanup);
+  await new Promise(resolve => setImmediate(resolve));
+  const input = page.doc.querySelector("#global-instructions");
+  input.value = "Be concise";
+  input.dispatchEvent(new page.dom.window.Event("input"));
+  page.doc.querySelector(".customize-save-row button").click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.doc.querySelector(".customize-status.error").textContent, "Save unavailable");
+  assert.equal(page.doc.querySelector(".customize-status.error").getAttribute("role"), "alert");
+  page.doc.querySelector('[role="switch"]').click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.doc.querySelector(".skill-card-error:not([hidden])").textContent, "Could not disable this skill");
+  assert.equal(page.doc.querySelector('[role="switch"]').disabled, false);
+});
+
+test("skill upload transport reports bytes and the server-processing stage", async () => {
+  let xhr;
+  const progress = [];
+  const app = moduleLoader({ "config.js": { config: { apiUrl: "https://api.test" } },
+    "auth.js": { getAuth: () => ({ auth: { token: "test" } }), refreshSession() {} },
+    "supabaseClient.js": { isSupabaseConfigured: () => false, supabaseClient() {} },
+  });
+  app.context.XMLHttpRequest = class {
+    upload = {}; status = 201; responseText = '{"id":"s","name":"review"}';
+    constructor() { xhr = this; }
+    open(method, url) { assert.equal(url, "https://api.test/skills/upload"); }
+    setRequestHeader() {} send() {}
+  };
+  const api = await app.load("js/api.js");
+  const result = api.uploadSkill("test", {}, value => progress.push(value));
+  xhr.upload.onprogress({ lengthComputable: true, loaded: 25, total: 100 });
+  xhr.upload.onload();
+  assert.deepEqual(progress, [0, 0.25, 1]);
+  xhr.onload();
+  assert.equal((await result).name, "review");
 });

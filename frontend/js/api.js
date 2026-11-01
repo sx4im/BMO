@@ -13,16 +13,16 @@ function authHeaders(token) {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-async function request(path, { method = "GET", body, form, blob = false, token, signal } = {}) {
+async function request(path, { method = "GET", body, blob = false, token, signal } = {}) {
   const execute = async (t) => {
     console.debug(`[bimo-api] ${method} ${path} auth=${t ? "yes" : "none"}`);
     const response = await fetch(`${config.apiUrl}${path}`, {
       method,
       headers: {
-        ...(!form ? { "Content-Type": "application/json" } : {}),
+        "Content-Type": "application/json",
         ...authHeaders(t),
       },
-      body: form || (body ? JSON.stringify(body) : undefined),
+      body: body ? JSON.stringify(body) : undefined,
       signal,
     });
     console.debug(`[bimo-api] ${method} ${path} -> ${response.status}`);
@@ -679,18 +679,23 @@ export async function deleteProject(token, projectId) {
 }
 
 export function uploadProjectFileWithProgress(token, projectId, file, onProgress) {
+  return uploadFileWithProgress(token, `/projects/${projectId}/files`, file, onProgress);
+}
+
+function uploadFileWithProgress(token, path, file, onProgress) {
   return new Promise((resolve, reject) => {
     const attempt = (t, retried = false) => {
       const xhr = new XMLHttpRequest();
       const fd = new FormData();
       fd.append("file", file);
-      xhr.open("POST", `${config.apiUrl}/projects/${projectId}/files`);
+      xhr.open("POST", `${config.apiUrl}${path}`);
       xhr.timeout = 120000;
       const headers = authHeaders(t);
       for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
       xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && onProgress) onProgress(Math.min(1, e.loaded / e.total));
+        if (e.lengthComputable && e.total > 0 && onProgress) onProgress(Math.min(1, e.loaded / e.total));
       };
+      xhr.upload.onload = () => onProgress?.(1);
       xhr.onload = async () => {
         if (xhr.status === 401 && !retried) {
           try {
@@ -715,6 +720,7 @@ export function uploadProjectFileWithProgress(token, projectId, file, onProgress
       xhr.onerror = () => reject(new Error("Upload failed: network error"));
       xhr.ontimeout = () => reject(new Error("Upload timed out. Please try again."));
       xhr.onabort = () => reject(new DOMException("Upload cancelled", "AbortError"));
+      onProgress?.(0);
       xhr.send(fd);
     };
     attempt(getAuth().auth?.token || token);
@@ -757,9 +763,7 @@ export const deleteSkill = (token, id) => request(`/skills/${encodeURIComponent(
 export const setSkillEnabled = (token, id, enabled) => request(`/skills/${encodeURIComponent(id)}/enabled`, {
   method: "PUT", token, body: { enabled },
 });
-export function uploadSkill(token, file) {
-  const form = new FormData();
-  form.append("file", file);
-  return request("/skills/upload", { method: "POST", token, form });
+export function uploadSkill(token, file, onProgress) {
+  return uploadFileWithProgress(token, "/skills/upload", file, onProgress);
 }
 export const exportSkill = (token, id) => request(`/skills/${encodeURIComponent(id)}/export`, { token, blob: true });

@@ -352,3 +352,33 @@ def test_export_quotes_yaml_special_names_for_reimport(gateway, headers, db, nam
     restored, files = skill_service.import_skill("SKILL.md", exported.data)
     assert restored == values(name=name)
     assert files == []
+
+
+def test_standard_frontmatter_whitespace_imports_metadata_and_applies_full_body(gateway, headers, db, monkeypatch):
+    body = "# Writing workflow\nPreserve BIMO_SKILL_APPLIED and every step.\n\n1. Read carefully.\n2. Explain clearly.\n"
+    data = ("\ufeff--- \t\r\nname: humanizer\r\ndescription: Improve writing while preserving meaning.\r\n--- \t\r\n" + body.replace("\n", "\r\n")).encode("utf-8")
+    imported = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(data), "renamed-download.md")})
+    assert imported.status_code == 201
+    saved = imported.json
+    assert saved["name"] == "humanizer"
+    assert saved["description"] == "Improve writing while preserving meaning."
+    assert saved["instructions"] == body
+    assert saved["enabled"] is True
+    captured = stream(monkeypatch)
+    response = gateway.post("/chat", headers=headers, json={"message": "Improve this paragraph", "skill_ids": [saved["id"]], "auto_search": False})
+    assert response.status_code == 200
+    assert "Reviewed." in response.get_data(as_text=True)
+    assert body in captured[0][0]["content"]
+    assert '<skill name="humanizer">' in captured[0][0]["content"]
+
+
+@pytest.mark.parametrize("frontmatter,detail", [
+    ("name: review", "description is required"),
+    ("description: Review code", "name is required"),
+])
+def test_missing_upload_metadata_has_specific_inline_error_text(gateway, headers, db, frontmatter, detail):
+    data = f"---\n{frontmatter}\n---\nInstructions".encode()
+    response = gateway.post("/skills/upload", headers=headers, data={"file": (io.BytesIO(data), "SKILL.md")})
+    assert response.status_code == 422
+    assert response.json["detail"] == detail
+    assert not db.rows.get("skills")

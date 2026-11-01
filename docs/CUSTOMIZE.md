@@ -42,6 +42,12 @@ Explain the root cause and keep suggested changes small.
 
 Only `yaml.safe_load` parses frontmatter. Missing/invalid metadata, binary content, NUL/control bytes and scripts are rejected. ZIPs and other extensions are rejected before parsing. The frontmatter limit is 16,384 characters and the instructions limit is 20,000 characters. Optional frontmatter fields do not grant tools or execute code.
 
+The saved name and description come from frontmatter, regardless of the filename. UTF-8 BOMs, Windows line endings and trailing whitespace on frontmatter delimiters are accepted. The Markdown body is kept as the instructions. This metadata/body separation follows the Agent Skills specification and the published [Claude](https://support.claude.com/en/articles/12512180-use-skills-in-claude) and [OpenAI](https://learn.chatgpt.com/docs/build-skills) guidance.
+
+Uploads show actual transfer progress, then an indeterminate “Checking skill…” state while the backend validates and saves. Validation errors appear in red below the Skills toolbar; failed edits and toggles show errors in the affected card or editor. Successful imports show the metadata name and a **Use in chat** link that opens a new chat with the skill selected. Enabled card titles offer the same shortcut. BIMO applies selected skills explicitly through these shortcuts or the `/` picker; enabling a skill makes it available for selection. Returning to an existing chat tab refreshes its skill catalog without rebuilding the composer.
+
+Card descriptions stay on one line with an ellipsis; hovering reveals the full description. Editing, exporting and chat prompts retain the complete content.
+
 Text-only skills export as `SKILL.md`, ready to reupload. Existing skills with previously imported reference files still retain those references in chat, editing and archive exports.
 
 ## Verification
@@ -53,12 +59,14 @@ PYTHON_DOTENV_DISABLED=1 NVIDIA_TIMEOUT=0.1 NVIDIA_MAX_RETRIES=0 RATELIMIT_ENABL
 npm --prefix frontend run test:run
 ```
 
-`backend/tests/customize_rls.sql` checks real Postgres tenant isolation and direct invocation constraints in an isolated test database with an `auth.uid()` harness. The migration was applied twice, rolled back twice and reapplied in Postgres 16; all checks passed. Browser checks used real Chrome with local API fixtures and the deployment CSP; live Supabase and inference were not contacted.
+`backend/tests/customize_rls.sql` checks real Postgres tenant isolation and direct invocation constraints in an isolated test database with an `auth.uid()` harness. The migration was applied twice, rolled back twice and reapplied in Postgres 16; all checks passed. Browser upload checks used real Chrome, the actual local Flask upload/chat routes, an in-memory database and stubbed inference under the deployment CSP. They verified metadata naming, inline validation, one-line descriptions, chat preselection, full instructions in the assembled prompt and 24px sent-file icons; live Supabase and inference were not contacted.
 
 ## Manual test checklist
 
 - Save, reload and clear Instructions; check the counter at 4,000 characters and its effect in a normal, project, incognito and voice chat.
 - Write a skill; edit its prefilled fields, toggle it, export it, delete it and reimport its SKILL.md. Duplicate names must fail for the same user.
-- Import SKILL.md or another .md file with valid frontmatter. Try missing name/description, a script, binary, NUL-bearing file or ZIP; each must show a clear error.
+- Import a renamed .md file with valid frontmatter; confirm its card uses the metadata name and description. On a throttled connection, check transfer percentages and the checking state. Select **Use in chat**, send a message and confirm its skill chip and instructions apply.
+- Try missing name/description, a script, binary, NUL-bearing file or ZIP; each must show a red inline error without a toast. Retry with a valid file. Check a late list response does not clear the feedback.
+- Confirm long descriptions occupy one line in light/dark and mobile/desktop, and sent attachment icons are smaller than composer previews. Import in another tab and return to chat; the `/` picker should include the new skill.
 - Type `/`, filter, navigate with arrows, select with Enter/Tab or touch, close with Esc, and remove chips. Check the three-skill limit, sent chips and follow-ups after reload; edit/retry/attachments/streaming must still work.
 - Repeat in light/dark, desktop/mobile and reduced motion. Sign into a second account and confirm the first account’s instructions and skills are unavailable.

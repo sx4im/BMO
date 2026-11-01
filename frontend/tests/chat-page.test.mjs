@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleLoader } from "./modules.mjs";
 
-async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [] } = {}) {
+async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash } = {}) {
   let composer, feed, voice, lastRender;
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
   let app;
@@ -69,6 +69,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     setTimeout: (fn, milliseconds) => setTimeout(fn, milliseconds).unref(),
     setInterval: (fn, milliseconds) => setInterval(fn, milliseconds).unref(),
   } });
+  if (hash) app.dom.window.history.replaceState(null, "", hash);
   const actual = await app.load("js/chat/composer.js");
   stubs["composer.js"] = { ...actual, Composer: class extends actual.Composer {
     constructor(options) { super(options); composer = this; }
@@ -152,4 +153,24 @@ test("saved skills load as chips, follow-ups send them, and removal clears the n
   page.composer.skillPicker.chips.querySelector("button").click();
   await page.turn("Without skills");
   assert.deepEqual(page.payloads[2].skill_ids, []);
+});
+
+test("Use in chat preselects the imported skill and sends its ID", async t => {
+  const page = await chatPage({ hash: "#/app/chat?skill_id=new-skill", skills: [
+    { id: "new-skill", name: "writing-style", description: "Improve writing", enabled: true },
+  ] });
+  t.after(page.unmount);
+  assert.equal(page.composer.skillPicker.chips.textContent, "writing-style");
+  await page.turn("Improve this paragraph");
+  assert.deepEqual(page.payloads[0].skill_ids, ["new-skill"]);
+});
+
+test("returning to a chat refreshes skills added in another tab", async t => {
+  const skills = [];
+  const page = await chatPage({ skills });
+  t.after(page.unmount);
+  skills.push({ id: "new", name: "new-skill", description: "Newly uploaded", enabled: true });
+  page.app.dom.window.dispatchEvent(new page.app.dom.window.Event("focus"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.composer.skillPicker.skills[0].name, "new-skill");
 });

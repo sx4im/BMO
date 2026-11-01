@@ -15,6 +15,8 @@ NAME_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 
 
 def validate_text(value, label: str, limit: int, *, required=False) -> str:
+    if required and value is None:
+        raise ValueError(f"{label} is required")
     if not isinstance(value, str) or "\x00" in value:
         raise ValueError(f"{label} must be text without NUL bytes")
     if len(value) > limit:
@@ -77,7 +79,7 @@ def parse_skill_md(data: bytes) -> dict:
     if len(data) > MAX_UPLOAD_BYTES:
         raise ValueError("SKILL.md exceeds 128 KB")
     text = _decode(data, "SKILL.md").replace("\r\n", "\n")
-    match = re.fullmatch(r"---\n(.*?)\n---(?:\n(.*))?", text, re.DOTALL)
+    match = re.fullmatch(r"---[ \t]*\n(.*?)\n---[ \t]*(?:\n(.*))?", text, re.DOTALL)
     if not match:
         raise ValueError("SKILL.md requires YAML frontmatter between --- lines")
     frontmatter, body = match.group(1), match.group(2) or ""

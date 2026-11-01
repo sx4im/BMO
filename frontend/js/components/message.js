@@ -131,7 +131,7 @@ export function messageBubble({
       } else if (a.filename && !isAssistant) {
         const ext = a.filename.split(".").pop();
         attachmentsPreview.append(el("span", { class: "file-chip", title: a.filename }, [
-          el("span", { class: "ic", html: FileIcon(ext, 32) }),
+          el("span", { class: "ic", html: FileIcon(ext, 24) }),
           el("span", { class: "file-chip-name", text: a.filename }),
         ]));
       }
