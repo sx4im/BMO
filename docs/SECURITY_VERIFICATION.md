@@ -4,11 +4,11 @@ This is local engineering evidence, not a production security certificate. The r
 
 ## Verified behavior
 
-- Networkless backend/frontend/edge suites, actual Postgres role/operation/retention tests, concurrent independent SQL connections and fresh-process Redis counter/ticket tests. Final counts and clean-install status are recorded in `bugs.md`.
+- Networkless backend/frontend/edge suites, actual Postgres role/operation/retention tests, concurrent independent SQL connections and fresh-process Redis counter/ticket tests. Final counts are496 backend,113 frontend and6 edge, with no skipped tests. The fresh binary-only install and checked-in portable `all` command passed, including `pip check` (no broken requirements), SQL and source scanning. Backend reported119 known legacy dummy-key/deprecation warnings; none suppressed.
 - Global concurrent scrape admission accepted5/10, the100k session accepted10/12 requests of10k, and the999999 weekly boundary accepted1/2 one-unit requests. Account deletion preserved anonymous global spend. SQL fixtures are disposable and must never run in production.
 - Browser fixture:320/375/1440px chat in light/dark themes, Projects at320/375/640/1440, explicit sharing, dialog keyboard restoration/containment and computed primary/danger contrast>=4.5. A640 CSS-pixel viewport checks reflow equivalent to1280px at200%; actual browser zoom and assistive technology remain manual. External SDK/provider traffic was fake or blocked. This is not a real microphone, screen-reader, live OAuth or provider-billing check.
 - Current nonignored source, including new source, was scanned with redacted Gitleaks8.30.1. Six initial matches were exact dummy tests or the public Supabase publishable key; narrow path-and-value allowlists retain default detection rules. Ignored environment files and Git history are outside that scan.
-- OSV queried152 actual tested Python/npm/direct-CDN/vendor package versions with no matching advisories. This does not certify bundled native libraries, generated CDN dependency trees or future advisories. The query script fails on lookup failure or incomplete metadata. A clean fresh-install/remote-CI result is recorded separately when available; the152-version result above is specifically the actually tested existing environment plus patched overlay.
+- OSV queried152 actual tested Python/npm/direct-CDN/vendor package versions with no matching advisories. This does not certify bundled native libraries, generated CDN dependency trees or future advisories. The query script fails on lookup failure or incomplete metadata. The152-version result is specifically the existing tested environment plus patched overlay. After clean preparation, a fresh OSV query at2026-11-07 18:12UTC checked141 installed/browser versions and found no matching advisories. The fresh portable checks passed; remote Actions was not run.
 
 ## Independent review and fix pass
 
@@ -45,3 +45,24 @@ These are the implementation rulings carried from the execution ledger. Account 
 ## Deployment evidence boundary
 
 Account configuration and release coordination are delegated through a private agent handoff outside version control. Live cloud, provider and device evidence remains separate from local verification.
+
+
+## Reproduction record
+
+The following completed successfully from the repository root:
+
+```bash
+python3 -I -S scripts/security-checks.py prepare
+python3 -I -S scripts/security-checks.py all
+python3 -I -S scripts/audit-dependencies.py
+python3 -I -S scripts/security-checks.py cleanup
+```
+
+The exact prepared toolchain image digests were:
+
+- `python`: `python@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54`
+- `node`: `node@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8`
+- `postgres`: `postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777`
+- `redis`: `redis@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f`
+
+Bounded logs, input hashes and package-advisory metadata remain in ignored `.security-test/`. The two older internal test containers were also removed. No remote workflow, cloud-account or production verification is implied by these results.
