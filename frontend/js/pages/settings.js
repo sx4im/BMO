@@ -54,7 +54,7 @@ function humanDuration(seconds) {
 
 // Plan-usage panel (moved here from the old Analytics page): a session window +
 // a weekly window, each a labelled progress bar with % used and a reset time.
-async function renderUsageInto(host, token) {
+async function renderUsageInto(host, token, isCurrent, retry) {
   clear(host);
   host.append(
     el("div", { class: "section-title" }, [
@@ -63,15 +63,20 @@ async function renderUsageInto(host, token) {
     ])
   );
 
-  let usage = getShellState().usage;
-  if (!usage) {
-    try {
-      usage = await api.getUsage(token);
-      getShellState().usage = usage;
-    } catch {
-      host.remove(); // metering not provisioned yet -> drop the empty card
-      return;
-    }
+  const status = el("p", { class: "field-hint", role: "status", text: "Checking current usage…" });
+  host.append(status);
+  const owner = getShellState();
+  let usage;
+  try {
+    usage = await api.getUsage(token);
+    if (!isCurrent() || owner !== getShellState()) return;
+    owner.usage = usage;
+  } catch {
+    if (!isCurrent()) return;
+    status.setAttribute("role", "alert");
+    status.textContent = "Plan usage is unavailable. Try again to check your remaining allowance.";
+    host.append(el("button", { type: "button", class: "btn secondary", text: "Retry", onclick: retry }));
+    return;
   }
   const rows = [
     { label: "Current session", color: "indigo", ...usage.session },
@@ -93,7 +98,9 @@ async function renderUsageInto(host, token) {
         el("div", { class: "line", style: "margin-top:6px" }, [
           el("span", {
             class: "right",
-            text: full
+            text: usage.pending > 0
+              ? "Includes allowance reserved for unfinished requests. Updates when accounting finishes."
+              : full
               ? `Limit reached · resets in ${humanDuration(r.resets_in_seconds)}`
               : `Resets in ${humanDuration(r.resets_in_seconds)}`,
           }),
@@ -112,16 +119,20 @@ async function renderUsageInto(host, token) {
   );
 }
 
-export async function renderSettings() {
+export async function renderSettings(_params = {}, navigation = {}) {
   const { auth } = getAuth();
 
   const shell = await mountAppShell();
+  if (navigation.signal?.aborted || navigation.isCurrent?.() === false) return;
   shell.setActiveConversation(null);
   shell.setIncognitoActive?.(false);
   const host = shell.content;
   clear(host);
 
   const page = el("div", { class: "page-shell settings-page" });
+  let disposed = false;
+  let usageRequest = 0;
+  const isCurrent = () => !disposed && !navigation.signal?.aborted && page.isConnected && getAuth().auth?.user?.id === auth?.user?.id;
   page.append(
     el("header", { class: "page-head" }, [
       el("h1", { html: "<em>Settings</em>" }),
@@ -193,8 +204,10 @@ export async function renderSettings() {
             confirmPhraseLabel: "Type DELETE to confirm",
             danger: true,
             onConfirm: async () => {
+              if (!isCurrent()) return;
               try {
                 await api.deleteAccount(auth.token);
+                if (!isCurrent()) return;
                 await signOut();
                 tearDownShell();
                 toast("Account deleted", { tone: "warning" });
@@ -236,7 +249,22 @@ export async function renderSettings() {
   if (auth) {
     const usageCard = el("section", { class: "settings-card glass" });
     page.append(usageCard);
-    renderUsageInto(usageCard, auth.token);
+    const refresh = () => {
+      if (!isCurrent()) return;
+      const request = ++usageRequest;
+      renderUsageInto(usageCard, auth.token, () => isCurrent() && request === usageRequest, refresh);
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    host.append(page);
+    refresh();
+    const cleanup = () => {
+      disposed = true;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+    navigation.onCleanup?.(cleanup);
+    return cleanup;
   }
 
   host.append(page);

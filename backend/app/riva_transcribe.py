@@ -15,6 +15,7 @@ import io
 import logging
 import os
 import wave
+from .audio_limits import canonical_pcm16
 
 logger = logging.getLogger("bmo.riva")
 
@@ -50,12 +51,14 @@ def transcribe_wav(wav_bytes: bytes, language_code: str = "en") -> str:
 
     try:
         import riva.client
+        from riva.client.asr import streaming_request_generator
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"nvidia-riva-client not installed: {exc}") from exc
 
     # Parse the WAV to extract raw PCM + its real sample rate, so we configure
     # Riva precisely instead of letting header bytes leak into the audio.
     try:
+        wav_bytes, _ = canonical_pcm16(wav_bytes)
         with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
             sample_rate = wf.getframerate()
             channels = wf.getnchannels()
@@ -74,6 +77,8 @@ def transcribe_wav(wav_bytes: bytes, language_code: str = "en") -> str:
         ["authorization", f"Bearer {api_key}"],
     ]
 
+    auth = None
+    responses = None
     try:
         auth = riva.client.Auth(
             None,  # no SSL cert path — use system roots
@@ -106,8 +111,11 @@ def transcribe_wav(wav_bytes: bytes, language_code: str = "en") -> str:
             for i in range(0, len(pcm), chunk):
                 yield pcm[i:i + chunk]
 
-        responses = asr_service.streaming_response_generator(
-            audio_chunks=_chunks(), streaming_config=streaming_config,
+        # The SDK's convenience generator omits gRPC's deadline parameter.
+        # Its public request generator + generated stub retain that bound.
+        responses = asr_service.stub.StreamingRecognize(
+            streaming_request_generator(_chunks(), streaming_config),
+            metadata=auth.get_auth_metadata(), timeout=65,
         )
         parts: list[str] = []
         for resp in responses:
@@ -115,7 +123,18 @@ def transcribe_wav(wav_bytes: bytes, language_code: str = "en") -> str:
                 if result.is_final and result.alternatives:
                     parts.append(result.alternatives[0].transcript)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Riva transcription failed: %s", exc)
-        raise RuntimeError(f"Riva transcription failed: {exc}") from exc
+        logger.warning("riva_transcription_failed error_type=%s", type(exc).__name__)
+        raise RuntimeError("Riva transcription failed. Please try again.") from exc
+    finally:
+        if responses is not None:
+            try:
+                responses.cancel()
+            except Exception as error:
+                logger.warning("riva_rpc_cleanup_failed error_type=%s", type(error).__name__)
+        if auth is not None:
+            try:
+                auth.channel.close()
+            except Exception as error:
+                logger.warning("riva_channel_cleanup_failed error_type=%s", type(error).__name__)
 
     return " ".join(p.strip() for p in parts if p).strip()

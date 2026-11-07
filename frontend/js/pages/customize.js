@@ -6,10 +6,11 @@ import * as api from "../api.js?v=64";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
 import { downloadBlob } from "../export.js?v=4";
 
-export async function renderCustomize() {
+export async function renderCustomize(_params = {}, navigation = {}) {
   const { auth } = getAuth();
   if (!auth) return;
   const shell = await mountAppShell();
+  if (navigation.signal?.aborted || navigation.isCurrent?.() === false) return;
   shell.setActiveConversation(null);
   shell.setIncognitoActive?.(false);
   const page = el("div", { class: "page-shell customize-page" });
@@ -20,7 +21,7 @@ export async function renderCustomize() {
   const loading = label => el("div", { class: "customize-loading", "aria-label": label }, [
     el("div", { class: "blade-spinner center", "aria-hidden": "true" }, Array.from({ length: 12 }, () => el("div", { class: "spinner-blade" }))),
   ]);
-  const isCurrent = () => !disposed && page.isConnected && getAuth().auth?.user?.id === auth.user?.id;
+  const isCurrent = () => !disposed && !navigation.signal?.aborted && page.isConnected && getAuth().auth?.user?.id === auth.user?.id;
   page.append(el("header", { class: "page-head" }, [
     el("h1", { text: "Customize" }),
     el("p", { text: "Make Bmo work your way." }),
@@ -288,7 +289,14 @@ export async function renderCustomize() {
   }
   loadInstructions();
   loadSkills();
-  return () => { disposed = true; closeEditor?.(); document.removeEventListener("pointerdown", closeAdd); };
+  const cleanup = () => {
+    if (disposed) return;
+    disposed = true;
+    closeEditor?.();
+    document.removeEventListener("pointerdown", closeAdd);
+  };
+  navigation.onCleanup?.(cleanup);
+  return cleanup;
 }
 
 export function openSkillEditor({ auth, skill, onSaved }) {

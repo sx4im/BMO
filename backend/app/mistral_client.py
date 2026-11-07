@@ -31,6 +31,8 @@ from openai import (
 
 logger = logging.getLogger("bmo.mistral")
 
+from . import usage_service
+
 DEFAULT_MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 DEFAULT_MISTRAL_MODEL = "ministral-8b-2512"
 
@@ -114,9 +116,8 @@ def is_mistral_model(model_name: Optional[str]) -> bool:
 def _client() -> OpenAI:
     """Return a cached OpenAI client pointed at Mistral's endpoint.
 
-    Uses keep-alive connection pooling to eliminate TCP/TLS handshake latency
-    on subsequent turns, and conservative retry configuration (max 2 retries
-    with exponential backoff) to avoid compounding rate limits (20k tokens/min, 1 req/sec).
+    Keeps connections warm. Automatic SDK retries are disabled because every
+    provider attempt requires a separate authoritative budget admission.
     """
     key = _read_api_key()
     target_base = base_url()
@@ -124,7 +125,7 @@ def _client() -> OpenAI:
         timeout = float(os.getenv("MISTRAL_TIMEOUT", "120"))
     except (TypeError, ValueError):
         timeout = 120.0
-    retries = 2
+    retries = 0  # Retries require a new admission at the caller.
     signature = f"{target_base}::{key}::{timeout}::{retries}"
     cached = _client_cache.get(signature)
     if cached is not None:
@@ -206,9 +207,10 @@ def iter_response(
 
     full: list[str] = []
     chunk_count = 0
+    stream = None
 
     try:
-        stream = client.chat.completions.create(**call_kwargs)
+        stream = usage_service.llm_create(client, call_kwargs, resource="thinking")
         for chunk in stream:
             chunk_count += 1
             if not chunk.choices:
@@ -227,6 +229,8 @@ def iter_response(
                     choice.finish_reason, chunk_count, len("".join(full)), chosen_model,
                 )
                 break
+    except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+        raise
     except AuthenticationError as exc:
         raise RuntimeError("Mistral authentication failed (401). Check MISTRAL_API_KEY.") from exc
     except RateLimitError as exc:
@@ -248,6 +252,10 @@ def iter_response(
         msg = str(exc).strip() or exc.__class__.__name__
         raise RuntimeError(f"Mistral stream interrupted: {msg}") from exc
 
+    finally:
+        if stream is not None:
+            stream.close()
+
     yield {"type": "done", "content": "".join(full)}
 
 
@@ -256,7 +264,7 @@ def test_call(model: Optional[str] = None) -> dict:
     chosen_model = model or default_model()
     try:
         client = _client()
-        completion = client.chat.completions.create(
+        completion = usage_service.llm_create(client, dict(
             model=chosen_model,
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -264,10 +272,10 @@ def test_call(model: Optional[str] = None) -> dict:
             ],
             max_tokens=20,
             temperature=0.0,
-        )
+        ), resource="thinking")
         resp_model = completion.model or chosen_model
         logger.info("Mistral API test call OK — responding model: %s", resp_model)
         return {"ok": True, "model": resp_model}
     except Exception as exc:
-        logger.warning("Mistral API test call failed: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error": str(exc)}

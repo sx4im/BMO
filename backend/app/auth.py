@@ -94,7 +94,7 @@ def _jwks_client() -> Optional[jwt.PyJWKClient]:
             # gunicorn worker timeout and prewarm_jwks() warms the cache at boot.
             _jwks_client_cache[url] = jwt.PyJWKClient(url, cache_keys=True, timeout=8)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not init JWKS client for %s: %s", url, exc)
+            logger.warning("jwks_client_failed error_type=%s", type(exc).__name__)
             return None
     return _jwks_client_cache[url]
 
@@ -112,14 +112,14 @@ def prewarm_jwks() -> None:
         client.get_signing_keys()
         logger.info("JWKS prewarm OK")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("JWKS prewarm failed (will fetch lazily): %s", exc)
+        logger.warning("prewarm_jwks_failed error_type=%s", type(exc).__name__)
 
 
 def _token_header(token: str) -> dict:
     try:
         return jwt.get_unverified_header(token) or {}
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not parse JWT header: %s", exc)
+        logger.warning("token_header_failed error_type=%s", type(exc).__name__)
         return {}
 
 
@@ -166,17 +166,14 @@ def _decode(token: str) -> dict:
 
 def _decode_with_diagnostics(token: str) -> tuple[Optional[dict], Optional[str]]:
     """Return (payload, error_string). Logs every failure with the reason."""
-    header = _token_header(token)
-    alg = (header.get("alg") or "").upper()
-    preview = f"{token[:20]}…" if token else ""
     try:
         payload = _decode(token)
         if _debug_enabled():
-            logger.info("auth ok token=%s alg=%s sub=%s", preview, alg, payload.get("sub"))
+            logger.info("auth_verified")
         return payload, None
     except Exception as exc:  # noqa: BLE001
-        reason = f"{type(exc).__name__}: {exc}"
-        logger.warning("auth failed token=%s alg=%s reason=%s", preview, alg, reason)
+        reason = type(exc).__name__
+        logger.warning("auth_denied error_type=%s", reason)
         return None, reason
 
 
@@ -203,7 +200,7 @@ def user_from_token(token: Optional[str]) -> Optional[User]:
         or metadata.get("given_name")
         or (email.split("@")[0] if email else None)
     )
-    logger.info("auth: decode ok in %.3fs sub=%s", t_decode, payload.get("sub"))
+    logger.debug("auth_verified elapsed=%.3f", t_decode)
     return User(
         id=payload["sub"],
         email=email,
@@ -237,16 +234,10 @@ def unverified_subject() -> Optional[str]:
 
 def auth_diagnostics() -> dict:
     """Return a debug-friendly summary of the current request's auth state."""
-    token = _bearer_token()
-    header = _token_header(token) if token else {}
     return {
         "has_authorization_header": bool(request.headers.get("Authorization")),
-        "token_preview": (f"{token[:20]}…" if token else None),
-        "token_alg": header.get("alg"),
-        "token_kid": header.get("kid"),
         "supabase_url_configured": bool(os.environ.get("SUPABASE_URL")),
         "supabase_jwt_secret_configured": bool(os.environ.get("SUPABASE_JWT_SECRET")),
-        "jwks_url": _jwks_url(),
         "last_error": getattr(g, "auth_error", None),
     }
 

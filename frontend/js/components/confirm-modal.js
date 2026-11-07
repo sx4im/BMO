@@ -1,19 +1,9 @@
 import { el } from "../utils.js?v=51";
 
-let activeOverlay = null;
+import { mountDialog } from "./dialog.js";
 
-function close() {
-  if (!activeOverlay) return;
-  const overlay = activeOverlay;
-  activeOverlay = null;
-  document.removeEventListener("keydown", onKey);
-  overlay.classList.remove("open");
-  setTimeout(() => overlay.remove(), 160);
-}
-
-function onKey(e) {
-  if (e.key === "Escape") close();
-}
+let activeDialog = null;
+function close() { activeDialog?.close(); }
 
 /**
  * Claude-style confirm dialog. Layout: title + message (+ optional type-to-
@@ -32,7 +22,7 @@ export function openConfirmModal({
   danger = true,
   onConfirm,
 }) {
-  if (activeOverlay) close();
+  if (activeDialog) close();
 
   const needsPhrase = typeof confirmPhrase === "string" && confirmPhrase.length > 0;
   const expected = needsPhrase ? confirmPhrase : "";
@@ -120,17 +110,13 @@ export function openConfirmModal({
     [card]
   );
 
-  const titleNode = card.querySelector(".confirm-modal-title");
-  if (titleNode) titleNode.id = "confirm-modal-title";
-
-  document.body.append(overlay);
-  activeOverlay = overlay;
-  document.addEventListener("keydown", onKey);
-  requestAnimationFrame(() => {
-    overlay.classList.add("open");
-    if (input) input.focus();
-    else confirmBtn.focus();
+  const dialog = mountDialog(overlay, {
+    title: card.querySelector(".confirm-modal-title"),
+    initialFocus: input || cancelBtn,
+    closeDelay: 160,
+    onClose: () => { if (activeDialog === dialog) activeDialog = null; },
   });
+  activeDialog = dialog;
 }
 
 export function openPromptModal({
@@ -140,7 +126,7 @@ export function openPromptModal({
   cancelText = "Cancel",
   onConfirm,
 }) {
-  if (activeOverlay) close();
+  if (activeDialog) close();
 
   const cancelBtn = el(
     "button",
@@ -214,16 +200,10 @@ export function openPromptModal({
     [card]
   );
 
-  const titleNode = card.querySelector(".confirm-modal-title");
-  if (titleNode) titleNode.id = "confirm-modal-title";
-
-  document.body.append(overlay);
-  activeOverlay = overlay;
-  document.addEventListener("keydown", onKey);
-  requestAnimationFrame(() => {
-    overlay.classList.add("open");
-    input.focus();
-    // Select all text in the input
-    input.setSelectionRange(0, input.value.length);
+  const dialog = mountDialog(overlay, {
+    title: card.querySelector(".confirm-modal-title"), initialFocus: input, closeDelay: 160,
+    onClose: () => { if (activeDialog === dialog) activeDialog = null; },
   });
+  activeDialog = dialog;
+  input.setSelectionRange(0, input.value.length);
 }

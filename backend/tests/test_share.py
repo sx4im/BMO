@@ -56,6 +56,13 @@ def test_public_share_route_accessible_without_auth(client):
         assert "not found" in res.get_json()["detail"].lower()
 
 
+def test_public_share_responses_are_not_cacheable(client):
+    with patch("app.store.get_public_shared_conversation", return_value={"id": "share", "messages": []}):
+        assert client.get("/share/share").headers["Cache-Control"] == "no-store"
+    with patch("app.store.get_public_shared_conversation", return_value=None):
+        assert client.get("/share/missing").headers["Cache-Control"] == "no-store"
+
+
 def test_public_share_returns_snapshot(client):
     mock_snapshot = {
         "id": "share-abc-123",

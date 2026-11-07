@@ -37,7 +37,7 @@ def test_relay_tts_stream_unconfigured():
     mock_ws.close.assert_called_once()
 
 
-def test_relay_tts_stream_bidirectional():
+def test_relay_tts_stream_bidirectional(provider_budget):
     mock_ws = MagicMock()
     mock_ws.receive.side_effect = [
         json.dumps({"type": "Speak", "text": "Hello world"}),
@@ -80,7 +80,7 @@ def test_relay_tts_stream_bidirectional():
         assert any("Flushed" in str(s) for s in sent_to_client)
 
 
-def test_relay_tts_stream_flux():
+def test_relay_tts_stream_flux(provider_budget):
     mock_ws = MagicMock()
     mock_ws.receive.side_effect = [
         json.dumps({"type": "Speak", "text": "Hello Flux"}),
@@ -117,7 +117,7 @@ def test_relay_tts_stream_flux():
         assert any("Interrupt" in s for s in sent_to_dg)
 
 
-def test_rest_tts_fallback_to_deepgram(client, monkeypatch):
+def test_rest_tts_fallback_to_deepgram(client, monkeypatch, provider_budget):
     monkeypatch.setenv("DEEPGRAM_API_KEY", "dg-test-key")
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
 

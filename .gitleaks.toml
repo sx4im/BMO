@@ -1,0 +1,24 @@
+title = "Bimo source secret scan"
+
+[extend]
+useDefault = true
+
+# Match both a specific file and a known public/dummy value. New credentials in
+# these files remain subject to every default detector.
+[[allowlists]]
+description = "Dummy origin-rotation credential in security tests"
+condition = "AND"
+paths = ['''(^|/)backend/tests/test_edge_access\.py$''']
+regexes = ['''^fixture-previous-secret-at-least-32-bytes$''']
+
+[[allowlists]]
+description = "Dummy provider fingerprint fixtures"
+condition = "AND"
+paths = ['''(^|/)backend/tests/test_(groq|mistral)\.py$''']
+regexes = ['''^(gsk_|mis-)1234567890abcdef$''']
+
+[[allowlists]]
+description = "Supabase publishable key intended for browser clients"
+condition = "AND"
+paths = ['''(^|/)frontend/js/deployment\.js$''']
+regexes = ['''^sb_publishable_9bZYYsAy0L6bQb2PG83mJg_PNwDJXIw$''']

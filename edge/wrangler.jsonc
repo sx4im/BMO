@@ -1,0 +1,11 @@
+{
+  "name": "bimo-api-gateway",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-03",
+  "workers_dev": false,
+  // Add the verified API custom domain in Cloudflare before release.
+  // EDGE_TOKEN is a Worker secret, never a checked-in var.
+  "vars": {
+    "RENDER_ORIGIN": "https://bimo-backend-4a4g.onrender.com"
+  }
+}

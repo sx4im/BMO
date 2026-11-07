@@ -67,7 +67,7 @@ def export_document(user):
         else:
             return jsonify({"detail": f"Unsupported format '{fmt}'"}), 422
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Document export failed for user=%s format=%s: %s", user.id, fmt, exc)
+        logger.error("export_document_failed error_type=%s", type(exc).__name__)
         return jsonify({"detail": f"Failed to generate {fmt.upper()} document: {exc}"}), 500
 
     mime = MIME_TYPES[fmt]

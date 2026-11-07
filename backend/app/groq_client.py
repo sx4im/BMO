@@ -28,6 +28,7 @@ from openai import (
 )
 
 from .config import DEFAULT_AEON_MODEL, DEFAULT_GROQ_BASE_URL
+from . import usage_service
 
 logger = logging.getLogger("bmo.groq")
 
@@ -110,7 +111,7 @@ def _client() -> OpenAI:
         timeout = float(os.getenv("GROQ_TIMEOUT", "60"))
     except (TypeError, ValueError):
         timeout = 60.0
-    retries = 2
+    retries = 0  # Retries require a new admission at the caller.
     signature = f"{target_base}::{key}::{timeout}::{retries}"
     cached = _client_cache.get(signature)
     if cached is not None:
@@ -172,9 +173,10 @@ def iter_response(
 
     full: list[str] = []
     chunk_count = 0
+    stream = None
 
     try:
-        stream = client.chat.completions.create(**call_kwargs)
+        stream = usage_service.llm_create(client, call_kwargs, resource="aeon")
         for chunk in stream:
             chunk_count += 1
             if not chunk.choices:
@@ -193,6 +195,8 @@ def iter_response(
                     choice.finish_reason, chunk_count, len("".join(full)), chosen_model,
                 )
                 break
+    except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+        raise
     except AuthenticationError as exc:
         raise RuntimeError("Groq authentication failed (401). Check GROQ_API_KEY.") from exc
     except RateLimitError as exc:
@@ -211,5 +215,9 @@ def iter_response(
     except Exception as exc:
         msg = str(exc).strip() or exc.__class__.__name__
         raise RuntimeError(f"Groq stream interrupted: {msg}") from exc
+
+    finally:
+        if stream is not None:
+            stream.close()
 
     yield {"type": "done", "content": "".join(full)}

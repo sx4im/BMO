@@ -19,6 +19,7 @@ from typing import Optional
 from postgrest.exceptions import APIError
 
 from .supabase_client import attachments_bucket, supabase
+from . import usage_service
 
 logger = logging.getLogger("bmo.store")
 
@@ -51,13 +52,7 @@ def _execute(builder, *, max_retries: int = 2, delay: float = 0.35):
         except Exception as exc:
             if attempts < max_retries and _is_pgrst303(exc):
                 attempts += 1
-                logger.warning(
-                    "PGRST303 clock skew encountered from Supabase (retry %d/%d): %s; retrying in %.2fs",
-                    attempts,
-                    max_retries,
-                    exc,
-                    delay,
-                )
+                logger.warning("execute_failed error_type=%s", type(exc).__name__)
                 time.sleep(delay)
                 continue
             raise
@@ -214,8 +209,8 @@ def delete_storage_paths(paths: list[str], *, strict: bool = False) -> None:
         paths = list(dict.fromkeys(paths))
         for start in range(0, len(paths), 100):
             storage.remove(paths[start:start + 100])
-    except Exception:
-        logger.warning("storage cleanup failed for %d paths", len(paths), exc_info=True)
+    except Exception as exc:
+        logger.warning("delete_storage_paths_failed error_type=%s", type(exc).__name__)
         if strict:
             raise
 
@@ -241,8 +236,8 @@ def _delete_unreferenced_paths(paths: list[str], user_id: str) -> None:
             if not messages.data and not files.data:
                 removable.append(path)
         delete_storage_paths(removable)
-    except Exception:
-        logger.warning("storage reference check/cleanup failed; retaining objects", exc_info=True)
+    except Exception as exc:
+        logger.warning("delete_unreferenced_paths_failed error_type=%s", type(exc).__name__)
 
 
 def delete_conversation(conversation_id: str, user_id: str) -> bool:
@@ -361,11 +356,7 @@ def add_message(
         # (e.g., migration not yet run), retry without it so the message
         # is not lost.
         if reasoning and "reasoning" in payload:
-            logger.warning(
-                "insert with reasoning failed (%s); 'reasoning' column appears to be missing on messages table. "
-                "Run backend/migrations/0002_message_reasoning.sql on Supabase. Falling back to insert without reasoning.",
-                exc,
-            )
+            logger.warning("message_reasoning_fallback migration=0002_message_reasoning.sql error_type=%s", type(exc).__name__)
             payload.pop("reasoning")
             res = _execute(supabase().table("messages").insert(payload))
         else:
@@ -457,21 +448,23 @@ def record_usage(user_id: str, model: str, tokens: int) -> None:
                 {"user_id": user_id, "model": model, "tokens": int(max(0, tokens))}
             )
         )
-    except Exception:
-        logger.warning("record_usage failed for user=%s", user_id, exc_info=True)
+    except Exception as exc:
+        logger.warning("record_usage_failed error_type=%s", type(exc).__name__)
 
 
 def recent_usage_events(user_id: str, since_iso: str) -> list[dict]:
     """All of a user's usage rows since ``since_iso`` (the widest window we
     report). The gateway slices the shorter session window in Python."""
-    res = _execute(
+    rows = _fetch_all(
         supabase()
         .table("usage_events")
         .select("model,tokens,created_at")
         .eq("user_id", user_id)
         .gte("created_at", since_iso)
+        .order("created_at")
+        .order("id")
     )
-    return res.data or []
+    return rows + usage_service.held_usage(user_id)
 
 
 # ---------- analytics ----------
@@ -649,8 +642,8 @@ def upload_attachment_for_user(
         # keys; if we still have nothing, log the shape so we can add the new
         # key. Without a URL the vision model will silently receive no image.
         logger.error(
-            "create_signed_url returned no usable URL: type=%s repr=%r",
-            type(signed).__name__, signed,
+            "storage_signing_failed response_type=%s",
+            type(signed).__name__,
         )
     return {
         "path": path,

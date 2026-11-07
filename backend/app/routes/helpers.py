@@ -11,12 +11,15 @@ from typing import Optional
 from flask import jsonify
 
 from .. import store
+from ..usage_service import MeteringUnavailable
 from ..config import SESSION_LIMIT, SESSION_WINDOW_S, USAGE_WEIGHTS, WEEKLY_LIMIT, WEEKLY_WINDOW_S
 
 logger = logging.getLogger("bmo.routes.helpers")
 
 
 def bad_request(detail: str, status: int = 400):
+    if status >= 500:
+        detail = "The service is temporarily unavailable. Please try again shortly."
     return jsonify({"detail": detail}), status
 
 
@@ -25,24 +28,8 @@ def sse_event(event: dict) -> str:
 
 
 def friendly_error(exc: Exception) -> str:
-    """Turn a low-level exception into an actionable, user-friendly message."""
-    msg = str(exc).strip() or exc.__class__.__name__
-    lower = msg.lower()
-    if "invalid api key" in lower and "nvidia" not in lower:
-        return (
-            "Supabase rejected the service-role key. Update SUPABASE_SERVICE_ROLE_KEY "
-            "in your Render env with the secret/service_role key from Supabase → "
-            f"Settings → API. (Underlying error: {msg})"
-        )
-    if "jwt expired" in lower or "jwt is invalid" in lower:
-        return f"Supabase JWT verification failed: {msg}"
-    if "degraded function cannot be invoked" in lower:
-        return (
-            "The Nexos model is temporarily unavailable on NVIDIA's servers "
-            "(DEGRADED). In Render → Environment, change NVIDIA_NEXOS_MODEL to a "
-            "working model such as deepseek-ai/deepseek-v4-flash, or try again later."
-        )
-    return msg
+    """Provider and database exceptions can contain credentials or user content."""
+    return "The service is temporarily unavailable. Please try again shortly."
 
 
 MODEL_BUSY_REPLY = "Bmo is busy right now. Please try again in a moment."
@@ -105,15 +92,15 @@ def get_usage_status(user_id: str) -> dict:
     week_start = now - timedelta(seconds=WEEKLY_WINDOW_S)
     try:
         events = store.recent_usage_events(user_id, week_start.isoformat())
-    except Exception:
-        logger.warning("usage status read failed for user=%s", user_id, exc_info=True)
-        events = []
+    except Exception as error:
+        logger.error("usage_status_unavailable error_type=%s", type(error).__name__)
+        raise MeteringUnavailable("Usage accounting is unavailable. Please try again shortly.") from error
 
     parsed: list[tuple[datetime, str, int]] = []
     for e in events:
         ts = parse_iso(e.get("created_at", ""))
         if ts is not None:
-            parsed.append((ts, e.get("model", ""), e.get("tokens", 0) or 0))
+            parsed.append((ts, e.get("model", ""), max(0, e.get("tokens", 0) or 0)))
 
     def window(start: datetime, limit: int, window_s: int) -> dict:
         weighted = [
@@ -137,6 +124,7 @@ def get_usage_status(user_id: str) -> dict:
     return {
         "session": session,
         "weekly": weekly,
+        "pending": sum(max(0, e.get("tokens", 0) or 0) * USAGE_WEIGHTS.get(e.get("model", ""), 1.0) for e in events if e.get("held")),
         "blocked": session["used"] >= SESSION_LIMIT or weekly["used"] >= WEEKLY_LIMIT,
     }
 

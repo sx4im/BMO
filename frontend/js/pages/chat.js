@@ -63,13 +63,14 @@ function buildScrapeContext(scrapedItems, originalMessage) {
   );
 }
 
-export async function renderChat({ id, incognito }) {
+export async function renderChat({ id, incognito }, navigation = {}) {
   const { auth } = getAuth();
   if (!auth) {
     navigate("#/", { replace: true });
     return;
   }
   const shell = await mountAppShell();
+  if (navigation.signal?.aborted || navigation.isCurrent?.() === false) return;
   shell.setActiveConversation(id || null);
 
   const host = shell.content;
@@ -92,6 +93,7 @@ export async function renderChat({ id, incognito }) {
   let searchCardData = null;
   let imageGenerating = false;
   let imagePollTimer = null;
+  let imageController = null;
   let voiceHandle = null;
   let activeVoiceOnDelta = null;
   let activeVoiceOnSearch = null;
@@ -101,6 +103,9 @@ export async function renderChat({ id, incognito }) {
   let branching = false;
   let skillCatalogRequest = 0;
   let requestedSkillIds = [];
+  let activeTurn = null;
+  let conversationListRequest = 0;
+  const isCurrent = () => !unmounted && !navigation.signal?.aborted && getAuth().auth?.user?.id === auth.user?.id;
 
   let activeProjectId = null;
   const hashParts = (location.hash || "").split("?");
@@ -490,6 +495,8 @@ export async function renderChat({ id, incognito }) {
   const streamHandler = new StreamHandler({
     getAuthToken: () => auth.token,
     onConversation: (convo) => {
+      if (!isCurrent()) return;
+      if (activeTurn) activeTurn.received = true;
       conversation = convo;
       if (convo?.project_id) {
         activeProjectId = convo.project_id;
@@ -507,9 +514,11 @@ export async function renderChat({ id, incognito }) {
     },
 
     onUserMessage: (m) => {
+      if (!isCurrent()) return;
       const mid = m?.id ? String(m.id) : "";
       if (mid.startsWith("msg_pending_")) return;
-      messages = messages.filter((x) => !String(x.id).startsWith("tmp_"));
+      if (activeTurn) activeTurn.accepted = true;
+      messages = messages.filter((x) => x.id !== activeTurn?.optimisticId && x.id !== m.id);
       messages.push(m);
       renderUI();
     },
@@ -573,10 +582,8 @@ export async function renderChat({ id, incognito }) {
       loadConversations();
     },
     onError: (err) => {
+      if (!isCurrent()) return;
       toast(err.message || "Couldn't connect", { tone: "error" });
-      composer.isGenerating = false;
-      composer.syncSendEnabled();
-      renderUI();
     },
   });
 
@@ -584,7 +591,15 @@ export async function renderChat({ id, incognito }) {
   // Composer
   const composer = new Composer({
     onSubmit: (turn) => handleComposerSubmit(turn),
-    onStop: () => streamHandler.cancel(),
+    onStop: () => {
+      const partial = streamHandler.cancel();
+      activeTurn?.controller.abort();
+      retainPartial(partial);
+      searching = false;
+      composer.isGenerating = false;
+      composer.syncSendEnabled();
+      renderUI();
+    },
     onOpenVoiceAssistant: () => openVoiceMode(),
     onModelChange: async (model) => {
       conversation = { ...(conversation || {}), model };
@@ -609,10 +624,16 @@ export async function renderChat({ id, incognito }) {
   host.append(page);
   messageFeed.mountScrollFollower(); // permanent pin/free-scroll + jump button
 
-  // Auto-focus composer textarea so it is always active and hungry for input
+  // Initial desktop focus only; later loads and app/window focus must respect
+  // a user's chosen control and must not reopen a mobile keyboard.
+  let initialFocusUsed = false;
   const attemptFocus = () => {
+    if (initialFocusUsed || !isCurrent() || loading || window.matchMedia?.("(pointer: coarse)").matches) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== document.documentElement) { initialFocusUsed = true; return; }
     try {
       if (composer?.textarea) {
+        initialFocusUsed = true;
         composer.textarea.focus({ preventScroll: true });
         const len = composer.textarea.value.length;
         composer.textarea.setSelectionRange(len, len);
@@ -621,33 +642,22 @@ export async function renderChat({ id, incognito }) {
       /* ignore if not attached yet */
     }
   };
-  attemptFocus();
-  requestAnimationFrame(attemptFocus);
-  setTimeout(attemptFocus, 50);
-  setTimeout(attemptFocus, 150);
-  setTimeout(attemptFocus, 300);
-  setTimeout(attemptFocus, 600);
-  setTimeout(attemptFocus, 1000);
 
   // Mouse clicks on empty space keep the caret in the composer. Touch and pen
   // taps must not, because focusing a textarea raises the on-screen keyboard.
   let lastPointerType = "mouse";
   const handleUniversalFocus = (e) => {
     if (e.type === "pointerdown") lastPointerType = e.pointerType || "mouse";
-    if (lastPointerType !== "mouse") return;
-    if (e.target?.closest?.("button, a, input, select, textarea, [role='menu'], [role='option'], .model-dropdown, .tools-menu, .attachment-menu")) {
-      return;
-    }
-    attemptFocus();
+    if (lastPointerType !== "mouse" || e.target !== page || !isCurrent()) return;
+    composer.textarea.focus({ preventScroll: true });
   };
-  window.addEventListener("focus", attemptFocus);
-  window.addEventListener("pageshow", attemptFocus);
   page.addEventListener("click", handleUniversalFocus);
-  document.addEventListener("pointerdown", handleUniversalFocus, { passive: true });
+  page.addEventListener("pointerdown", handleUniversalFocus, { passive: true });
 
   shell.setIncognitoActive?.(Boolean(incognito));
 
   function renderUI(opts = {}) {
+    if (!isCurrent()) return;
     syncTopBarActions();
     const initial = Boolean(opts?.initial);
 
@@ -729,8 +739,11 @@ export async function renderChat({ id, incognito }) {
   }
 
   async function loadConversations() {
+    if (!isCurrent()) return;
+    const request = ++conversationListRequest;
     try {
       const list = await api.listConversations(auth.token);
+      if (!isCurrent() || request !== conversationListRequest) return;
       shell.setConversations(list);
       syncCurrentConversationFromList(list);
     } catch {
@@ -773,6 +786,7 @@ export async function renderChat({ id, incognito }) {
     }
     try {
       const data = await api.getMessages(auth.token, id);
+      if (!isCurrent()) return;
       conversation = data?.conversation || null;
       if (conversation?.project_id) {
         activeProjectId = conversation.project_id;
@@ -786,6 +800,7 @@ export async function renderChat({ id, incognito }) {
         pollForImageResult();
       }
     } catch (err) {
+      if (!isCurrent()) return;
       if (err?.status === 404) {
         toast("Conversation not found", { tone: "error" });
         navigate("#/app/chat", { replace: true });
@@ -796,13 +811,14 @@ export async function renderChat({ id, incognito }) {
   }
 
   async function handleComposerSubmit(turn) {
+    if (!isCurrent()) return;
+    if (activeTurn && !activeTurn.controller.signal.aborted) return { restoreDraft: true };
     const { text, attachments, model, reasoningEffort, studyMode, autoSearch = true, systemPrompt } = turn;
     const skills = turn.skills || composer.skillPicker.selected;
     composer.skillPicker.setSelected([]);
 
     if (model === "image") {
-      await sendImageMessage(text, attachments);
-      return;
+      return sendImageMessage(text, attachments);
     }
 
     // Detect export intent on completed turn
@@ -811,7 +827,7 @@ export async function renderChat({ id, incognito }) {
       const latestAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.content?.trim());
       if (!latestAssistant) {
         toast("There is no completed response to export yet", { tone: "error" });
-        return;
+        return { restoreDraft: true };
       }
       handleDirectDownload({
         title: conversation?.title,
@@ -851,8 +867,11 @@ export async function renderChat({ id, incognito }) {
     messageFeed.scrollToBottom();
 
     const streamId = uid("stream");
+    const pending = { controller: new AbortController(), optimisticId: optimisticUser.id, accepted: false, received: false, partialRetained: false };
+    activeTurn = pending;
     let llmMessage = text;
-
+    let restoreDraft = false;
+    try {
     const urls = model === "aeon" ? [] : extractUrls(text);
     if (urls.length > 0) {
       searching = true;
@@ -864,7 +883,7 @@ export async function renderChat({ id, incognito }) {
       try {
         const scrapePromises = urls.slice(0, 3).map(async (u) => {
           try {
-            const res = await api.scrapeUrl(auth.token, u);
+            const res = await api.scrapeUrl(auth.token, u, pending.controller.signal);
             if (res?.markdown) {
               return { url: u, title: res.title || u, description: res.description, markdown: res.markdown };
             }
@@ -876,6 +895,7 @@ export async function renderChat({ id, incognito }) {
         const scraped = (await Promise.allSettled(scrapePromises))
           .map((r) => (r.status === "fulfilled" ? r.value : null))
           .filter(Boolean);
+        if (pending.controller.signal.aborted || !isCurrent() || activeTurn !== pending) throw new DOMException("Request cancelled", "AbortError");
 
         if (scraped.length > 0) {
           llmMessage = buildScrapeContext(scraped, text);
@@ -890,12 +910,12 @@ export async function renderChat({ id, incognito }) {
       }
     }
 
+    if (pending.controller.signal.aborted || !isCurrent() || activeTurn !== pending) throw new DOMException("Request cancelled", "AbortError");
     renderUI();
     messageFeed.follower.attach();
     messageFeed.scrollToBottom();
 
     const activeModel = model || conversation?.model || defaultModel;
-    try {
       await streamHandler.executeStream({
         payload: {
           message: text,
@@ -912,13 +932,30 @@ export async function renderChat({ id, incognito }) {
           incognito,
         },
         streamId,
+        signal: pending.controller.signal,
         onVoiceStyle: data => activeVoiceOnStyle?.(data?.tone),
       });
     } catch (err) {
-      if (err?.name !== "AbortError") {
+      if (!isCurrent() || activeTurn !== pending) return;
+      retainPartial({ content: err.partialText, reasoning: err.partialReasoning });
+      if (!pending.accepted && !pending.received && !pending.partialRetained) {
         messages = messages.filter((x) => x.id !== optimisticUser.id);
+        restoreDraft = true;
+      } else if (!incognito && id && err.name !== "AbortError") {
+        // The request may already be persisted. Reconcile before exposing a
+        // retry so reconnecting cannot blindly duplicate a confirmed send.
+        try {
+          const data = await api.getMessages(auth.token, id);
+          if (isCurrent() && activeTurn === pending && data.messages?.length) {
+            const partial = messages.find(message => message.id === pending.partialId);
+            const latest = data.messages.at(-1);
+            messages = partial && latest.role !== "assistant" ? [...data.messages, partial] : data.messages;
+          }
+        } catch { /* Keep received output visible when reconciliation is offline. */ }
       }
     } finally {
+      if (!isCurrent() || activeTurn !== pending) return;
+      activeTurn = null;
       // The preamble belongs to the live turn only. The card has normally been
       // handed to the assistant message by now; this clears it after a turn
       // that ended without one (error or abort).
@@ -934,9 +971,19 @@ export async function renderChat({ id, incognito }) {
         setTimeout(loadConversations, 4500);
       }
     }
+    return { restoreDraft };
+  }
+
+  function retainPartial({ content = "", reasoning = "" } = {}) {
+    if (!isCurrent() || !activeTurn || activeTurn.partialRetained || (!content && !reasoning)) return;
+    activeTurn.partialRetained = true;
+    activeTurn.partialId = uid("interrupted");
+    messages.push({ id: activeTurn.partialId, role: "assistant", content: content || "Response interrupted.", reasoning,
+      interrupted: true, created_at: new Date().toISOString() });
   }
 
   async function sendImageMessage(text, attachments = []) {
+    if (!isCurrent()) return;
     const optimisticUser = {
       id: uid(),
       role: "user",
@@ -954,6 +1001,7 @@ export async function renderChat({ id, incognito }) {
     messageFeed.scrollToBottom();
 
     const controller = new AbortController();
+    imageController = controller;
     const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
@@ -963,6 +1011,7 @@ export async function renderChat({ id, incognito }) {
         project_id: (!incognito && activeProjectId) ? activeProjectId : undefined,
         attachments,
       }, controller.signal);
+      if (!isCurrent() || imageController !== controller) return;
 
       if (res?.conversation) {
         conversation = res.conversation;
@@ -980,15 +1029,20 @@ export async function renderChat({ id, incognito }) {
         enteringId = res.assistant_message.id;
       }
     } catch (err) {
+      if (!isCurrent() || imageController !== controller) return;
       messages = messages.filter((x) => x.id !== optimisticUser.id);
       toast(err.message || "Couldn't create image.", { tone: "error" });
+      return { restoreDraft: true };
     } finally {
       clearTimeout(timeoutId);
-      imageGenerating = false;
-      composer.isImageGenerating = false;
-      composer.syncSendEnabled();
-      renderUI();
-      loadConversations();
+      if (isCurrent() && imageController === controller) {
+        imageController = null;
+        imageGenerating = false;
+        composer.isImageGenerating = false;
+        composer.syncSendEnabled();
+        renderUI();
+        loadConversations();
+      }
     }
   }
 
@@ -1020,6 +1074,7 @@ export async function renderChat({ id, incognito }) {
       }
       try {
         const data = await api.getMessages(auth.token, id);
+        if (!isCurrent()) return;
         const msgs = Array.isArray(data?.messages) ? data.messages : [];
         const last = msgs[msgs.length - 1];
         if (last && last.role === "assistant") {
@@ -1046,6 +1101,7 @@ export async function renderChat({ id, incognito }) {
     composer.syncSendEnabled();
     try {
       const branch = await api.branchConversation(auth.token, id, message.id);
+      if (!isCurrent()) return false;
       conversation = branch.conversation;
       id = conversation.id;
       messages = branch.messages;
@@ -1054,6 +1110,7 @@ export async function renderChat({ id, incognito }) {
       loadConversations();
       return true;
     } catch (err) {
+      if (!isCurrent()) return false;
       toast(err.message || "Couldn't branch this conversation", { tone: "error" });
       return false;
     } finally {
@@ -1213,6 +1270,7 @@ export async function renderChat({ id, incognito }) {
       reconciling = true;
       try {
         const data = await api.getMessages(auth.token, id);
+        if (!isCurrent()) return;
         const serverMsgs = Array.isArray(data?.messages) ? data.messages : null;
         if (serverMsgs && serverMsgs.length) {
           const lastServer = serverMsgs[serverMsgs.length - 1];
@@ -1269,8 +1327,11 @@ export async function renderChat({ id, incognito }) {
 
   whenMarkdownReady(() => { if (!unmounted) renderUI(); });
 
-  return () => {
+  const cleanup = () => {
+    if (unmounted) return;
     unmounted = true;
+    activeTurn?.controller.abort();
+    imageController?.abort();
     if (imagePollTimer) { clearInterval(imagePollTimer); imagePollTimer = null; }
     messageFeed.unmountScrollFollower();
     streamHandler.cancel();
@@ -1284,4 +1345,6 @@ export async function renderChat({ id, incognito }) {
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.removeEventListener("bmo:conversations-updated", onConversationsUpdated);
   };
+  navigation.onCleanup?.(cleanup);
+  return cleanup;
 }

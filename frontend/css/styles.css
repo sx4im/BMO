@@ -1,3 +1,26 @@
+[hidden] { display: none !important; }
+
+.file-upload-trigger, .file-preview-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.file-upload-trigger:focus-visible, .file-preview-btn:focus-visible, .project-chat-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+.project-chat-item { color: inherit; text-decoration: none; }
+
 /* =============================================================
    Bmo — streaming AI chat workspace
    Warm-canvas editorial design system. Cream / coral / dark navy.
@@ -32,8 +55,8 @@
   --muted-soft: #8e8b82;
 
   /* Brand */
-  --primary: #d97757;
-  --primary-active: #b45739;
+  --primary: #b45739;
+  --primary-active: #93442b;
   --primary-soft: rgba(217, 119, 87, 0.12);
   --on-primary: #ffffff;
   --on-dark: #faf9f5;
@@ -51,6 +74,8 @@
   --success: #5db872;
   --warning: #d4a017;
   --error: #c64545;
+  --danger-fill: #b93232;
+  --danger-fill-hover: #a52626;
 
   /* Radii */
   --r-xs: 4px;
@@ -126,7 +151,7 @@
   --primary: #d97757;
   --primary-active: #e58c6e;
   --primary-soft: rgba(217, 119, 87, 0.16);
-  --on-primary: #ffffff;
+  --on-primary: #141413;
   --on-dark: #faf9f5;
   --on-dark-soft: #a09d96;
 
@@ -10777,7 +10802,7 @@ em {
 
 .voice-mic.active {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   border-color: var(--primary);
 }
 
@@ -10934,17 +10959,17 @@ em {
 }
 
 .confirm-modal-btn.danger {
-  background: #e24b4a;
+  background: var(--danger-fill);
   color: #ffffff;
 }
 
 .confirm-modal-btn.danger:hover {
-  background: #d13d3c;
+  background: var(--danger-fill-hover);
 }
 
 .confirm-modal-btn.primary {
   background: var(--primary);
-  color: #ffffff;
+  color: var(--on-primary);
 }
 
 .confirm-modal-btn.primary:hover {
@@ -11012,12 +11037,12 @@ em {
 }
 
 :root[data-theme="dark"] .confirm-modal-btn.danger {
-  background: #e24b4a;
+  background: var(--danger-fill);
   color: #ffffff;
 }
 
 :root[data-theme="dark"] .confirm-modal-btn.danger:hover {
-  background: #ef5a59;
+  background: var(--danger-fill-hover);
 }
 
 
@@ -11682,7 +11707,7 @@ em {
 
 .doc-modal-action-btn.primary {
   background: var(--primary);
-  color: #ffffff;
+  color: var(--on-primary);
   border-color: var(--primary);
 }
 
@@ -12046,7 +12071,7 @@ em {
 .shared-header-cta-btn {
   appearance: none;
   background: var(--primary);
-  color: #ffffff;
+  color: var(--on-primary);
   border: none;
   border-radius: var(--r-sm);
   padding: 6px 12px;

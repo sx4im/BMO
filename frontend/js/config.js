@@ -1,12 +1,14 @@
 // Bmo runtime configuration.
 //
-// Hard-code production defaults below before deploying. During development or
-// when pointing at a different Render / Supabase project, every value can be
-// overridden at runtime via Settings → Environment (stored in localStorage).
+// Set the verified production gateway in deployment.js before publishing.
+// Local development can override values in localStorage; production ignores
+// browser overrides so stale settings cannot bypass the gateway.
 //
-// `apiUrl`          — Render Flask gateway URL (Bmo backend).
+// `apiUrl`          — Public Cloudflare API gateway URL.
 // `supabaseUrl`     — Supabase project URL.
 // `supabaseAnonKey` — Supabase anon (public) key — safe to ship to the browser.
+
+import { deployment } from "./deployment.js";
 
 const STORAGE_KEY = "bimo-config";
 
@@ -20,12 +22,13 @@ function isLocalhost() {
 }
 
 const DEFAULTS = {
-  apiUrl: isLocalhost() ? "http://localhost:8000" : "https://bimo-backend-4a4g.onrender.com",
-  supabaseUrl: "https://wrrxalkctbixtvjndptk.supabase.co",
-  supabaseAnonKey: "sb_publishable_9bZYYsAy0L6bQb2PG83mJg_PNwDJXIw",
+  apiUrl: isLocalhost() ? "http://localhost:8000" : deployment.apiUrl,
+  supabaseUrl: deployment.supabaseUrl,
+  supabaseAnonKey: deployment.supabaseAnonKey,
 };
 
 function loadOverrides() {
+  if (!isLocalhost()) return {};
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
     if (data.apiUrl && typeof data.apiUrl === "string" && data.apiUrl.includes("modal.run")) {
@@ -49,7 +52,15 @@ function trimUrl(value) {
 
 export const config = {
   get apiUrl() {
-    return loadOverrides().apiUrl || DEFAULTS.apiUrl;
+    const value = loadOverrides().apiUrl || DEFAULTS.apiUrl;
+    if (!isLocalhost()) {
+      let url;
+      try { url = new URL(value); } catch { throw new Error("Service is temporarily unavailable."); }
+      if (url.protocol !== "https:" || url.hostname.endsWith(".onrender.com") || url.username || url.password || url.search || url.hash || (url.pathname && url.pathname !== "/")) {
+        throw new Error("Service is temporarily unavailable.");
+      }
+    }
+    return trimUrl(value);
   },
   get supabaseUrl() {
     return loadOverrides().supabaseUrl || DEFAULTS.supabaseUrl;

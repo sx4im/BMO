@@ -12,6 +12,7 @@ import { icon } from "../icons.js?v=73";
 import { FileIcon } from "../components/file-icon.js?v=6";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
+import { mountDialog } from "../components/dialog.js";
 import * as api from "../api.js?v=64";
 import { getAuth } from "../auth.js";
 import { navigate } from "../router.js";
@@ -36,7 +37,7 @@ function formatDate(iso) {
 /**
  * Main route handler for #/app/projects and #/app/projects/:id
  */
-export async function renderProjects({ id } = {}) {
+export async function renderProjects({ id } = {}, navigation = {}) {
   const { auth } = getAuth();
   if (!auth) {
     navigate("#/", { replace: true });
@@ -44,6 +45,7 @@ export async function renderProjects({ id } = {}) {
   }
 
   const shell = await mountAppShell();
+  if (navigation.signal?.aborted || navigation.isCurrent?.() === false) return;
   shell.setActiveConversation(null);
   shell.setIncognitoActive?.(false);
 
@@ -484,13 +486,7 @@ function renderInstructionsCard(project, auth) {
  */
 function openFilePreviewModal(project, auth, file) {
   const body = el("pre", { class: "file-preview-body", text: "Loading…" });
-  const close = () => {
-    document.removeEventListener("keydown", onKey);
-    overlay.remove();
-  };
-  const onKey = (e) => {
-    if (e.key === "Escape") close();
-  };
+  const close = () => dialog.close();
   const overlay = el(
     "div",
     { class: "confirm-modal-overlay open", role: "dialog", "aria-modal": "true" },
@@ -517,16 +513,16 @@ function openFilePreviewModal(project, auth, file) {
       ),
     ]
   );
-  overlay.onclick = close;
-  document.addEventListener("keydown", onKey);
-  document.body.append(overlay);
+  const dialog = mountDialog(overlay, { title: overlay.querySelector(".confirm-modal-title") });
   api
     .getProjectFilePreview(auth.token, project.id, file.id)
     .then((res) => {
+      if (!dialog.isOpen) return;
       body.textContent = res.preview || "(No extractable text)";
       if (res.truncated) body.textContent += "\n\n…preview truncated.";
     })
     .catch((err) => {
+      if (!dialog.isOpen) return;
       body.textContent = err.message || "Could not load preview.";
     });
 }
@@ -607,7 +603,6 @@ function renderFilesCard(project, auth) {
     "div",
     {
       class: "file-dropzone",
-      onclick: () => fileInput.click(),
       ondragover: (e) => {
         e.preventDefault();
         uploadArea.classList.add("dragover");
@@ -622,10 +617,15 @@ function renderFilesCard(project, auth) {
     },
     [
       fileInput,
-      el("div", { class: "dropzone-icon", html: icon("attachFile", { width: 22, height: 22 }) }),
-      el("div", { class: "dropzone-text" }, [
-        el("strong", { text: "Add files to project knowledge" }),
-        el("span", { text: "PDF, DOCX, PPTX, TXT, MD, CSV, JSON, code files (up to 10MB)" }),
+      el("button", {
+        type: "button", class: "file-upload-trigger", "aria-label": "Add files to project knowledge",
+        onclick: () => fileInput.click(),
+      }, [
+        el("span", { class: "dropzone-icon", html: icon("attachFile", { width: 22, height: 22 }) }),
+        el("span", { class: "dropzone-text" }, [
+          el("strong", { text: "Add files to project knowledge" }),
+          el("span", { text: "PDF, DOCX, PPTX, TXT, MD, CSV, JSON, code files (up to 10MB)" }),
+        ]),
       ]),
     ]
   );
@@ -639,61 +639,33 @@ function renderFilesCard(project, auth) {
     }
     for (const file of files) {
       const ext = file.filename.split(".").pop() || "";
-      const row = el(
-        "li",
-        {
-          class: "project-file-item file-previewable",
-          role: "button",
-          tabindex: "0",
-          title: `Preview ${file.filename}`,
-          onclick: () => openFilePreviewModal(project, auth, file),
-          onkeydown: (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              openFilePreviewModal(project, auth, file);
-            }
-          },
-        },
-        [
+      const preview = el("button", {
+        type: "button", class: "file-preview-btn", "aria-label": `Preview ${file.filename}`,
+        onclick: () => openFilePreviewModal(project, auth, file),
+      }, [
         el("span", { class: "file-icon", html: FileIcon(ext, 28) }),
-        el("div", { class: "file-meta" }, [
+        el("span", { class: "file-meta" }, [
           el("span", { class: "file-name", text: file.filename, title: file.filename }),
-          el("span", {
-            class: "file-subtext",
-            text: `${formatBytes(file.size_bytes)} · ~${(file.token_estimate || 0).toLocaleString()} tokens`,
-          }),
+          el("span", { class: "file-subtext", text: `${formatBytes(file.size_bytes)} · ~${(file.token_estimate || 0).toLocaleString()} tokens` }),
         ]),
-        el(
-          "button",
-          {
-            type: "button",
-            class: "file-delete-btn",
-            title: `Remove ${file.filename}`,
-            "aria-label": `Remove ${file.filename}`,
-            onclick: (e) => {
-              e.stopPropagation();
-              openConfirmModal({
-                title: "Remove file",
-                message: `Are you sure you want to remove "${file.filename}" from project knowledge?`,
-                confirmText: "Remove",
-                danger: true,
-                onConfirm: async () => {
-                  try {
-                    await api.deleteProjectFile(auth.token, project.id, file.id);
-                    tokensUsed = Math.max(0, tokensUsed - (file.token_estimate || 0));
-                    files = files.filter((f) => f.id !== file.id);
-                    syncMeter();
-                    renderFileList();
-                  } catch (err) {
-                    toast(err.message || "Could not remove file", { tone: "error" });
-                  }
-                },
-              });
-            },
-            html: icon("trash", { width: 14, height: 14 }),
-          }
-        ),
       ]);
+      const remove = el("button", {
+        type: "button", class: "file-delete-btn", title: `Remove ${file.filename}`,
+        "aria-label": `Remove ${file.filename}`, html: icon("trash", { width: 14, height: 14 }),
+        onclick: () => openConfirmModal({
+          title: "Remove file", message: `Are you sure you want to remove "${file.filename}" from project knowledge?`,
+          confirmText: "Remove", danger: true,
+          onConfirm: async () => {
+            try {
+              await api.deleteProjectFile(auth.token, project.id, file.id);
+              tokensUsed = Math.max(0, tokensUsed - (file.token_estimate || 0));
+              files = files.filter(f => f.id !== file.id);
+              syncMeter(); renderFileList();
+            } catch (error) { toast(error.message || "Could not remove file", { tone: "error" }); }
+          },
+        }),
+      });
+      const row = el("li", { class: "project-file-item file-previewable" }, [preview, remove]);
       fileListEl.append(row);
     }
   }
@@ -797,10 +769,10 @@ function renderChatsCard(project) {
   } else {
     for (const c of conversations) {
       const item = el(
-        "li",
+        "a",
         {
           class: "project-chat-item",
-          onclick: () => navigate(`#/app/chat/${c.id}`),
+          href: `#/app/chat/${encodeURIComponent(c.id)}`,
         },
         [
           el("span", { class: "chat-item-icon", html: icon("messageText", { width: 16, height: 16 }) }),
@@ -808,7 +780,7 @@ function renderChatsCard(project) {
           el("span", { class: "chat-item-date", text: formatDate(c.updated_at || c.created_at) }),
         ]
       );
-      chatList.append(item);
+      chatList.append(el("li", {}, [item]));
     }
   }
 
@@ -892,8 +864,7 @@ export function openProjectModal({ auth, project = null, onCreated, onUpdated })
   );
 
   function closeModal() {
-    overlay.classList.remove("open");
-    setTimeout(() => overlay.remove(), 160);
+    dialog.close();
   }
 
   cancelBtn.onclick = closeModal;
@@ -912,10 +883,12 @@ export function openProjectModal({ auth, project = null, onCreated, onUpdated })
     try {
       if (isEdit) {
         const updated = await api.updateProject(auth.token, project.id, { name, description });
+        if (!dialog.isOpen) return;
         closeModal();
         onUpdated && onUpdated(updated);
       } else {
         const created = await api.createProject(auth.token, { name, description });
+        if (!dialog.isOpen) return;
         closeModal();
         onCreated && onCreated(created);
         navigate(`#/app/projects/${created.id}`);
@@ -927,8 +900,7 @@ export function openProjectModal({ auth, project = null, onCreated, onUpdated })
     }
   };
 
-  document.body.append(overlay);
-  setTimeout(() => nameInput.focus(), 50);
+  const dialog = mountDialog(overlay, { title: overlay.querySelector(".confirm-modal-title"), initialFocus: nameInput, closeDelay: 160 });
 }
 
 /**
@@ -1006,8 +978,7 @@ export async function openMoveChatModal({ auth, conversation, onMoved }) {
   );
 
   function closeModal() {
-    overlay.classList.remove("open");
-    setTimeout(() => overlay.remove(), 160);
+    dialog.close();
   }
 
   cancelBtn.onclick = closeModal;
@@ -1029,5 +1000,5 @@ export async function openMoveChatModal({ auth, conversation, onMoved }) {
     }
   }
 
-  document.body.append(overlay);
+  const dialog = mountDialog(overlay, { title: overlay.querySelector(".confirm-modal-title"), initialFocus: cancelBtn, closeDelay: 160 });
 }

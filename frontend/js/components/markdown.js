@@ -14,13 +14,13 @@ import { icon } from "../icons.js?v=30";
 import { escapeHtml } from "../utils.js?v=30";
 
 const CDN = {
-  marked: "https://esm.sh/marked@13",
-  markedHighlight: "https://esm.sh/marked-highlight@2",
+  marked: "https://esm.sh/marked@13.0.3",
+  markedHighlight: "https://esm.sh/marked-highlight@2.2.4",
   hljs: "https://esm.sh/highlight.js@11.10.0",
-  dompurify: "https://esm.sh/dompurify@3.1.7",
-  katex: "https://esm.sh/katex@0.16",
+  dompurify: "../../vendor/dompurify/purify.es.mjs?v=3.4.17",
+  katex: "https://esm.sh/katex@0.18.2",
 };
-const KATEX_CSS = "https://esm.sh/katex@0.16/dist/katex.min.css";
+const KATEX_CSS = "https://esm.sh/katex@0.18.2/dist/katex.min.css";
 
 let lib = null;           // { marked, hljs, DOMPurify, katex } once loaded
 let loadPromise = null;   // in-flight load

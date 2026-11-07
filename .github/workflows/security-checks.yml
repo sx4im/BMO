@@ -1,0 +1,24 @@
+name: Security checks
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Prepare isolated dependencies without project hooks
+        run: python3 -I -S scripts/security-checks.py prepare
+      - name: Run networkless application and database checks
+        run: python3 -I -S scripts/security-checks.py all
+      - name: Check current package advisories
+        run: python3 -I -S scripts/audit-dependencies.py
+      - name: Remove disposable fixtures
+        if: always()
+        run: python3 -I -S scripts/security-checks.py cleanup

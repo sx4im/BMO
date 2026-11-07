@@ -48,13 +48,14 @@ from openai import (
     RateLimitError,
 )
 
-from . import groq_client, mistral_client
+from . import groq_client, mistral_client, usage_service
 from .config import (
     DEFAULT_BASE_URL,
     DEFAULT_IMAGE_BASE_URL,
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MODEL,
     IMAGE_STEPS,
+    IMAGE_USAGE_TOKENS,
     get_nexos_model,
     get_stanza_model,
     get_vision_model,
@@ -211,7 +212,7 @@ def _is_blank_image(png_bytes: bytes) -> bool:
 
 def _post_image(url: str, key: str, body: dict) -> dict:
     try:
-        resp = requests.post(
+        resp = usage_service.paid_http("image", IMAGE_USAGE_TOKENS, requests.post,
             url,
             headers={
                 "Authorization": f"Bearer {key}",
@@ -225,20 +226,8 @@ def _post_image(url: str, key: str, body: dict) -> dict:
         raise RuntimeError(f"Network error reaching NVIDIA image API: {exc}") from exc
 
     if not resp.ok:
-        detail = ""
-        try:
-            j = resp.json()
-            if isinstance(j, dict):
-                detail = (
-                    j.get("detail")
-                    or (j.get("error") or {}).get("message")
-                    or j.get("message")
-                    or ""
-                )
-        except ValueError:
-            detail = (resp.text or "")[:300]
-        logger.warning("image gen non-200: status=%s detail=%s", resp.status_code, detail)
-        raise RuntimeError(f"NVIDIA {resp.status_code}: {detail or 'image generation failed'}")
+        logger.warning("image_provider_failed status=%s", resp.status_code)
+        raise RuntimeError(f"NVIDIA {resp.status_code}: image generation failed")
 
     try:
         return resp.json()
@@ -302,13 +291,6 @@ def generate_image(
     )
 
 
-def _max_retries() -> int:
-    try:
-        return max(0, int(os.getenv("NVIDIA_MAX_RETRIES", "3")))
-    except (TypeError, ValueError):
-        return 3
-
-
 _client_cache: dict[str, object] = {}
 
 
@@ -320,7 +302,7 @@ def _client(model: Optional[str] = None) -> OpenAI:
         timeout = 300.0
     key = _read_api_key(model)
     target_base = base_url(model)
-    retries = _max_retries()
+    retries = 0  # Each retry must obtain a separate paid-work admission.
     signature = f"{target_base}::{key}::{timeout}::{retries}"
     cached = _client_cache.get(signature)
     if cached is not None:
@@ -338,16 +320,7 @@ def max_output_tokens() -> int:
 
 
 def _format_api_error(exc: APIStatusError) -> str:
-    body = getattr(exc, "body", None)
-    detail = None
-    if isinstance(body, dict):
-        detail = body.get("detail")
-        if not detail and isinstance(body.get("error"), dict):
-            detail = body["error"].get("message")
-        if not detail:
-            detail = body.get("message")
-    detail = detail or getattr(exc, "message", None) or str(exc)
-    return f"NVIDIA {exc.status_code}: {detail}"
+    return f"NVIDIA {exc.status_code}: provider request failed"
 
 
 def list_models() -> list[dict]:
@@ -362,10 +335,10 @@ def list_models() -> list[dict]:
         )
         return models
     except APIStatusError as exc:
-        logger.warning("list_models non-200: status=%s body=%s", exc.status_code, exc.body)
+        logger.warning("list_models_failed error_type=%s", type(exc).__name__)
         return []
     except Exception as exc:
-        logger.warning("Could not list models: %s", exc)
+        logger.warning("list_models_failed error_type=%s", type(exc).__name__)
         return []
 
 
@@ -374,7 +347,7 @@ def test_call() -> dict:
     try:
         model_to_test = default_model() or get_stanza_model() or DEFAULT_MODEL
         client = _client(model_to_test)
-        completion = client.chat.completions.create(
+        completion = usage_service.llm_create(client, dict(
             model=model_to_test,
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -382,36 +355,38 @@ def test_call() -> dict:
             ],
             max_tokens=20,
             temperature=0.0,
-        )
+        ), resource="thinking")
         model = completion.model
         logger.info("API test call OK — responding model: %s", model)
         return {"ok": True, "model": model}
+    except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+        raise
     except AuthenticationError as exc:
-        logger.warning("API test call auth failure: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "auth", "status": 401, "detail": _format_api_error(exc)}
     except PermissionDeniedError as exc:
-        logger.warning("API test call permission denied: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "permission", "status": 403, "detail": _format_api_error(exc)}
     except NotFoundError as exc:
-        logger.warning("API test call model not found: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "not_found", "status": 404, "detail": _format_api_error(exc)}
     except BadRequestError as exc:
-        logger.warning("API test call bad request: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "bad_request", "status": 400, "detail": _format_api_error(exc)}
     except RateLimitError as exc:
-        logger.warning("API test call rate limited: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "rate_limit", "status": 429, "detail": _format_api_error(exc)}
     except APIStatusError as exc:
-        logger.warning("API test call non-200: status=%s body=%s", exc.status_code, exc.body)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "http", "status": exc.status_code, "detail": _format_api_error(exc)}
     except (APIConnectionError, APITimeoutError) as exc:
-        logger.warning("API test call network error: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "network", "detail": str(exc)}
     except RuntimeError as exc:
-        logger.warning("API test call config error: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "config", "detail": str(exc)}
     except Exception as exc:
-        logger.warning("API test call failed: %s", exc)
+        logger.warning("test_call_failed error_type=%s", type(exc).__name__)
         return {"ok": False, "error_kind": "unknown", "detail": str(exc)}
 
 
@@ -630,10 +605,12 @@ def iter_response(
                         emitted = True
                     yield event
                 return
+            except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+                raise
             except Exception as exc:
                 if emitted:
                     raise
-                logger.warning("Groq inference failed for %s, falling back to Stanza: %s", chosen_model, exc)
+                logger.warning("iter_response_failed error_type=%s", type(exc).__name__)
                 yield from mistral_client.iter_response(
                     messages,
                     model=get_stanza_model(),
@@ -755,14 +732,14 @@ def iter_response(
     try:
         client = _client(chosen_model)
         t_client = time.time()
-        stream = client.chat.completions.create(
+        stream = usage_service.llm_create(client, dict(
             model=chosen_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
             **kwargs
-        )
+        ), resource="deep" if chosen_model == get_nexos_model() else "thinking")
         t_stream_obj = time.time()
         logger.info(
             "nvidia: sdk_setup=%.3fs (client=%.3fs create=%.3fs) model=%s msgs=%d",
@@ -772,6 +749,8 @@ def iter_response(
             chosen_model,
             len(messages),
         )
+    except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+        raise
     except AuthenticationError as exc:
         raise RuntimeError(_format_api_error(exc)) from exc
     except PermissionDeniedError as exc:
@@ -904,6 +883,8 @@ def iter_response(
     except Exception as exc:
         msg = str(exc).strip() or exc.__class__.__name__
         raise RuntimeError(f"Stream interrupted: {msg}") from exc
+    finally:
+        stream.close()
 
     content = "".join(full)
     if not content.strip():
@@ -971,7 +952,7 @@ def iter_response_with_fallback(
         except Exception as exc:
             q.put(("error", exc))
 
-    t = threading.Thread(target=_worker, args=(chosen_model,), daemon=True)
+    t = threading.Thread(target=usage_service.bound_task(_worker), args=(chosen_model,), daemon=True)
     t.start()
 
     try:
@@ -992,9 +973,12 @@ def iter_response_with_fallback(
                 yield v
         return
 
+    if kind == "error" and isinstance(first_val, (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict)):
+        raise first_val
+
     logger.warning(
-        "nvidia: primary model %s failed first-token check (%s). Auto-switching to Stanza 2.5 (%s)...",
-        chosen_model, first_val, stanza_model
+        "provider_fallback error_type=%s",
+        type(first_val).__name__
     )
 
     yield from iter_response(
@@ -1049,7 +1033,7 @@ def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:
             client = mistral_client._client()
         else:
             client = _client(model_to_use)
-        completion = client.chat.completions.create(
+        completion = usage_service.llm_create(client, dict(
             model=model_to_use,
             messages=[
                 {"role": "system", "content": TITLE_PROMPT},
@@ -1064,10 +1048,10 @@ def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:
             ],
             max_tokens=24,
             temperature=0.3,
-        )
+        ), resource="thinking")
         raw = (completion.choices[0].message.content or "").strip()
     except Exception as exc:
-        logger.warning("generate_title failed: %s", exc)
+        logger.warning("generate_title_failed error_type=%s", type(exc).__name__)
         return None
 
     title = raw.strip().strip("`").strip()

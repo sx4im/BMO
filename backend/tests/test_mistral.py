@@ -63,7 +63,7 @@ def test_api_key_fingerprint_never_leaks(monkeypatch):
     assert fp["preview"].endswith("cdef")
 
 
-def test_mistral_streaming_success(monkeypatch):
+def test_mistral_streaming_success(monkeypatch, provider_budget):
     """iter_response yields delta tokens and done content."""
     monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
 
@@ -103,7 +103,7 @@ def test_mistral_streaming_success(monkeypatch):
     assert call_kwargs["temperature"] == 0.2
 
 
-def test_codestral_extended_thinking_injection(monkeypatch):
+def test_codestral_extended_thinking_injection(monkeypatch, provider_budget):
     """When reasoning_effort is high, injects deep analysis directive into system prompt."""
     monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
 
@@ -143,7 +143,7 @@ def test_codestral_extended_thinking_injection(monkeypatch):
     assert "EXTENDED THINKING ACTIVE" in sent_msgs_no_sys[0]["content"]
 
 
-def test_mistral_multi_turn_history(monkeypatch):
+def test_mistral_multi_turn_history(monkeypatch, provider_budget):
     """Multi-turn conversation history is preserved and sent cleanly."""
     monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
 
@@ -163,7 +163,7 @@ def test_mistral_multi_turn_history(monkeypatch):
     assert call_kwargs["messages"] == history
 
 
-def test_mistral_error_handling(monkeypatch):
+def test_mistral_error_handling(monkeypatch, provider_budget):
     """Test standard error conversions without leaking secrets."""
     monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
 
@@ -214,7 +214,7 @@ def test_nvidia_dispatcher_routes_mistral(monkeypatch):
     assert any(ev.get("data") == "routed to mistral" for ev in events)
 
 
-def test_nvidia_dispatcher_preserves_nvidia_models(monkeypatch):
+def test_nvidia_dispatcher_preserves_nvidia_models(monkeypatch, provider_budget):
     """NVIDIA models continue to route through NVIDIA OpenAI client."""
     mock_openai_client = MagicMock()
     mock_choice = types.SimpleNamespace(

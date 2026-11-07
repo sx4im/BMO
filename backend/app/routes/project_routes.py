@@ -81,7 +81,7 @@ def create_project_endpoint(user):
             "token_budget": PROJECT_KNOWLEDGE_BUDGET_TOKENS,
         }), 201
     except Exception as exc:
-        logger.exception("Failed to create project: %s", exc)
+        logger.error("create_project_endpoint_failed error_type=%s", type(exc).__name__)
         return bad_request("Could not create project", 500)
 
 
@@ -215,7 +215,7 @@ def upload_file_endpoint(user, project_id):
     except ValueError as val_err:
         return bad_request(str(val_err), 422)
     except Exception as exc:
-        logger.exception("Upload validation failed: %s", exc)
+        logger.error("upload_file_endpoint_failed error_type=%s", type(exc).__name__)
         return bad_request("Could not process file upload", 500)
 
     # Upload to Supabase Storage in private attachment bucket
@@ -229,7 +229,7 @@ def upload_file_endpoint(user, project_id):
             file_options={"content-type": mime_type, "upsert": "false"},
         )
     except Exception as exc:
-        logger.exception("Storage upload failed for %s: %s", safe_path, exc)
+        logger.error("upload_file_endpoint_failed error_type=%s", type(exc).__name__)
         return bad_request("Could not store file", 500)
 
     try:
@@ -260,7 +260,7 @@ def upload_file_endpoint(user, project_id):
             "token_budget": PROJECT_KNOWLEDGE_BUDGET_TOKENS,
         }), 201
     except Exception as exc:
-        logger.exception("Failed to insert project file record: %s", exc)
+        logger.error("upload_file_endpoint_failed error_type=%s", type(exc).__name__)
         # Clean up uploaded storage file on DB error
         store.delete_storage_paths([safe_path])
         return bad_request("Could not save file record", 500)

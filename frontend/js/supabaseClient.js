@@ -2,7 +2,7 @@
 // frontend stays build-step-free. The client is initialised on first access
 // using whatever URL + anon key are configured at runtime (config.js).
 
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm";
 import { config } from "./config.js?v=30";
 
 let _client = null;

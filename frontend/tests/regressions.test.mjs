@@ -108,7 +108,7 @@ test("archive option sends the backend's parameter", async () => {
   assert.equal(new URL(requested).searchParams.get("archived"), "true");
 });
 
-test("direct share fallback includes messages beyond the database row cap", async () => {
+test("gateway failure never publishes a direct fallback snapshot", async () => {
   const messages = Array.from({ length: 1105 }, (_, id) => ({ id: String(id), role: "user", content: `Message ${id}` }));
   const ranges = [];
   let snapshot;
@@ -128,11 +128,10 @@ test("direct share fallback includes messages beyond the database row cap", asyn
   });
   app.context.fetch = async () => ({ ok: false, status: 503, json: async () => ({ detail: "Unavailable" }) });
   const api = await app.load("js/api.js");
-  const shared = await api.shareConversation("test", "chat");
-  assert.equal(shared.share_id, "share");
-  assert.equal(snapshot.length, 1105);
-  assert.equal(snapshot.at(-1).content, "Message 1104");
-  assert.equal(ranges.length, 6);
+  await assert.rejects(api.shareConversation("test", "chat"), { status: 503 });
+  assert.equal(snapshot, undefined);
+  assert.equal(ranges.length, 0);
+  app.dom.window.close();
 });
 
 test("edits made during a save stay saveable and stale timers cannot disable them", async () => {
@@ -273,16 +272,18 @@ test("Settings separates cards and keeps appearance and usage controls", async (
   let app;
   const themes = [];
   const usage = { session: { percent: 29, resets_in_seconds: 120 }, weekly: { percent: 10, resets_in_seconds: 240 } };
+  const state = { usage };
   app = moduleLoader({
     "icons.js": { icon: () => "" },
     "avatar.js": { avatar: () => app.dom.window.document.createElement("span") },
-    "app-shell.js": { mountAppShell: async () => ({ content: app.dom.window.document.querySelector("#app"), setActiveConversation() {}, setIncognitoActive() {} }), tearDownShell() {}, getShellState: () => ({ usage }) },
+    "app-shell.js": { mountAppShell: async () => ({ content: app.dom.window.document.querySelector("#app"), setActiveConversation() {}, setIncognitoActive() {} }), tearDownShell() {}, getShellState: () => state },
     "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner", name: "Saim", email: "user@example.invalid" } } }), signOut() {}, setUserDisplayName() {} },
     "prefs.js": { getThemePref: () => "light", setThemePref: value => themes.push(value) },
     "toast.js": { toast() {} }, "confirm-modal.js": { openConfirmModal() {} }, "api.js": { getUsage: async () => usage },
   });
   const { renderSettings } = await app.load("js/pages/settings.js");
   await renderSettings();
+  await new Promise(resolve => setImmediate(resolve));
   const doc = app.dom.window.document;
   assert.equal(doc.querySelectorAll(".settings-card").length, 3);
   assert.deepEqual([...doc.querySelectorAll(".section-title h2")].map(n => n.textContent), ["Profile", "Preferences", "Plan usage"]);

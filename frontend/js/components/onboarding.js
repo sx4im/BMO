@@ -9,6 +9,7 @@ import { el, clear } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=30";
 import { resolveTheme, setThemePref } from "../prefs.js";
 import { saveOnboarding } from "../api.js?v=30";
+import { mountDialog } from "./dialog.js";
 
 // Bump the version suffix to re-show the onboarding to everyone (no DB reset).
 const SEEN_KEY = "bimo-onboarded-v6";
@@ -118,15 +119,11 @@ export function showOnboarding(auth) {
   let step = 0;
 
   const card = el("div", { class: "ob-card" });
-  const overlay = el("div", { id: "onboarding", class: "ob-overlay", role: "dialog", "aria-modal": "true" }, [card]);
-
-  document.body.append(overlay);
-  const prevOverflow = document.documentElement.style.overflow;
-  document.documentElement.style.overflow = "hidden";
+  const overlay = el("div", { id: "onboarding", class: "ob-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Welcome to Bmo" }, [card]);
+  let dialog;
 
   function close() {
-    document.documentElement.style.overflow = prevOverflow;
-    overlay.remove();
+    dialog?.close();
   }
 
   async function finish() {
@@ -326,7 +323,9 @@ export function showOnboarding(auth) {
     card.classList.remove("ob-in");
     void card.offsetWidth; // restart the entrance animation
     card.classList.add("ob-in");
+    if (dialog?.isOpen) (card.querySelector("button, input, select") || overlay).focus();
   }
 
   render();
+  dialog = mountDialog(overlay);
 }

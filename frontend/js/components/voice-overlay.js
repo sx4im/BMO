@@ -16,6 +16,7 @@
 // normal API call) and lets an AnalyserNode drive the globe animation.
 
 import { el } from "../utils.js?v=30";
+import { mountDialog } from "./dialog.js";
 import { icon } from "../icons.js?v=58";
 import { toast } from "./toast.js?v=58";
 import * as api from "../api.js?v=64";
@@ -139,6 +140,7 @@ export function voiceDelivery(tone = "neutral") {
  */
 export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {}) {
   let active = true;
+  const lifetime = new AbortController();
   let state = "idle";
   let turnInFlight = false;
   let turnSequence = 0;
@@ -147,6 +149,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let mediaRecorder = null;
   let mediaStream = null;
   let audioChunks = [];
+  let recorderRequest = 0;
+  let recordDeadline = null;
 
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
@@ -157,6 +161,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let isBraveBrowser = false;
   if (typeof navigator !== "undefined" && navigator.brave && typeof navigator.brave.isBrave === "function") {
     navigator.brave.isBrave().then((val) => {
+      if (!active) return;
       if (val) {
         console.info("[bimo-voice] Brave detected; routing speech input to MediaRecorder");
         isBraveBrowser = true;
@@ -189,32 +194,60 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let ttsWS = null;
   let ttsSignature = "";
 
+  let ttsPending = null;
+  let ttsController = null;
+  let ttsGeneration = 0;
+
+  function resetTTSWS() {
+    ttsGeneration++;
+    ttsController?.abort();
+    ttsController = null;
+    ttsPending = null;
+    const previous = ttsWS;
+    ttsWS = null;
+    if (previous) { try { previous.close(); } catch {} }
+  }
+
   function ensureTTSWS() {
-    if (!active) return null;
+    if (!active) return Promise.resolve(null);
     const activeLang = getLangConfig();
     const controls = activeLang.model.startsWith("flux-") ? voiceDelivery(currentTone) : {};
     const signature = JSON.stringify([activeLang.model, controls]);
-    if (ttsWS && signature === ttsSignature && (ttsWS.readyState === WebSocket.OPEN || ttsWS.readyState === WebSocket.CONNECTING)) {
-      return ttsWS;
+    if (signature === ttsSignature) {
+      if (ttsWS && (ttsWS.readyState === WebSocket.OPEN || ttsWS.readyState === WebSocket.CONNECTING)) return Promise.resolve(ttsWS);
+      if (ttsPending) return ttsPending;
     }
-    if (ttsWS) { try { ttsWS.close(); } catch {} ttsWS = null; }
-    try {
-      const streamUrl = api.ttsStreamUrl(token, { model: activeLang.model, sampleRate: 24000, ...controls });
-      const ws = new WebSocket(streamUrl);
-      ws.binaryType = "arraybuffer";
-      ttsWS = ws;
-      ttsSignature = signature;
-      ws.onclose = () => {
-        if (ttsWS === ws) ttsWS = null;
-      };
-      return ws;
-    } catch (e) {
-      console.warn("[bimo-voice] Pre-warm WebSocket failed:", e);
-      return null;
-    }
+    resetTTSWS();
+    ttsSignature = signature;
+    const generation = ttsGeneration;
+    const controller = new AbortController();
+    ttsController = controller;
+    const abort = () => controller.abort();
+    lifetime.signal.addEventListener("abort", abort, { once: true });
+    const timeout = setTimeout(abort, 10000);
+    const pending = (async () => {
+      try {
+        const { ticket } = await api.createTtsTicket(token, { model: activeLang.model, sampleRate: 24000, ...controls, signal: controller.signal });
+        if (!active || controller.signal.aborted || generation !== ttsGeneration) return null;
+        const ws = new WebSocket(api.ttsStreamUrl(ticket));
+        ws.binaryType = "arraybuffer";
+        ttsWS = ws;
+        ws.onclose = () => { if (ttsWS === ws) ttsWS = null; };
+        return ws;
+      } catch (error) {
+        if (!controller.signal.aborted) console.warn("[bimo-voice] Voice connection unavailable");
+        return null;
+      } finally {
+        clearTimeout(timeout);
+        lifetime.signal.removeEventListener("abort", abort);
+        if (generation === ttsGeneration) { ttsPending = null; ttsController = null; }
+      }
+    })();
+    ttsPending = pending;
+    return pending;
   }
 
-  // Pre-warm the WebSocket immediately so first turn has 0ms connection latency
+  // Open the local relay early; the backend admits text before opening Deepgram.
   ensureTTSWS();
 
   // Voice-activity detection state (tuning constants at the top of the file).
@@ -280,10 +313,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     langBtn.setAttribute("aria-label", `Language: ${conf.label} (click to change)`);
 
     // Reconnect TTS WebSocket for new language model
-    if (ttsWS) {
-      try { ttsWS.close(); } catch {}
-      ttsWS = null;
-    }
+    resetTTSWS();
     ensureTTSWS();
     if (state === "idle") startListening();
 
@@ -343,9 +373,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     ]),
   ]);
 
-  document.body.append(overlay);
+  const dialog = mountDialog(overlay, { initialFocus: closeBtn, onClose: close, closeDelay: 220 });
   document.body.classList.add("voice-open");
-  requestAnimationFrame(() => overlay.classList.add("open"));
   // Autoplay is muted; nudge play() inside the opening gesture for browsers
   // that need it. Honor reduced-motion by holding a single still frame.
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
@@ -375,8 +404,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     toast("Speech not configured", { tone: "warning" });
   }).catch(() => {});
 
-  const onKey = (e) => { if (e.key === "Escape") close(); };
-  document.addEventListener("keydown", onKey);
 
   // ---------- state ----------
   function setState(next, label) {
@@ -585,13 +612,16 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
   // ---------- listening fallback (record -> /transcribe, auto-stop on silence) ----------
   async function startRecorder() {
+    if (!active || mediaRecorder?.state === "recording") return;
+    const request = ++recorderRequest;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setState("idle", "Voice input isn't supported here — type instead");
       micBtn.classList.remove("active");
       return;
     }
+    let acquired;
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
+      acquired = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -599,11 +629,17 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         },
       });
     } catch {
+      if (!active || request !== recorderRequest) return;
       toast("Mic denied", { tone: "error" });
       micBtn.classList.remove("active");
       setState("idle", "Tap the mic to talk");
       return;
     }
+    if (!active || request !== recorderRequest) {
+      acquired.getTracks().forEach(track => track.stop());
+      return;
+    }
+    mediaStream = acquired;
     audioChunks = [];
     const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
@@ -612,6 +648,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     mediaRecorder.addEventListener("dataavailable", (e) => { if (e.data.size) audioChunks.push(e.data); });
     mediaRecorder.addEventListener("stop", onRecorderStop);
     mediaRecorder.start();
+    const take = mediaRecorder;
+    recordDeadline = setTimeout(() => {
+      if (active && mediaRecorder === take) stopRecorder();
+    }, 59000);
     recordStartedAt = performance.now();
     setState("listening", "Listening… speak, then pause to send");
 
@@ -727,12 +767,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   function stopRecorder() {
+    recorderRequest++;
+    if (recordDeadline) { clearTimeout(recordDeadline); recordDeadline = null; }
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       try { mediaRecorder.stop(); } catch { /* ignore */ }
     }
   }
 
   async function onRecorderStop() {
+    if (recordDeadline) { clearTimeout(recordDeadline); recordDeadline = null; }
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
     const recorder = mediaRecorder;
     mediaRecorder = null;
@@ -760,15 +803,18 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       return;
     }
     setState("thinking", "Transcribing…");
+    const expectedTurn = turnSequence;
     try {
       const blob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
-      let wav;
-      try { wav = await blobToWav16kMono(blob); } catch { wav = blob; }
-      const res = await api.transcribeAudio(token, wav, { language: currentLangId });
+      const wav = await blobToWav16kMono(blob);
+      if (!active || expectedTurn !== turnSequence) return;
+      const res = await api.transcribeAudio(token, wav, { language: currentLangId, signal: lifetime.signal });
+      if (!active || expectedTurn !== turnSequence) return;
       const t = (res?.text || "").trim();
       if (t) endTurn(t);
       else setState("idle", "Didn't catch that — tap the mic");
     } catch (err) {
+      if (!active || expectedTurn !== turnSequence) return;
       toast(err.message || "Transcription failed", { tone: "error" });
       setState("idle", "Tap the mic to talk");
     }
@@ -888,12 +934,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     let finishTimer = null;
     let hasSentFirstChunk = false;
     let completed = false;
+    let reportedError = false;
     const queuedSources = [];
     const pendingTextQueue = [];
     let resolveDone;
     const donePromise = new Promise((r) => { resolveDone = r; });
 
-    const ws = ensureTTSWS();
+    let ws = null;
+    let ticketPending = true;
+    const connection = ensureTTSWS();
 
     function complete() {
       if (completed) return;
@@ -921,7 +970,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         return;
       }
 
-      if (!finished) return;
+      if (!finished || ticketPending) return;
 
       if (serverAudioDone || wsClosed) {
         complete();
@@ -939,7 +988,16 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       }
     }
 
-    if (ws) {
+    connection.then(socket => {
+      ticketPending = false;
+      if (cancelled || completed || !active) return;
+      ws = socket;
+      if (!ws) {
+        wsClosed = true;
+        toast("Voice connection unavailable. Please try again.");
+        checkDone();
+        return;
+      }
       ws.onopen = () => {
         if (cancelled) return;
         while (pendingTextQueue.length) {
@@ -970,7 +1028,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
               serverAudioDone = true;
               checkDone();
             } else if (data.type === "Error") {
-              console.warn("[bimo-voice] Deepgram streaming status:", data.message);
+              if (!reportedError) {
+                reportedError = true;
+                toast(data.message || "Voice is unavailable. Please try again.");
+              }
               if (!hasReceivedAudio) {
                 wsClosed = true;
                 checkDone();
@@ -1003,7 +1064,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         wsClosed = true;
         checkDone();
       };
-    }
+      if (ws.readyState === WebSocket.OPEN) ws.onopen();
+      else if (ws.readyState !== WebSocket.CONNECTING) { wsClosed = true; checkDone(); }
+    });
 
     function queueAudioBuffer(audioBuffer) {
       if (cancelled || !active || !audioCtx) return;
@@ -1054,15 +1117,20 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       if (!clean || !clean.replace(/[\s.,;:!?…-]/g, "")) return;
       hasSentFirstChunk = true;
       // Ensure words do not get glued together across WebSocket Speak chunks
-      const textToSend = clean.endsWith(" ") ? clean : `${clean} `;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify({ type: "Speak", text: textToSend }));
-        } catch (err) {
-          console.warn("[bimo-voice] Deepgram send failed:", err);
+      const characters = Array.from(clean.endsWith(" ") ? clean : `${clean} `);
+      // Leave room for JSON escaping as well as UTF-8 in the 20 KB frame cap.
+      for (let i = 0; i < characters.length; i += 2000) {
+        const textToSend = characters.slice(i, i + 2000).join("");
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: "Speak", text: textToSend }));
+          } catch {
+            wsClosed = true;
+            checkDone();
+          }
+        } else if (ticketPending || (ws && ws.readyState === WebSocket.CONNECTING)) {
+          pendingTextQueue.push(textToSend);
         }
-      } else if (ws && ws.readyState === WebSocket.CONNECTING) {
-        pendingTextQueue.push(textToSend);
       }
     }
 
@@ -1112,6 +1180,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     function cancel() {
       if (cancelled) return;
       cancelled = true;
+      if (ticketPending && ttsPending === connection) resetTTSWS();
       if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
       pendingTextQueue.length = 0;
       for (const s of queuedSources) {
@@ -1216,7 +1285,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   function close() {
     if (!active) return;
     active = false;
-    document.removeEventListener("keydown", onKey);
+    lifetime.abort();
     stopRecognition();
     stopRecorder();
     stopSpeaking();
@@ -1229,8 +1298,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
     if (audioCtx) { try { audioCtx.close(); } catch { /* ignore */ } audioCtx = null; }
     document.body.classList.remove("voice-open");
-    overlay.classList.remove("open");
-    setTimeout(() => overlay.remove(), 220);
+    dialog.close();
     if (typeof onClose === "function") onClose();
   }
 

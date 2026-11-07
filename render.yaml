@@ -5,12 +5,21 @@ services:
     plan: free
     region: oregon
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    buildCommand: python -m pip install --upgrade pip==26.3 setuptools==84.2.1 && python -m pip install --only-binary=:all: -r requirements.txt
     startCommand: gunicorn -w 2 -k gthread --threads 8 --timeout 600 --bind 0.0.0.0:$PORT app.main:app
-    autoDeploy: true
+    # Complete the staged security setup before manually deploying this release.
+    autoDeploy: false
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.11.9"
+      - key: BMO_VOICE_MAX_CONNECTIONS
+        value: "8"
+      - key: BMO_EDGE_TOKEN
+        sync: false
+      - key: TURNSTILE_ENABLED
+        value: "1"
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_EXPECTED_HOSTNAMES
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
@@ -44,24 +53,22 @@ services:
       # gunicorn --timeout above so a slow build isn't cut as an "API error".
       - key: NVIDIA_TIMEOUT
         value: "540"
-      # Retry budget for transient NVIDIA failures. The free tier caps each
-      # model at 40 requests/minute and returns 429 + Retry-After when hit;
-      # the SDK backs off and honours that header within this budget.
-      - key: NVIDIA_MAX_RETRIES
-        value: "3"
+      # SDK automatic retries are disabled; explicit fallbacks reserve usage.
       # Image generation (Iris). Served via NVIDIA's GenAI endpoint. The model
       # (FLUX 3 Klein, 50 steps) is fixed in code; NVIDIA_IMAGE_MODEL is ignored.
       - key: NVIDIA_IMAGE_BASE_URL
         value: https://ai.api.nvidia.com/v1/genai
       - key: CORS_ORIGINS
-        value: https://bimo.qzz.io,http://localhost:5500,http://127.0.0.1:5500
+        sync: false
       # Rate limiting is ON for the live deployment (per-user keying with IP
       # fallback). Point RATELIMIT_STORAGE_URI at a Redis URL so limits are
       # accurate across workers (in-memory only limits per worker).
       - key: RATELIMIT_ENABLED
         value: "1"
+      - key: BMO_ENV
+        value: production
       - key: RATELIMIT_STORAGE_URI
-        value: memory://
+        sync: false
       # WhatsApp Cloud API Integration
       - key: WHATSAPP_PHONE_ID
         sync: false
@@ -70,8 +77,10 @@ services:
       - key: WHATSAPP_TOKEN
         sync: false
       - key: WHATSAPP_VERIFY_TOKEN
-        value: bimo_whatsapp_verify_token_2026
+        sync: false
       - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: BMO_WHATSAPP_IDENTITY_PEPPER
         sync: false
       # Groq AI for WhatsApp Aeon model
       - key: GROQ_API_KEY

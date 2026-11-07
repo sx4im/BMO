@@ -61,14 +61,14 @@ def delete_me(user):
     try:
         store.delete_all_user_data(user.id)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("delete_me data wipe failed for user=%s: %s", user.id, exc)
+        logger.error("delete_me_failed error_type=%s", type(exc).__name__)
         return bad_request(f"Could not delete account. {friendly_error(exc)}", 500)
     auth_row_deleted = False
     try:
         store.delete_auth_user(user.id)
         auth_row_deleted = True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("delete_me admin.delete_user failed for user=%s: %s", user.id, exc)
+        logger.warning("delete_me_failed error_type=%s", type(exc).__name__)
     return jsonify({"status": "deleted", "auth_row_deleted": auth_row_deleted})
 
 
@@ -191,7 +191,7 @@ def share_conversation(user, conversation_id):
     except PermissionError:
         return bad_request("conversation not found", 404)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("share_conversation failed for conv=%s user=%s: %s", conversation_id, user.id, exc)
+        logger.error("share_conversation_failed error_type=%s", type(exc).__name__)
         return bad_request(f"Could not create share link: {friendly_error(exc)}", 500)
 
 
@@ -211,7 +211,7 @@ def get_conversation_share(user, conversation_id):
             "updated_at": shared.get("updated_at"),
         })
     except Exception as exc:  # noqa: BLE001
-        logger.exception("get_conversation_share failed for conv=%s user=%s: %s", conversation_id, user.id, exc)
+        logger.error("get_conversation_share_failed error_type=%s", type(exc).__name__)
         return bad_request("Could not read share info", 500)
 
 
@@ -222,7 +222,7 @@ def delete_conversation_share(user, conversation_id):
         deleted = store.delete_shared_conversation(conversation_id, user.id)
         return jsonify({"success": True, "deleted": deleted})
     except Exception as exc:  # noqa: BLE001
-        logger.exception("delete_conversation_share failed for conv=%s user=%s: %s", conversation_id, user.id, exc)
+        logger.error("delete_conversation_share_failed error_type=%s", type(exc).__name__)
         return bad_request("Could not delete share link", 500)
 
 
@@ -234,5 +234,5 @@ def public_shared_conversation(share_id):
             return bad_request("Shared conversation not found", 404)
         return jsonify(shared)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("public_shared_conversation failed for share_id=%s: %s", share_id, exc)
+        logger.error("public_shared_conversation_failed error_type=%s", type(exc).__name__)
         return bad_request("Could not load shared conversation", 500)

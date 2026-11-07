@@ -10,9 +10,12 @@
  *   *                        — 404
  */
 
+import { closeDialogs } from "./components/dialog.js";
+
 const routes = [];
 const listeners = new Set();
-let unmount = null;
+let controller = null;
+let generation = 0;
 
 export function defineRoute(pattern, handler) {
   routes.push({ pattern, handler });
@@ -39,12 +42,10 @@ export function onRouteChange(fn) {
 }
 
 function matchPattern(pattern, hash) {
-  // Convert "#/app/chat/:id" into a regex that captures :params.
-  const regex = new RegExp(
-    "^" +
-      pattern.replace(/:[A-Za-z_][\w]*/g, (m) => `(?<${m.slice(1)}>[^/]+)`).replace(/\//g, "\\/") +
-      "$"
-  );
+  const segments = pattern.split("/").map(segment => /^:[A-Za-z_]\w*$/.test(segment)
+    ? `(?<${segment.slice(1)}>[^/]+)`
+    : segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const regex = new RegExp(`^${segments.join("/")}$`);
   const match = hash.match(regex);
   if (!match) return null;
   return match.groups || {};
@@ -53,31 +54,52 @@ function matchPattern(pattern, hash) {
 function findRoute(hash) {
   const clean = (hash.split("?")[0] || "").replace(/\/+$/, "") || "#/";
   for (const route of routes) {
-    const params = matchPattern(route.pattern, hash) ?? matchPattern(route.pattern, clean);
+    if (route.pattern === "*") continue;
+    const params = matchPattern(route.pattern, clean);
     if (params != null) return { route, params };
   }
   return null;
 }
 
 export async function dispatch() {
+  const current = ++generation;
+  controller?.abort();
+  controller = new AbortController();
+  const signal = controller.signal;
+  const registered = new Set();
+  const navigation = {
+    signal,
+    isCurrent: () => current === generation && !signal.aborted,
+    onCleanup(fn) {
+      if (typeof fn !== "function" || registered.has(fn)) return;
+      registered.add(fn);
+      const cleanup = () => {
+        try { fn(); } catch (error) { console.error("Page cleanup failed:", error.name); }
+      };
+      if (signal.aborted) cleanup();
+      else signal.addEventListener("abort", cleanup, { once: true });
+    },
+  };
+  closeDialogs();
   const { hash } = getRoute();
-  for (const fn of listeners) fn({ hash });
-  const found = findRoute(hash);
-  if (!found) {
-    // Fallback to the 404 route (registered last via `*`).
-    const wildcard = routes.find((r) => r.pattern === "*");
-    if (wildcard) {
-      if (typeof unmount === "function") {
-        try { unmount(); } catch (err) { console.warn("Router unmount error:", err); }
-      }
-      unmount = await wildcard.handler({});
-    }
-    return;
+  try {
+    for (const fn of listeners) fn({ hash });
+    const found = findRoute(hash);
+    const route = found?.route || routes.find(r => r.pattern === "*");
+    if (route) navigation.onCleanup(await route.handler(found?.params || {}, navigation));
+  } catch (error) {
+    if (!navigation.isCurrent() || error.name === "AbortError") return;
+    console.error("Page mount failed:", error.name);
+    const root = document.getElementById("app");
+    if (!root) return;
+    const message = document.createElement("p");
+    message.setAttribute("role", "alert");
+    message.textContent = "Could not open this page. Please try again.";
+    const retry = document.createElement("button");
+    retry.type = "button"; retry.className = "btn secondary"; retry.textContent = "Retry";
+    retry.addEventListener("click", () => dispatch());
+    root.replaceChildren(message, retry);
   }
-  if (typeof unmount === "function") {
-    try { unmount(); } catch (err) { console.warn("Router unmount error:", err); }
-  }
-  unmount = await found.route.handler(found.params);
 }
 
 export function startRouter() {

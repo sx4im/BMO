@@ -17,3 +17,8 @@ audits/
 *.keystore
 *.jks
 *keystore-password.txt
+.security-test/
+
+# Private account and deployment instructions stay outside Git.
+/docs/SECURITY_SETUP.md
+MUSE_AGENT_INSTRUCTIONS.md

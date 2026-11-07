@@ -12,6 +12,7 @@ from .. import nvidia_client, store, supabase_client
 from ..analytics import build_summary, ratings_chart_png
 from ..auth import require_user
 from ..config import is_deepgram_configured
+from ..limiter import limiter
 from .helpers import bad_request, friendly_error
 
 logger = logging.getLogger("bmo.routes.analytics")
@@ -22,6 +23,7 @@ analytics_bp = Blueprint("analytics_routes", __name__)
 # ---------- Health Check ----------
 
 @analytics_bp.get("/health")
+@limiter.exempt
 def health():
     return jsonify({
         "status": "ok",
@@ -73,7 +75,7 @@ def analytics_summary(user):
     try:
         return jsonify(store.analytics_summary(user.id))
     except Exception as exc:  # noqa: BLE001
-        logger.exception("analytics_summary failed for user=%s: %s", user.id, exc)
+        logger.error("analytics_summary_failed error_type=%s", type(exc).__name__)
         return bad_request(f"Could not load analytics. {friendly_error(exc)}", 500)
 
 
@@ -83,7 +85,7 @@ def analytics_report(user):
     try:
         return jsonify(build_summary(store.all_feedback_dataframe_rows(user.id)))
     except Exception as exc:  # noqa: BLE001
-        logger.exception("analytics_report failed for user=%s: %s", user.id, exc)
+        logger.error("analytics_report_failed error_type=%s", type(exc).__name__)
         return bad_request(f"Could not build report. {friendly_error(exc)}", 500)
 
 
@@ -93,7 +95,7 @@ def analytics_chart(user):
     try:
         png_bytes = ratings_chart_png(store.all_feedback_dataframe_rows(user.id))
     except Exception as exc:  # noqa: BLE001
-        logger.exception("analytics_chart failed for user=%s: %s", user.id, exc)
+        logger.error("analytics_chart_failed error_type=%s", type(exc).__name__)
         return bad_request(f"Could not render chart. {friendly_error(exc)}", 500)
     return send_file(
         io.BytesIO(png_bytes),

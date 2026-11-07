@@ -12,11 +12,12 @@ import requests
 from flask import Blueprint, Response, jsonify, request
 from flask_sock import Sock
 
-from .. import deepgram_tts, image_safety, nvidia_client, riva_transcribe, search_router, store
-from ..auth import require_user, user_from_token
+from .. import deepgram_tts, image_safety, nvidia_client, riva_transcribe, search_router, store, usage_service, voice_security
+from ..auth import require_user
+from ..security_store import SecurityStoreUnavailable
+from ..audio_limits import MAX_AUDIO_BYTES, canonical_pcm16
 from ..config import (
     IMAGE_MODEL_ID,
-    IMAGE_USAGE_TOKENS,
     SESSION_LIMIT,
     WHISPER_MODEL,
     get_deepgram_api_key,
@@ -86,11 +87,29 @@ def generate_image_route(user):
 
     refusal = image_safety.check_prompt(prompt)
 
+    # Validate ownership before paid work, but leave the recoverable draft
+    # untouched until generation succeeds (or produces a local safety refusal).
+    convo = store.get_conversation(conversation_id, user.id) if conversation_id else None
+    if conversation_id and not convo:
+        return bad_request("conversation not found", 404)
+
+    if not refusal:
+        try:
+            chosen_model = nvidia_client.image_model()
+            t_img = time.time()
+            png = nvidia_client.generate_image(prompt)
+            logger.info(
+                "images: generated user=%s model=%s bytes=%d in %.2fs",
+                user.id, chosen_model, len(png), time.time() - t_img,
+            )
+        except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.error("generate_image_route_failed error_type=%s", type(exc).__name__)
+            return bad_request(f"Image generation failed. {friendly_error(exc)}", 502)
+
     try:
-        if conversation_id:
-            convo = store.get_conversation(conversation_id, user.id)
-            if not convo:
-                return bad_request("conversation not found", 404)
+        if convo:
             if convo.get("model") != IMAGE_MODEL_ID:
                 convo = store.update_conversation(
                     conversation_id, user.id, {"model": IMAGE_MODEL_ID}
@@ -104,7 +123,7 @@ def generate_image_route(user):
             attachments=attachments or None,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("images: persistence failed for user=%s: %s", user.id, exc)
+        logger.error("generate_image_route_failed error_type=%s", type(exc).__name__)
         return bad_request(f"Could not save conversation. {friendly_error(exc)}", 500)
 
     if refusal:
@@ -120,18 +139,6 @@ def generate_image_route(user):
         })
 
     try:
-        chosen_model = nvidia_client.image_model()
-        t_img = time.time()
-        png = nvidia_client.generate_image(prompt)
-        logger.info(
-            "images: generated user=%s convo=%s model=%s bytes=%d in %.2fs",
-            user.id, convo.get("id"), chosen_model, len(png), time.time() - t_img,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("images: generation failed user=%s: %s", user.id, exc)
-        return bad_request(f"Image generation failed. {friendly_error(exc)}", 502)
-
-    try:
         slug = re.sub(r"[^a-z0-9]+", "-", prompt.lower()).strip("-")[:40] or "image"
         attachment = store.upload_attachment_for_user(
             user.id,
@@ -141,17 +148,13 @@ def generate_image_route(user):
             expires_in=7 * 24 * 3600,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("images: could not store generated image user=%s: %s", user.id, exc)
+        logger.error("generate_image_route_failed error_type=%s", type(exc).__name__)
         return bad_request(f"Could not save the generated image. {friendly_error(exc)}", 500)
 
     assistant_message = store.add_message(
         convo["id"], user.id, role="assistant", content="Here's your image.",
         attachments=[attachment],
     )
-    try:
-        store.record_usage(user.id, "image", IMAGE_USAGE_TOKENS)
-    except Exception:
-        logger.exception("images: usage recording failed user=%s", user.id)
 
     return jsonify({
         "conversation": store.get_conversation(convo["id"], user.id) or convo,
@@ -186,7 +189,7 @@ def upload_attachment(user):
             content_type=f.mimetype or "application/octet-stream",
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("attachment upload failed: %s", exc)
+        logger.warning("upload_attachment_failed error_type=%s", type(exc).__name__)
         return bad_request("upload failed", 500)
     return jsonify(attachment)
 
@@ -200,30 +203,27 @@ def transcribe(user):  # noqa: ARG001
     if "audio" not in request.files:
         return bad_request("audio file is required", 422)
     audio_file = request.files["audio"]
-    audio_bytes = audio_file.read()
+    audio_bytes = audio_file.read(MAX_AUDIO_BYTES + 1)
     if not audio_bytes:
         return bad_request("empty audio file", 422)
-    if len(audio_bytes) > 25 * 1024 * 1024:
-        return bad_request("audio file too large (max 25 MB)", 413)
-    _audio_ok = (
-        (audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE")
-        or audio_bytes[:4] == b"\x1aE\xdf\xa3"
-        or audio_bytes[:4] == b"OggS"
-        or audio_bytes[:3] == b"ID3"
-        or audio_bytes[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")
-        or audio_bytes[4:8] == b"ftyp"
-    )
-    if not _audio_ok:
-        return bad_request("unsupported audio format", 422)
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        return bad_request("audio file too large (max 2 MB)", 413)
+    try:
+        audio_bytes, audio_seconds = canonical_pcm16(audio_bytes)
+    except ValueError as error:
+        return bad_request(str(error), 422)
 
     language = (request.form.get("language") or "en").strip() or "en"
 
     if riva_transcribe.riva_available():
         try:
-            text = riva_transcribe.transcribe_wav(audio_bytes, language)
+            with usage_service.charge("transcribe", audio_seconds):
+                text = riva_transcribe.transcribe_wav(audio_bytes, language)
             return jsonify({"text": text})
+        except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+            raise
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Riva transcription failed, trying REST fallback: %s", exc)
+            logger.warning("transcribe_failed error_type=%s", type(exc).__name__)
 
     base_url, api_key, model = _rest_transcription_provider()
     if not base_url:
@@ -235,15 +235,17 @@ def transcribe(user):  # noqa: ARG001
         return bad_request("Server-side voice transcription is not configured.", 503)
 
     try:
-        resp = requests.post(
+        resp = usage_service.paid_http("transcribe", audio_seconds, requests.post,
             f"{base_url}/audio/transcriptions",
             headers={"Authorization": f"Bearer {api_key}"},
             files={"file": (audio_file.filename or "recording.wav", audio_bytes, audio_file.content_type or "audio/wav")},
             data={"model": model, "response_format": "json"},
             timeout=60,
         )
+    except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+        raise
     except Exception as exc:  # noqa: BLE001
-        logger.warning("transcription request failed: %s", exc)
+        logger.warning("transcribe_failed error_type=%s", type(exc).__name__)
         return bad_request("transcription request failed", 502)
 
     if not resp.ok:
@@ -307,7 +309,7 @@ def tts(user):  # noqa: ARG001
     try:
         dg_model = voice or get_deepgram_tts_model()
         endpoint = "v2" if dg_model.startswith("flux") else "v1"
-        resp = requests.post(
+        resp = usage_service.paid_http("tts", len(text), requests.post,
             f"https://api.deepgram.com/{endpoint}/speak?model={dg_model}&encoding=linear16&sample_rate=24000",
             headers={
                 "Authorization": f"Token {get_deepgram_api_key()}",
@@ -321,55 +323,67 @@ def tts(user):  # noqa: ARG001
             if not data.startswith(b"RIFF"):
                 data = _pcm_to_wav(data, 24000)
             return Response(data, mimetype="audio/wav")
-        logger.warning("Deepgram REST TTS returned status %s: %s", resp.status_code, resp.text)
+        logger.warning("tts_provider_failed status=%s", resp.status_code)
         return bad_request(f"Deepgram TTS synthesis failed ({resp.status_code})", 502)
+    except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+        raise
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Deepgram REST TTS failed: %s", exc)
+        logger.warning("tts_failed error_type=%s", type(exc).__name__)
         return bad_request(f"TTS failed: {exc}", 502)
 
 
 # ---------- Deepgram Flux/Aura Streaming TTS (WebSocket) ----------
 
+@media_bp.post("/tts/ticket")
+@limiter.limit("10 per minute")
+@require_user
+def tts_ticket(user):
+    payload = request.get_json(silent=True)
+    allowed = {"model", "sample_rate", "speed", "expressivity"}
+    if not isinstance(payload, dict) or set(payload) - allowed:
+        return bad_request("Invalid voice settings", 422)
+    model = payload.get("model", get_deepgram_tts_model())
+    rate = payload.get("sample_rate", 24000)
+    if not isinstance(model, str) or not re.fullmatch(r"(?:flux|aura)[A-Za-z0-9_-]{1,59}", model):
+        return bad_request("Invalid voice model", 422)
+    if type(rate) is not int or rate not in {8000, 16000, 24000, 32000, 48000}:
+        return bad_request("Invalid voice sample rate", 422)
+    try:
+        deepgram_tts.voice_controls(model, payload.get("speed"), payload.get("expressivity"))
+        settings = {"model": model, "sample_rate": rate, **{k: payload[k] for k in ("speed", "expressivity") if k in payload}}
+        expires_at = user.raw["exp"]
+        ticket = voice_security.issue_ticket(user.id, settings, expires_at=expires_at)
+    except voice_security.InvalidTicket:
+        return bad_request("Sign in again to start voice.", 401)
+    except ValueError as error:
+        return bad_request(str(error), 422)
+    return jsonify(ticket=ticket, expires_in=min(voice_security.TICKET_TTL, max(1, int(expires_at - time.time())))), 201
+
+
 @sock.route("/tts/stream")
 def tts_stream(ws):
-    token = request.args.get("token")
-    user = user_from_token(token)
-    if not user:
+    lease, owner = None, None
+    try:
+        if set(request.args) != {"ticket"} or len(request.args.getlist("ticket")) != 1:
+            raise voice_security.InvalidTicket("Start voice again to reconnect.")
+        payload = voice_security.consume_ticket(request.args["ticket"])
+        owner = payload["user_id"]
+        started = time.monotonic()
+        lease = voice_security.acquire_lease(owner)
+        deadline = min(started + voice_security.SESSION_SECONDS, started + max(0, payload["expires_at"] - time.time()))
+        with usage_service.scope(owner):
+            deepgram_tts.relay_tts_stream(ws, **payload["settings"], deadline=deadline,
+                check_lease=lambda: voice_security.check_lease(owner, lease))
+    except (voice_security.InvalidTicket, usage_service.QuotaExceeded, SecurityStoreUnavailable) as error:
+        status = 401 if isinstance(error, voice_security.InvalidTicket) else 429 if isinstance(error, usage_service.QuotaExceeded) else 503
         try:
-            ws.send(json.dumps({"type": "Error", "message": "Authentication required"}))
-            ws.close(4401, "Unauthorized")
+            ws.send(json.dumps({"type": "Error", "status": status, "message": str(error)}))
+            ws.close(4000 + status, "Voice unavailable")
         except Exception:
             pass
-        return
-
-    model = request.args.get("model")
-    if model:
-        model = model.strip()
-        if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", model):
-            try:
-                ws.send(json.dumps({"type": "Error", "message": "Invalid TTS model name"}))
-                ws.close(4400, "Invalid model")
-            except Exception:
-                pass
-            return
-
-    raw_rate = request.args.get("sample_rate")
-    try:
-        sample_rate = int(raw_rate) if raw_rate else 24000
-        if sample_rate not in {8000, 16000, 24000, 32000, 48000}:
-            sample_rate = 24000
-    except (ValueError, TypeError):
-        sample_rate = 24000
-
-    speed = request.args.get("speed")
-    expressivity = request.args.get("expressivity")
-    try:
-        deepgram_tts.voice_controls(model or get_deepgram_tts_model(), speed, expressivity)
-    except ValueError as exc:
-        ws.send(json.dumps({"type": "Error", "message": str(exc)}))
-        ws.close(4400, "Invalid voice delivery")
-        return
-    deepgram_tts.relay_tts_stream(ws, model=model, sample_rate=sample_rate, speed=speed, expressivity=expressivity)
+    finally:
+        if owner and lease:
+            voice_security.release_lease(owner, lease)
 
 
 # ---------- Web Search (TinyFish) ----------
@@ -389,7 +403,7 @@ def search(user):  # noqa: ARG001
     try:
         results = search_router.fetch_results(q, timeout=12)
     except (requests.RequestException, ValueError) as exc:
-        logger.warning("search: TinyFish request failed: %s", exc)
+        logger.warning("search_failed error_type=%s", type(exc).__name__)
         return bad_request("web search failed", 502)
     return jsonify({"answer": "", "results": results, "live": search_router.is_live_query(q)})
 
@@ -413,7 +427,7 @@ def scrape(user):  # noqa: ARG001
         target_url = "https://" + target_url
 
     try:
-        resp = requests.post(
+        resp = usage_service.paid_http("scrape", 1, requests.post,
             "https://api.fetch.tinyfish.ai",
             json={"urls": [target_url], "format": "markdown"},
             headers={"X-API-Key": api_key, "Content-Type": "application/json"},
@@ -422,7 +436,7 @@ def scrape(user):  # noqa: ARG001
         resp.raise_for_status()
         data = resp.json()
     except requests.RequestException as exc:
-        logger.warning("scrape: TinyFish request failed: %s", exc)
+        logger.warning("scrape_failed error_type=%s", type(exc).__name__)
         return bad_request("web scraping failed", 502)
 
     results = data.get("results") or []

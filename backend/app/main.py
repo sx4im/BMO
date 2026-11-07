@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import uuid
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 
 from . import groq_client, mistral_client, nvidia_client, store, supabase_client, whatsapp
@@ -50,10 +51,8 @@ from .routes.helpers import (
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-)
+from .observability import configure_logging
+configure_logging()
 
 logger = logging.getLogger("bmo.main")
 
@@ -75,21 +74,54 @@ _rate_limit_key = rate_limit_key
 
 def create_app() -> Flask:
     app = Flask(__name__)
+
+    @app.before_request
+    def assign_request_id():
+        g.request_id = str(uuid.uuid4())
+
+    from .edge_access import configure_edge
+    configure_edge(app)
     app.config["MAX_CONTENT_LENGTH"] = 52 * 1024 * 1024
+    from .voice_security import MAX_FRAME_BYTES
+    app.config["SOCK_SERVER_OPTIONS"] = {"max_message_size": MAX_FRAME_BYTES, "ping_interval": 25}
     CORS(app, resources={r"/*": {"origins": cors_origins()}}, supports_credentials=False)
 
     # ---------- Rate Limiting ----------
-    app.config["RATELIMIT_ENABLED"] = os.getenv("RATELIMIT_ENABLED", "1") == "1"
-    app.config["RATELIMIT_HEADERS_ENABLED"] = True
-    app.config["RATELIMIT_STORAGE_URI"] = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
+    from .security_store import SecurityStoreUnavailable, rate_limit_configuration
+    app.config.update(rate_limit_configuration())
     limiter.init_app(app)
     app.extensions["bmo_limiter"] = limiter
+    from .turnstile import configure_turnstile
+    configure_turnstile(app)
 
     @limiter.request_filter
     def _skip_cors_preflight():
         return request.method == "OPTIONS"
 
     # ---------- Error Handlers ----------
+    from .usage_service import AdmissionConflict, MeteringUnavailable, QuotaExceeded
+    from limits.errors import StorageError
+    from redis.exceptions import RedisError
+
+    @app.errorhandler(SecurityStoreUnavailable)
+    @app.errorhandler(StorageError)
+    @app.errorhandler(RedisError)
+    def _handle_security_store_unavailable(exc):
+        logger.error("security_store_unavailable error_type=%s", type(exc).__name__)
+        return jsonify({"detail": "Security checks are temporarily unavailable. Please try again shortly."}), 503, {"Retry-After": "1"}
+
+    @app.errorhandler(MeteringUnavailable)
+    def _handle_metering_unavailable(exc):
+        return jsonify({"detail": str(exc)}), 503
+
+    @app.errorhandler(QuotaExceeded)
+    def _handle_usage_limit(exc):
+        return jsonify({"detail": str(exc)}), 429
+
+    @app.errorhandler(AdmissionConflict)
+    def _handle_admission_conflict(exc):
+        return jsonify({"detail": str(exc)}), 409
+
     @app.errorhandler(429)
     def _handle_rate_limited(exc):  # noqa: ARG001
         return (
@@ -103,12 +135,16 @@ def create_app() -> Flask:
 
         if isinstance(exc, HTTPException):
             return jsonify({"detail": exc.description or exc.name}), exc.code
-        logger.exception("unhandled error on %s %s: %s", request.method, request.path, exc)
+        logger.error("handle_uncaught_failed error_type=%s", type(exc).__name__)
         return jsonify({"detail": "Internal server error"}), 500
 
     # ---------- Security Headers ----------
     @app.after_request
     def _security_headers(resp):
+        # API and bearer-link responses must never enter a browser/CDN shared
+        # cache, including error responses and revoked share lookups.
+        resp.headers["Cache-Control"] = "no-store"
+        resp.headers["X-Request-ID"] = g.request_id
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("X-Frame-Options", "DENY")
         resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -125,6 +161,7 @@ def create_app() -> Flask:
     app.register_blueprint(project_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(whatsapp.whatsapp_bp)
+    whatsapp.start_retention_worker()
 
     return app
 
@@ -135,25 +172,9 @@ app = create_app()
 if supabase_client.is_configured():
     threading.Thread(target=prewarm_jwks, name="bmo-jwks-prewarm", daemon=True).start()
 
-# Run a one-time API test on import
-if groq_client.is_configured():
-    logger.info("Groq key fingerprint: %s (model=%s)", groq_client.api_key_fingerprint(), groq_client.default_model())
-
-if mistral_client.is_configured():
-    logger.info("Mistral key fingerprint: %s (model=%s)", mistral_client.api_key_fingerprint(), mistral_client.default_model())
-
-if nvidia_client.is_configured():
-    logger.info("NVIDIA key fingerprint: %s", nvidia_client.api_key_fingerprint())
-    try:
-        test_result = nvidia_client.test_call()
-        if test_result.get("ok"):
-            logger.info("Startup API test OK — responding model: %s", test_result["model"])
-        else:
-            logger.warning("Startup API test failed: %s", test_result)
-        all_models = nvidia_client.list_models()
-        logger.info("Full model catalogue (%d models): %s", len(all_models), [m.get("id") for m in all_models])
-    except Exception as exc:
-        logger.warning("Startup API test exception: %s", exc)
+# Worker startup must not make billable calls or log credential fragments.
+logger.info("Provider configuration: nvidia=%s mistral=%s groq=%s",
+            nvidia_client.is_configured(), mistral_client.is_configured(), groq_client.is_configured())
 
 
 if __name__ == "__main__":

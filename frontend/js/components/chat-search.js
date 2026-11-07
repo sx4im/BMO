@@ -5,18 +5,12 @@
 
 import { el, clear, formatTitle } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=69";
+import { mountDialog } from "./dialog.js";
 
-let activeOverlay = null;
-let keyHandler = null;
+let activeDialog = null;
 
 function close() {
-  if (!activeOverlay) return;
-  const overlay = activeOverlay;
-  activeOverlay = null;
-  if (keyHandler) document.removeEventListener("keydown", keyHandler);
-  keyHandler = null;
-  overlay.classList.remove("open");
-  setTimeout(() => overlay.remove(), 160);
+  activeDialog?.close();
 }
 
 function startOfDay(value) {
@@ -41,7 +35,7 @@ const BUCKET_ORDER = ["Today", "Yesterday", "Previous 7 Days", "Previous 30 Days
  * @param {{ conversations?: Array, onSelect?: (id: string) => void, onNewChat?: () => void }} opts
  */
 export function openChatSearch({ conversations = [], onSelect, onNewChat } = {}) {
-  if (activeOverlay) close();
+  close();
 
   const input = el("input", {
     type: "text",
@@ -155,19 +149,13 @@ export function openChatSearch({ conversations = [], onSelect, onNewChat } = {})
     onclick: close,
   }, [card]);
 
-  keyHandler = (e) => {
-    if (e.key === "Escape") { close(); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); setActive(activeIdx + 1); }
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(activeIdx + 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setActive(activeIdx - 1); }
     else if (e.key === "Enter") { e.preventDefault(); rows[activeIdx]?.__run(); }
-  };
-
-  document.body.append(overlay);
-  activeOverlay = overlay;
-  document.addEventListener("keydown", keyHandler);
-  render("");
-  requestAnimationFrame(() => {
-    overlay.classList.add("open");
-    input.focus();
   });
+  render("");
+  const dialog = mountDialog(overlay, { initialFocus: input, closeDelay: 160,
+    onClose: () => { if (activeDialog === dialog) activeDialog = null; } });
+  activeDialog = dialog;
 }

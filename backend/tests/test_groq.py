@@ -63,7 +63,7 @@ def test_api_key_fingerprint_never_leaks(monkeypatch):
     assert fp["preview"].endswith("cdef")
 
 
-def test_groq_streaming_success(monkeypatch):
+def test_groq_streaming_success(monkeypatch, provider_budget):
     """iter_response yields delta tokens and done content."""
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
 

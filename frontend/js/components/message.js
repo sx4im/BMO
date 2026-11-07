@@ -208,6 +208,7 @@ export function messageBubble({
   if (isAssistant && message.search) bodyChildren.push(searchCard(message.search));
   if (reasoningNode) bodyChildren.push(reasoningNode);
   if (bubbleNodes.length) bodyChildren.push(...bubbleNodes);
+  if (message.interrupted) bodyChildren.push(el("p", { class: "message-interrupted", role: "status", text: "Response interrupted. This answer may be incomplete." }));
   if (quizNode) bodyChildren.push(quizNode);
 
   // Long user prompts collapse behind a "Show more" toggle (assistant replies

@@ -24,6 +24,7 @@ let state = {
 };
 
 let nodes = null;
+const loads = { conversations: 0, projects: 0, usage: 0 };
 
 export function getShellState() {
   return state;
@@ -32,11 +33,13 @@ export function getShellState() {
 export async function loadConversations() {
   const { auth } = getAuth();
   if (!auth) return;
+  const owner = state;
+  const request = ++loads.conversations;
   state.conversationsError = null;
   if (!state.conversations && nodes) renderSidebars();
   try {
     const conversations = await api.listConversations(auth.token);
-    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    if (owner !== state || request !== loads.conversations || getAuth().auth?.user?.id !== auth.user?.id) return;
     state.conversations = conversations;
     if (nodes) renderSidebars();
     if (typeof window !== "undefined") {
@@ -45,7 +48,7 @@ export async function loadConversations() {
       );
     }
   } catch (err) {
-    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    if (owner !== state || request !== loads.conversations || getAuth().auth?.user?.id !== auth.user?.id) return;
     state.conversationsError = "Couldn't load chats";
     if (nodes) renderSidebars();
   }
@@ -54,9 +57,11 @@ export async function loadConversations() {
 export async function loadProjects() {
   const { auth } = getAuth();
   if (!auth) return;
+  const owner = state;
+  const request = ++loads.projects;
   try {
     const projects = await api.listProjects(auth.token);
-    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    if (owner !== state || request !== loads.projects || getAuth().auth?.user?.id !== auth.user?.id) return;
     state.projects = projects;
     if (nodes) renderSidebars();
     if (typeof window !== "undefined") {
@@ -72,9 +77,11 @@ export async function loadProjects() {
 export async function loadUsage() {
   const { auth } = getAuth();
   if (!auth) return;
+  const owner = state;
+  const request = ++loads.usage;
   try {
     const usage = await api.getUsage(auth.token);
-    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    if (owner !== state || request !== loads.usage || getAuth().auth?.user?.id !== auth.user?.id) return;
     state.usage = usage;
   } catch (err) {
     // Silently fail if metering is off or throws

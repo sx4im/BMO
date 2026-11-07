@@ -3,21 +3,18 @@
 
 import { el, clear } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=30";
+import { mountDialog } from "./dialog.js";
 
 export function openModelPicker({ models = [], defaultModel = null, currentModel = null } = {}) {
   return new Promise((resolve) => {
     const overlay = el("div", { class: "modal-overlay" });
     let selected = currentModel || defaultModel || models[0]?.id || null;
+    let result = null;
+    let dialog;
 
     const close = (value) => {
-      modal.remove();
-      overlay.remove();
-      document.removeEventListener("keydown", onKey);
-      resolve(value);
-    };
-
-    const onKey = (e) => {
-      if (e.key === "Escape") close(null);
+      result = value;
+      dialog.close();
     };
 
     const list = el("div", { class: "model-list" });
@@ -106,8 +103,7 @@ export function openModelPicker({ models = [], defaultModel = null, currentModel
       ]
     );
 
-    document.body.append(overlay, modal);
-    overlay.addEventListener("click", () => close(null));
-    document.addEventListener("keydown", onKey);
+    overlay.append(modal);
+    dialog = mountDialog(overlay, { title: modal.querySelector("h2"), onClose: () => resolve(result) });
   });
 }

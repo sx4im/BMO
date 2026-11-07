@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
-
-from flask import has_request_context
+from flask import g, has_request_context
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -21,12 +19,12 @@ def rate_limit_key() -> str:
         user = user_from_token(token) if token else None
     if user and getattr(user, "id", None):
         return f"user:{user.id}"
-    return f"ip:{get_remote_address()}"
+    address = getattr(g, "edge_client_ip", None) if getattr(g, "edge_verified", False) else None
+    return f"ip:{address or get_remote_address()}"
 
 
 limiter = Limiter(
     key_func=rate_limit_key,
     default_limits=["300 per minute"],
-    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
     strategy="fixed-window",
 )

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleLoader } from "./modules.mjs";
 
-async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash } = {}) {
+async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, navigation, onShell } = {}) {
   let composer, feed, voice, lastRender;
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
   const shareStates = [], shareCallbacks = [];
@@ -41,21 +41,22 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
       callbacks.onAssistantMessage({ id: `assistant-${turn}`, role: "assistant", content: `Answer ${turn}` });
     },
     cancelChat: async () => {},
+    scrapeUrl: async () => ({}),
     exportDocument: async () => { throw Error("Export service unavailable"); },
   };
   const stubs = {
     "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner", name: "Tester" } } }) },
     "router.js": { navigate() {} },
-    "app-shell.js": { mountAppShell: async () => ({
+    "app-shell.js": { mountAppShell: async () => { onShell?.(app); return ({
       content: app.dom.window.document.querySelector("#app"),
       setActiveConversation() {}, setConversations() {}, setShareActive: (...args) => shareStates.push(args), setIncognitoActive() {},
-    }) },
+    }); } },
     "toast.js": { toast: notice => notices.push(notice) },
     "confirm-modal.js": { openConfirmModal() {}, openPromptModal() {} },
     "share-modal.js": { openShareModal: callbacks => shareCallbacks.push(callbacks) }, "projects.js": { openMoveChatModal() {} },
     "markdown.js": { whenMarkdownReady() {}, renderMarkdown: text => text },
     "voice-overlay.js": { openVoiceOverlay: options => { voice = options; return { close() {} }; } },
-    "api.js": api,
+    "api.js": Object.fromEntries(Object.keys(api).map(name => [name, (...args) => api[name](...args)])),
     "message-feed.js": { MessageFeed: Feed },
     "export.js": {
       detectExportIntent: () => ({ exportOnly: false }), buildCanonicalMarkdown: () => "",
@@ -76,12 +77,113 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     constructor(options) { super(options); composer = this; }
   } };
   const page = await app.load("js/pages/chat.js");
-  const unmount = await page.renderChat({ id, incognito });
+  const unmount = await page.renderChat({ id, incognito }, navigation);
   await new Promise(resolve => setImmediate(resolve));
   const turn = (text, extras = {}) => composer.onSubmit({ text, attachments: [], model: "thinking", studyMode: false, autoSearch: false, ...extras });
-  return { app, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, shareStates, shareCallbacks, turn, unmount,
+  return { app, api, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, shareStates, shareCallbacks, turn, unmount,
            voice: () => voice, rendered: () => lastRender };
 }
+
+test("failed submission restores the draft, attachments and selected skills", async t => {
+  const page = await chatPage({ skills: [{ id: "skill", name: "review", enabled: true }] });
+  t.after(() => { page.unmount(); page.app.dom.window.close(); });
+  page.api.streamChat = async () => { throw Error("Offline"); };
+  page.composer.setText("Keep my draft");
+  page.composer.pendingAttachments = [{ name: "notes.txt", path: "fixture" }];
+  page.composer.skillPicker.setSelected(["skill"]);
+  page.composer.composer.dispatchEvent(new page.app.dom.window.Event("submit", { cancelable: true }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.composer.textarea.value, "Keep my draft");
+  assert.equal(page.composer.pendingAttachments[0]?.path, "fixture");
+  assert.equal(page.composer.skillPicker.selected[0]?.id, "skill");
+});
+
+test("failed sends preserve a newer draft and offer recovery of the older one", async t => {
+  const page = await chatPage();
+  t.after(() => { page.unmount(); page.app.dom.window.close(); });
+  let fail;
+  page.api.streamChat = () => new Promise((_, reject) => { fail = reject; });
+  page.composer.setText("Older draft");
+  page.composer.composer.dispatchEvent(new page.app.dom.window.Event("submit", { cancelable: true }));
+  page.composer.setText("Newer draft");
+  fail(Error("Offline"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.composer.textarea.value, "Newer draft");
+  const recover = page.app.dom.window.document.querySelector(".composer-recovery button");
+  assert.ok(recover);
+  page.composer.setText(""); recover.click();
+  assert.equal(page.composer.textarea.value, "Older draft");
+});
+
+for (const action of ["stop", "unmount"]) {
+  test(`${action} during link reading cannot start generation later`, async t => {
+    const page = await chatPage();
+    t.after(() => { page.unmount(); page.app.dom.window.close(); });
+    let finish, scrapeSignal;
+    page.api.scrapeUrl = (_token, _url, signal) => { scrapeSignal = signal; return new Promise(resolve => { finish = resolve; }); };
+    const pending = page.turn("Read https://example.invalid/page");
+    if (action === "stop") page.composer.onStop(); else page.unmount();
+    assert.equal(scrapeSignal?.aborted, true);
+    finish({ markdown: "Late content" }); await pending;
+    assert.equal(page.payloads.length, 0);
+  });
+}
+
+test("interrupted incognito output stays visible and accepted turns are not restored as unsent", async t => {
+  const page = await chatPage({ incognito: true });
+  t.after(() => { page.unmount(); page.app.dom.window.close(); });
+  page.api.streamChat = async (_token, _payload, callbacks) => {
+    callbacks.onUserMessage({ id: "accepted", role: "user", content: "Question" });
+    callbacks.onToken({ delta: "Partial answer" });
+    throw Error("Connection lost");
+  };
+  await page.turn("Question");
+  assert.ok(page.rendered().messages.some(message => message.role === "assistant" && message.content === "Partial answer"));
+  assert.equal(page.rendered().messages.filter(message => message.role === "user").length, 1);
+  assert.ok(page.notices.some(notice => /interrupt|lost/i.test(notice)));
+});
+
+test("normal incognito completion without database acknowledgement retains the answer", async t => {
+  const page = await chatPage({ incognito: true });
+  t.after(() => { page.unmount(); page.app.dom.window.close(); });
+  page.api.streamChat = async (_token, _payload, callbacks) => {
+    callbacks.onToken({ delta: "Private answer" }); callbacks.onComplete();
+  };
+  await page.turn("Question");
+  assert.ok(page.rendered().messages.some(message => message.role === "assistant" && message.content === "Private answer"));
+});
+
+test("reconciliation keeps a partial saved answer until the server has the completed reply", async t => {
+  const page = await chatPage({ id: "saved-chat" });
+  t.after(() => { page.unmount(); page.app.dom.window.close(); });
+  const accepted = { id: "accepted", role: "user", content: "Question" };
+  page.api.getMessages = async () => ({ messages: [accepted] });
+  page.api.streamChat = async (_token, _payload, callbacks) => {
+    callbacks.onUserMessage(accepted); callbacks.onToken({ delta: "Partial saved answer" }); throw Error("Connection lost");
+  };
+  await page.turn("Question");
+  assert.ok(page.rendered().messages.some(message => message.content === "Partial saved answer" && message.interrupted));
+});
+
+test("loading an empty chat does not steal focus from a chosen control", async t => {
+  const page = await chatPage();
+  t.after(() => { page.unmount(); page.app.dom.window.close(); });
+  const button = page.app.dom.window.document.querySelector("button");
+  button.focus();
+  page.app.dom.window.dispatchEvent(new page.app.dom.window.Event("focus"));
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(page.app.dom.window.document.activeElement, button);
+});
+
+test("an obsolete chat mount leaves the newer route's DOM intact", async t => {
+  const controller = new AbortController();
+  const page = await chatPage({
+    navigation: { signal: controller.signal, isCurrent: () => !controller.signal.aborted },
+    onShell: app => { app.dom.window.document.querySelector("#app").textContent = "Latest route"; controller.abort(); },
+  });
+  t.after(() => { page.unmount?.(); page.app.dom.window.close(); });
+  assert.equal(page.app.dom.window.document.querySelector("#app").textContent, "Latest route");
+});
 
 test("a closed chat's Share modal cannot reactivate the mobile Share button", async () => {
   const page = await chatPage({ id: "saved-chat", messages: [{ id: "one", role: "user", content: "Hello" }] });

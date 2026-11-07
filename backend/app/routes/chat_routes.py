@@ -14,7 +14,7 @@ import uuid
 
 from flask import Blueprint, Response, request, stream_with_context
 
-from .. import document_processor, nvidia_client, search_router, skill_service, store
+from .. import document_processor, nvidia_client, search_router, skill_service, store, usage_service
 from ..auth import require_user
 from ..cancellation import register as _register_cancel, signal as _signal_cancel, unregister as _unregister_cancel
 from ..config import (
@@ -190,7 +190,7 @@ def _image_part(a: dict, user_id: str) -> dict | None:
             b64 = base64.b64encode(img_bytes).decode("ascii")
             return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
         except Exception as exc:  # noqa: BLE001
-            logger.warning("chat: failed to inline image path=%s err=%s", path, exc)
+            logger.warning("image_part_failed error_type=%s", type(exc).__name__)
     supa = os.environ.get("SUPABASE_URL", "").rstrip("/")
     if supa and str(a.get("url", "")).startswith(supa + "/"):
         return {"type": "image_url", "image_url": {"url": a["url"]}}
@@ -205,7 +205,7 @@ def _describe_with_retry(image_part: dict) -> str:
         except Exception as exc:  # noqa: BLE001
             if not is_transient_model_error(exc):
                 raise
-            logger.warning("chat: image description busy, retrying: %s", exc)
+            logger.warning("describe_with_retry_failed error_type=%s", type(exc).__name__)
     return ""
 
 
@@ -234,12 +234,15 @@ def _describe_attachments_in_background(message_id: str, user_id: str, attachmen
                 store.update_message_attachments(message_id, user_id, updated)
                 logger.info("chat: saved image text context for message=%s", message_id)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("chat: image description failed for message=%s: %s", message_id, exc)
+            logger.warning("run_failed error_type=%s", type(exc).__name__)
         finally:
             with _describing_lock:
                 _describing.discard(message_id)
 
-    threading.Thread(target=run, name="bmo-image-context", daemon=True).start()
+    def bound_run():
+        with usage_service.scope(user_id, resource="thinking"):
+            run()
+    threading.Thread(target=bound_run, name="bmo-image-context", daemon=True).start()
 
 
 # ---------- chat endpoints ----------
@@ -418,7 +421,7 @@ def chat(user):
             }
             defer_user_persist = True
     except Exception as exc:  # noqa: BLE001
-        logger.exception("chat: persistence failed for user=%s: %s", user.id, exc)
+        logger.error("chat_failed error_type=%s", type(exc).__name__)
         return bad_request(f"Could not save conversation. {friendly_error(exc)}", 500)
 
     if skill_labels:
@@ -603,7 +606,7 @@ def chat(user):
                         **({"skills": skill_labels} if skill_labels else {}),
                     )
             except Exception as exc:  # noqa: BLE001
-                logger.exception("chat: deferred persist failed user=%s: %s", user.id, exc)
+                logger.error("materialize_user_turn_failed error_type=%s", type(exc).__name__)
                 persist_error.append(exc)
 
         persist_thread = None
@@ -624,8 +627,10 @@ def chat(user):
                     has_attachments=has_any_attachment,
                     force=force_search,
                 )
-            except Exception as exc:  # noqa: BLE001 — routing must never break the turn
-                logger.warning("chat: search routing failed: %s", exc)
+            except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+                raise
+            except Exception as exc:  # noqa: BLE001 — optional routing provider failures may fall back
+                logger.warning("generate_failed error_type=%s", type(exc).__name__)
                 needs_search, search_query = False, ""
 
             if needs_search:
@@ -650,8 +655,8 @@ def chat(user):
                     ],
                 })
                 logger.info(
-                    "chat: auto-search query=%r results=%d in %.2fs",
-                    search_query, len(results), elapsed,
+                    "chat_search_completed results=%d elapsed=%.2f",
+                    len(results), elapsed,
                 )
                 if results and user_text_part is not None:
                     context = search_router.build_search_context(search_query, results)
@@ -660,7 +665,6 @@ def chat(user):
         full_reply = ""
         full_reasoning = ""
         saved = False
-        metered = False
 
         def ensure_user_persisted():
             if persist_thread is not None:
@@ -671,13 +675,7 @@ def chat(user):
                 raise RuntimeError("Could not save conversation")
 
         def persist_reply():
-            nonlocal saved, metered
-            if not metered and (full_reply.strip() or full_reasoning.strip()):
-                metered = True
-                store.record_usage(
-                    user.id, chosen_friendly,
-                    estimate_tokens(message_text, full_reply, full_reasoning),
-                )
+            nonlocal saved
             if saved or is_incognito:
                 return None
             text = full_reply.strip()
@@ -692,7 +690,7 @@ def chat(user):
                 saved = True
                 return msg
             except Exception as exc:  # noqa: BLE001
-                logger.exception("chat: failed to persist assistant message convo=%s: %s", convo.get("id"), exc)
+                logger.error("persist_reply_failed error_type=%s", type(exc).__name__)
                 return None
 
         try:
@@ -811,17 +809,11 @@ def chat(user):
                     except Exception as exc:  # noqa: BLE001
                         # Retrying after tokens reached the client would duplicate them.
                         if not streamed and attempt < len(retry_delays) and is_transient_model_error(exc):
-                            logger.warning(
-                                "chat: model %s busy (attempt %d), retrying: %s",
-                                chosen_model, attempt + 1, exc,
-                            )
+                            logger.warning("generate_failed error_type=%s", type(exc).__name__)
                             if cancel_event.wait(retry_delays[attempt]):
                                 return
                             continue
-                        logger.warning(
-                            "chat: model %s failed for convo=%s batch=%d: %s",
-                            chosen_model, convo.get("id"), batch_idx + 1, exc,
-                        )
+                        logger.warning("generate_failed error_type=%s", type(exc).__name__)
                         delta = prose_filter.feed("", final=True)
                         full_reply += delta
                         if delta:
@@ -891,21 +883,23 @@ def chat(user):
                                     convo_id_for_title, user_id_for_title, {"title": new_title}
                                 )
                         except Exception as title_exc:  # noqa: BLE001
-                            logger.warning("title generation failed for convo=%s: %s", convo_id_for_title, title_exc)
+                            logger.warning("bg_title_failed error_type=%s", type(title_exc).__name__)
 
-                    threading.Thread(target=_bg_title, name="bmo-chat-title", daemon=True).start()
+                    threading.Thread(target=usage_service.bound_task(_bg_title), name="bmo-chat-title", daemon=True).start()
         except (GeneratorExit, BrokenPipeError, ConnectionError):
             logger.info("chat: client disconnected mid-stream for convo=%s; saving partial", convo.get("id"))
             persist_reply()
             raise
+        except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict) as exc:
+            persist_reply()
+            status = 503 if isinstance(exc, usage_service.MeteringUnavailable) else 429 if isinstance(exc, usage_service.QuotaExceeded) else 409
+            yield sse_event({"type": "error", "status": status, "detail": str(exc)})
         except Exception as exc:  # noqa: BLE001
-            logger.exception("chat: streaming failed for user=%s model=%s: %s", user.id, chosen_model, exc)
+            logger.error("generate_failed error_type=%s", type(exc).__name__)
             persist_reply()
             yield sse_event({"type": "error", "detail": friendly_error(exc) or "Streaming failed"})
         finally:
             persist_reply()
-            if stream_id:
-                _unregister_cancel(cancel_event)
             logger.info("chat: generate finished model=%s convo=%s chars=%d in %.3fs", chosen_model, convo.get("id"), len(full_reply), time.time() - t_gen_start)
 
     sse_queue: "queue.Queue" = queue.Queue()
@@ -913,12 +907,21 @@ def chat(user):
 
     def _pump():
         try:
-            for chunk in generate():
-                sse_queue.put(chunk)
+            with usage_service.scope(user.id, resource=chosen_friendly):
+                for chunk in generate():
+                    sse_queue.put(chunk)
+        except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict) as exc:
+            status = 503 if isinstance(exc, usage_service.MeteringUnavailable) else 429 if isinstance(exc, usage_service.QuotaExceeded) else 409
+            sse_queue.put(sse_event({"type": "error", "status": status, "detail": str(exc)}))
         except Exception as exc:  # noqa: BLE001
-            logger.exception("chat: producer thread crashed: %s", exc)
+            logger.error("chat_producer_failed error_type=%s", type(exc).__name__)
+            sse_queue.put(sse_event({"type": "error", "detail": "Could not complete this request. Please try again."}))
         finally:
-            sse_queue.put(_DONE)
+            try:
+                if stream_id:
+                    _unregister_cancel(cancel_event)
+            finally:
+                sse_queue.put(_DONE)
 
     threading.Thread(target=_pump, name="bmo-chat-gen", daemon=True).start()
 

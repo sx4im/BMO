@@ -83,7 +83,7 @@ def extract_text_from_file(filename: str, file_bytes: bytes) -> str:
             doc.close()
             extracted = "\n\n".join(pages)
         except Exception as exc:
-            logger.warning("PDF extraction failed for %s: %s", filename, exc)
+            logger.warning("extract_text_from_file_failed error_type=%s", type(exc).__name__)
             extracted = "[PDF contains no extractable text]"
     elif ext == ".pptx":
         from .document_processor import _extract_pptx
@@ -110,7 +110,7 @@ def extract_text_from_file(filename: str, file_bytes: bytes) -> str:
                     lines.append("\n" + "\n".join(rows))
             extracted = "\n\n".join(lines)
         except Exception as exc:
-            logger.warning("DOCX extraction failed for %s: %s", filename, exc)
+            logger.warning("extract_text_from_file_failed error_type=%s", type(exc).__name__)
             extracted = "[DOCX contains no extractable text]"
     else:
         # Default text / code decode

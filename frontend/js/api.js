@@ -6,17 +6,37 @@
 
 import { config } from "./config.js?v=30";
 import { getAuth, refreshSession } from "./auth.js";
-import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js";
+import { getClearance, hasTurnstile } from "./turnstile.js";
 
 function authHeaders(token) {
   const t = getAuth().auth?.token || token;
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+const clearancePaths = new Set(["/chat", "/images/generate", "/tts", "/tts/ticket", "/transcribe", "/search", "/scrape", "/attachments", "/export"]);
+
+async function fetchWithClearance(url, options = {}) {
+  const protectedRequest = options.method === "POST" && clearancePaths.has(new URL(url, location.href).pathname);
+  if (!protectedRequest) return fetch(url, options);
+  const token = (options.headers?.Authorization || "").replace(/^Bearer /i, "");
+  let headers = { ...options.headers };
+  if (hasTurnstile()) headers["X-Bimo-Clearance"] = await getClearance(token, {signal:options.signal});
+  let response = await fetch(url, {...options,headers});
+  if (response.status === 403) {
+    let detail;
+    try { detail = await response.clone().json(); } catch {}
+    if (detail?.code === "verification_required") {
+      headers = {...headers,"X-Bimo-Clearance":await getClearance(token,{signal:options.signal,force:true})};
+      response = await fetch(url,{...options,headers});
+    }
+  }
+  return response;
+}
+
 async function request(path, { method = "GET", body, blob = false, token, signal } = {}) {
   const execute = async (t) => {
     console.debug(`[bimo-api] ${method} ${path} auth=${t ? "yes" : "none"}`);
-    const response = await fetch(`${config.apiUrl}${path}`, {
+    const response = await fetchWithClearance(`${config.apiUrl}${path}`, {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -100,170 +120,19 @@ export async function updateConversation(token, conversationId, patch) {
 }
 
 export async function shareConversation(token, conversationId) {
-  try {
-    return await request(`/conversations/${conversationId}/share`, {
-      method: "POST",
-      token,
-    });
-  } catch (err) {
-    if (isSupabaseConfigured()) {
-      try {
-        const client = supabaseClient();
-        const { auth } = getAuth();
-        const userId = auth?.user?.id;
-
-        const { data: conv, error: convErr } = await client
-          .from("conversations")
-          .select("id, title, model")
-          .eq("id", conversationId)
-          .single();
-        if (convErr || !conv) throw err;
-
-        const msgs = [];
-        const pageSize = 200;
-        while (true) {
-          const { data: page, error: msgErr } = await client
-            .from("messages")
-            .select("id, role, content, reasoning, attachments, skills, created_at")
-            .eq("conversation_id", conversationId)
-            .order("created_at", { ascending: true })
-            .order("id", { ascending: true })
-            .range(msgs.length, msgs.length + pageSize - 1);
-          if (msgErr) throw err;
-          msgs.push(...(page || []));
-          if (!page || page.length < pageSize) break;
-        }
-
-        const cleanMsgs = (msgs || []).map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          reasoning: m.reasoning,
-          attachments: m.attachments,
-          skills: m.skills || [],
-          created_at: m.created_at,
-        }));
-
-        const now = new Date().toISOString();
-        const { data: shared, error: shareErr } = await client
-          .from("shared_conversations")
-          .upsert(
-            {
-              conversation_id: conversationId,
-              user_id: userId,
-              title: conv.title || "Shared conversation",
-              model: conv.model,
-              snapshot: cleanMsgs,
-              updated_at: now,
-            },
-            { onConflict: "conversation_id" }
-          )
-          .select("id, title, model, created_at, updated_at")
-          .single();
-
-        if (shareErr || !shared) throw err;
-        return {
-          success: true,
-          share_id: shared.id,
-          title: shared.title,
-          model: shared.model,
-          created_at: shared.created_at,
-          updated_at: shared.updated_at,
-        };
-      } catch (fallbackErr) {
-        console.warn("[bimo-api] Direct Supabase share fallback:", fallbackErr);
-        throw err;
-      }
-    }
-    throw err;
-  }
+  return request(`/conversations/${encodeURIComponent(conversationId)}/share`, { method: "POST", token });
 }
 
 export async function getConversationShare(token, conversationId) {
-  try {
-    return await request(`/conversations/${conversationId}/share`, { token });
-  } catch (err) {
-    if (isSupabaseConfigured()) {
-      try {
-        const client = supabaseClient();
-        const { data, error } = await client
-          .from("shared_conversations")
-          .select("id, conversation_id, title, model, created_at, updated_at")
-          .eq("conversation_id", conversationId)
-          .maybeSingle();
-
-        if (!error && data) {
-          return {
-            shared: true,
-            share_id: data.id,
-            title: data.title,
-            model: data.model,
-            created_at: data.created_at,
-            updated_at: data.updated_at,
-          };
-        }
-        return { shared: false };
-      } catch {
-        return { shared: false };
-      }
-    }
-    return { shared: false };
-  }
+  return request(`/conversations/${encodeURIComponent(conversationId)}/share`, { token });
 }
 
 export async function deleteConversationShare(token, conversationId) {
-  try {
-    return await request(`/conversations/${conversationId}/share`, {
-      method: "DELETE",
-      token,
-    });
-  } catch (err) {
-    if (isSupabaseConfigured()) {
-      try {
-        const client = supabaseClient();
-        await client
-          .from("shared_conversations")
-          .delete()
-          .eq("conversation_id", conversationId);
-        return { success: true, deleted: true };
-      } catch {
-        throw err;
-      }
-    }
-    throw err;
-  }
+  return request(`/conversations/${encodeURIComponent(conversationId)}/share`, { method: "DELETE", token });
 }
 
-export async function getPublicShare(shareId) {
-  try {
-    return await request(`/share/${shareId}`);
-  } catch (err) {
-    if (isSupabaseConfigured()) {
-      try {
-        const client = supabaseClient();
-        const { data, error } = await client
-          .from("shared_conversations")
-          .select("id, title, model, snapshot, created_at, updated_at")
-          .eq("id", shareId)
-          .single();
-
-        if (error || !data) {
-          throw new Error("Shared conversation not found");
-        }
-        return {
-          id: data.id,
-          title: data.title,
-          model: data.model,
-          messages: data.snapshot || [],
-          created_at: data.created_at,
-          updated_at: data.updated_at,
-        };
-      } catch (fallbackErr) {
-        throw fallbackErr;
-      }
-    }
-    throw err;
-  }
+export async function getPublicShare(shareId, signal) {
+  return request(`/share/${encodeURIComponent(shareId)}`, { signal });
 }
 
 // ---------- chat (streaming) ----------
@@ -281,6 +150,8 @@ export async function getPublicShare(shareId) {
  */
 export async function streamChat(token, payload, handlers = {}) {
   const { onConversation, onUserMessage, onToken, onReasoningToken, onAssistantMessage, onComplete, onError, onSearching, onSearchComplete, onVoiceStyle, signal } = handlers;
+  const checkAborted = () => { if (signal?.aborted) throw new DOMException("Request cancelled", "AbortError"); };
+  checkAborted();
   
   // Extract incognito flag if present so we don't send it to the normal payload
   const isIncognito = !!payload.incognito;
@@ -289,7 +160,7 @@ export async function streamChat(token, payload, handlers = {}) {
 
   const execute = async (t) => {
     const endpoint = isIncognito ? `${config.apiUrl}/chat/incognito` : `${config.apiUrl}/chat`;
-    const response = await fetch(endpoint, {
+    const response = await fetchWithClearance(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -340,11 +211,14 @@ export async function streamChat(token, payload, handlers = {}) {
   const decoder = new TextDecoder();
   let buffer = "";
   let assistant = null;
-
+  let completed = false;
+  try {
   while (true) {
+    checkAborted();
     const { value, done } = await reader.read();
+    checkAborted();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
 
     let idx;
     while ((idx = buffer.indexOf("\n\n")) !== -1) {
@@ -390,6 +264,7 @@ export async function streamChat(token, payload, handlers = {}) {
         case "complete":
           // Model finished generating; the persisted assistant_message follows
           // after the server's DB writes. Lets the UI drop the caret instantly.
+          completed = true;
           onComplete?.();
           break;
         case "assistant_message":
@@ -398,7 +273,7 @@ export async function streamChat(token, payload, handlers = {}) {
           break;
         case "error": {
           const err = new Error(event.detail || "Chat error");
-          if (onError) onError(err);
+          if ([409, 429, 503].includes(event.status)) err.status = event.status;
           throw err;
         }
         default:
@@ -406,7 +281,19 @@ export async function streamChat(token, payload, handlers = {}) {
       }
     }
   }
+  if (!assistant && !(isIncognito && completed)) {
+    const error = new Error("Response interrupted. Check the conversation before retrying.");
+    error.interrupted = true;
+    throw error;
+  }
   return assistant;
+  } catch (error) {
+    await reader.cancel?.().catch(() => {});
+    if (error.name !== "AbortError") onError?.(error);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 // Explicit Stop: tell the gateway to halt server-side generation for this
@@ -459,7 +346,7 @@ export async function uploadAttachment(token, file, signal) {
   const execute = async (t) => {
     const fd = new FormData();
     fd.append("file", file);
-    const response = await fetch(`${config.apiUrl}/attachments`, {
+    const response = await fetchWithClearance(`${config.apiUrl}/attachments`, {
       method: "POST",
       headers: authHeaders(t),
       body: fd,
@@ -502,16 +389,17 @@ export async function listModels(token) {
 
 // ---------- voice transcription ----------
 
-export async function transcribeAudio(token, audioBlob, { language } = {}) {
+export async function transcribeAudio(token, audioBlob, { language, signal } = {}) {
   const execute = async (t) => {
     const fd = new FormData();
     const isWav = (audioBlob.type || "").includes("wav");
     fd.append("audio", audioBlob, isWav ? "recording.wav" : "recording.webm");
     if (language) fd.append("language", language);
-    const response = await fetch(`${config.apiUrl}/transcribe`, {
+    const response = await fetchWithClearance(`${config.apiUrl}/transcribe`, {
       method: "POST",
       headers: authHeaders(t),
       body: fd,
+      signal,
     });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
@@ -550,7 +438,7 @@ export async function transcribeAudio(token, audioBlob, { language } = {}) {
 // us drive the globe from the audio amplitude).
 export async function synthesizeSpeech(token, text, { voice, language } = {}) {
   const execute = async (t) => {
-    const response = await fetch(`${config.apiUrl}/tts`, {
+    const response = await fetchWithClearance(`${config.apiUrl}/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders(t) },
       body: JSON.stringify({ text, voice, language }),
@@ -584,18 +472,21 @@ export async function synthesizeSpeech(token, text, { voice, language } = {}) {
   }
 }
 
-export function ttsStreamUrl(token, { model = "flux-sienna-en", sampleRate = 24000, speed, expressivity } = {}) {
-  const t = getAuth().auth?.token || token || "";
+export async function createTtsTicket(token, { model = "flux-sienna-en", sampleRate = 24000, speed, expressivity, signal } = {}) {
+  return request("/tts/ticket", { method: "POST", token, signal,
+    body: { model, sample_rate: sampleRate, speed, expressivity } });
+}
+
+export function ttsStreamUrl(ticket) {
+  if (typeof ticket !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(ticket)) {
+    throw new Error("A fresh voice ticket is required.");
+  }
   let base = (config.apiUrl || "").replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
   if (!base.startsWith("ws://") && !base.startsWith("wss://")) {
     base = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
   }
   const params = new URLSearchParams();
-  if (t) params.set("token", t);
-  if (model) params.set("model", model);
-  if (sampleRate) params.set("sample_rate", String(sampleRate));
-  if (speed !== undefined) params.set("speed", String(speed));
-  if (expressivity !== undefined) params.set("expressivity", String(expressivity));
+  params.set("ticket", ticket);
   return `${base.replace(/\/+$/, "")}/tts/stream?${params.toString()}`;
 }
 
@@ -607,7 +498,7 @@ export function ttsStreamUrl(token, { model = "flux-sienna-en", sampleRate = 240
  */
 export async function exportDocument(token, { title, markdown, format }, signal) {
   const execute = async (t) => {
-    const response = await fetch(`${config.apiUrl}/export`, {
+    const response = await fetchWithClearance(`${config.apiUrl}/export`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -747,7 +638,7 @@ export async function deleteProjectFile(token, projectId, fileId) {
 
 export async function health() {
   try {
-    const response = await fetch(`${config.apiUrl}/health`);
+    const response = await fetchWithClearance(`${config.apiUrl}/health`);
     if (!response.ok) return { status: "down" };
     return response.json();
   } catch {

@@ -164,6 +164,7 @@ export class StreamHandler {
   }
 
   cancel() {
+    const partial = { content: this.streamingText, reasoning: this.streamingReasoning };
     const token = this.getAuthToken();
     if (this.currentStreamId && token) {
       api.cancelChat(token, this.currentStreamId).catch(() => {});
@@ -172,6 +173,7 @@ export class StreamHandler {
       this.controller.abort();
     }
     this.cleanup();
+    return partial;
   }
 
   cleanup() {
@@ -190,27 +192,25 @@ export class StreamHandler {
     streamId,
     onDeltaVoice,
     onVoiceStyle,
+    signal,
   }) {
+    if (signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
     this.cleanup();
-    this.controller = new AbortController();
+    const controller = new AbortController();
+    this.controller = controller;
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     this.currentStreamId = streamId;
     this.streamingText = "";
     this.streamingReasoning = "";
     this.lastReasoningSeconds = null;
 
-    const token = this.getAuthToken();
-    if (!token) throw new Error("Not authenticated");
-
-    this.startStatusRotation((phrase) => {
-      this.onStatusChange({ phrase });
-    });
-
     try {
-      await api.streamChat(
-        token,
-        { ...payload, stream_id: streamId },
-        {
-          signal: this.controller.signal,
+      const token = this.getAuthToken();
+      if (!token) throw new Error("Not authenticated");
+      this.startStatusRotation((phrase) => this.onStatusChange({ phrase }));
+      let receivedAssistant = false;
+      const callbacks = {
           onConversation: (convo) => this.onConversation(convo),
           onVoiceStyle,
           onUserMessage: (msg) => this.onUserMessage(msg),
@@ -258,23 +258,35 @@ export class StreamHandler {
             this.onComplete();
           },
           onAssistantMessage: (msg) => {
+            receivedAssistant = true;
             if (this.lastReasoningSeconds != null) {
               msg.reasoning_seconds = this.lastReasoningSeconds;
             }
             if (!msg.reasoning && this.streamingReasoning) {
               msg.reasoning = this.streamingReasoning;
             }
-            this.cleanup();
+            this.streamingText = "";
+            this.streamingReasoning = "";
+            this.currentStreamId = null;
             this.onAssistantMessage(msg);
           },
-          onError: (err) => {
-            this.cleanup();
-            this.onError(err);
-          },
-        }
-      );
+      };
+      // A disposed turn cannot deliver buffered callbacks into a later turn.
+      const guarded = Object.fromEntries(Object.entries(callbacks).map(([name, callback]) => [name, (...args) => {
+        if (this.controller === controller && !controller.signal.aborted) return callback?.(...args);
+      }]));
+      await api.streamChat(token, { ...payload, stream_id: streamId }, { ...guarded, signal: controller.signal });
+      if (payload.incognito && !receivedAssistant && this.controller === controller && !controller.signal.aborted) {
+        callbacks.onAssistantMessage({ id: `incognito_${streamId}`, role: "assistant", content: this.streamingText, reasoning: this.streamingReasoning });
+      }
+    } catch (error) {
+      error.partialText = this.controller === controller ? this.streamingText : "";
+      error.partialReasoning = this.controller === controller ? this.streamingReasoning : "";
+      if (error.name !== "AbortError" && this.controller === controller) this.onError(error);
+      throw error;
     } finally {
-      this.cleanup();
+      signal?.removeEventListener("abort", abort);
+      if (this.controller === controller) this.cleanup();
     }
   }
 }

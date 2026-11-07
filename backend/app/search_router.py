@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from . import groq_client, mistral_client
+from . import groq_client, mistral_client, usage_service
 from .config import get_aeon_model, get_mistral_model
 from .prompts import wrap_search_results
 from .routes.helpers import is_trivial_prompt
@@ -290,7 +290,7 @@ def _classify(
 
     for name, make_client, model in _classifier_backends():
         try:
-            completion = make_client().chat.completions.create(
+            completion = usage_service.llm_create(make_client(), dict(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -299,10 +299,12 @@ def _classify(
                 max_tokens=80,
                 temperature=0,
                 timeout=timeout,
-            )
+            ), resource="thinking")
             raw = (completion.choices[0].message.content or "").strip()
-        except Exception as exc:  # noqa: BLE001 — any failure just tries the next backend
-            logger.warning("search_router: %s classifier failed: %s", name, exc)
+        except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+            raise
+        except Exception as exc:  # noqa: BLE001 — provider failures may try the next backend
+            logger.warning("classify_failed error_type=%s", type(exc).__name__)
             continue
         verdict = _parse_verdict(raw, fallback_query=query, reformulate_only=reformulate_only)
         if verdict is not None:
@@ -390,7 +392,7 @@ def fetch_results(query: str, *, timeout: float = 8.0) -> list[dict]:
             q = f"{q} {today}"
 
     def _get(params: dict) -> list:
-        resp = requests.get(
+        resp = usage_service.paid_http("search", 1, requests.get,
             TINYFISH_SEARCH_URL,
             params=params,
             headers=headers,
@@ -428,7 +430,7 @@ def run_search(query: str, *, timeout: float = 8.0) -> list[dict]:
     try:
         return fetch_results(query, timeout=timeout)
     except Exception as exc:  # noqa: BLE001 — a dead search must never break the answer
-        logger.warning("search_router: TinyFish request failed: %s", exc)
+        logger.warning("run_search_failed error_type=%s", type(exc).__name__)
         return []
 
 

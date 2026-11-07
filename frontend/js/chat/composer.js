@@ -118,6 +118,7 @@ export class Composer {
     this.onModelChange = onModelChange;
     this.onToolsChange = onToolsChange;
     this.getAuthToken = getAuthToken;
+    this.lifetime = new AbortController();
 
     this.pendingAttachments = [];
     this.uploadingFiles = [];
@@ -329,7 +330,6 @@ export class Composer {
       rows: 1,
       placeholder: greetingPlaceholder(),
       "aria-label": "Message",
-      autofocus: "",
       oninput: (e) => {
         this.autoSize(e.target);
         this.syncSendEnabled();
@@ -462,22 +462,27 @@ export class Composer {
           return;
         }
         if (!text && this.pendingAttachments.length === 0) return;
+        const draft = { text: this.textarea.value, attachments: this.pendingAttachments.slice(), skills: this.skillPicker.selected };
         this.textarea.value = "";
         this.skillPicker.close();
         this.autoSize(this.textarea);
         this.syncSendEnabled();
         this.syncUrlHighlight();
-        this.onSubmit?.({
+        const turn = {
           text,
           attachments: this.pendingAttachments.slice(),
           model: this.currentModel,
           reasoningEffort: this.getReasoningEffort(),
           autoSearch: this.autoSearch,
           studyMode: this.studyMode,
-          skills: this.skillPicker.selected,
-        });
+          skills: draft.skills,
+        };
         this.pendingAttachments = [];
         this.renderAttachmentsBar();
+        let result;
+        try { result = await this.onSubmit?.(turn); }
+        catch { result = { restoreDraft: true }; }
+        if (result?.restoreDraft && this.composer.isConnected) this.recoverDraft(draft);
       },
     }, [
       this.imageInput,
@@ -488,6 +493,29 @@ export class Composer {
     ]);
 
     this.composerWrap = el("div", { class: "composer-wrap" }, [this.composer]);
+  }
+
+  recoverDraft(draft) {
+    const restore = () => {
+      if (this.textarea.value || this.pendingAttachments.length || this.skillPicker.selected.length) return false;
+      this.setText(draft.text);
+      this.pendingAttachments = draft.attachments;
+      this.skillPicker.setSelected(draft.skills.map(skill => skill.id));
+      this.renderAttachmentsBar();
+      this.syncSendEnabled();
+      this.recovery?.remove();
+      this.recovery = null;
+      return true;
+    };
+    if (restore()) return;
+    this.recovery?.remove();
+    this.recovery = el("div", { class: "composer-recovery", role: "status" }, [
+      el("span", { text: "Message wasn’t sent. Your draft is saved here." }),
+      el("button", { type: "button", class: "btn secondary", text: "Restore message", onclick: () => {
+        if (!restore()) toast("Keep or clear your current draft first.", { tone: "warning" });
+      } }),
+    ]);
+    this.composerWrap.append(this.recovery);
   }
 
   get element() {
@@ -945,7 +973,7 @@ export class Composer {
   }
 
   async uploadAndAttach(file) {
-    if (!file) return;
+    if (!file || this.lifetime?.signal.aborted) return;
     if (file.size > 50 * 1024 * 1024) {
       toast("Max file size is 50MB", { tone: "error" });
       return;
@@ -1062,6 +1090,11 @@ export class Composer {
     this.recordTimerId = setInterval(() => {
       const s = Math.floor((Date.now() - this.recordStartedAt) / 1000);
       this.recTimer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      if (s >= 59) {
+        this.stopRecordTimer();
+        this.confirmRecording();
+        toast("Voice notes are limited to 60 seconds.", { tone: "neutral" });
+      }
     }, 250);
   }
 
@@ -1160,6 +1193,7 @@ export class Composer {
   }
 
   async startVoiceRecording() {
+    if (this.lifetime.signal.aborted) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       toast("Voice not supported", { tone: "error" });
       return;
@@ -1170,7 +1204,11 @@ export class Composer {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     } catch {
-      toast("Mic denied", { tone: "error" });
+      if (!this.lifetime.signal.aborted) toast("Mic denied", { tone: "error" });
+      return;
+    }
+    if (this.lifetime.signal.aborted) {
+      stream.getTracks().forEach(track => track.stop());
       return;
     }
     this.cancelRecording = false;
@@ -1201,13 +1239,10 @@ export class Composer {
       this.setTranscribingUI(true);
       const token = this.getAuthToken();
       try {
-        let wav;
-        try {
-          wav = await blobToWav16kMono(recorded);
-        } catch {
-          wav = recorded;
-        }
-        const result = await api.transcribeAudio(token, wav);
+        const wav = await blobToWav16kMono(recorded);
+        if (this.lifetime.signal.aborted) return;
+        const result = await api.transcribeAudio(token, wav, { signal: this.lifetime.signal });
+        if (this.lifetime.signal.aborted) return;
         if (result.text) {
           const cur = this.textarea.value.trim();
           this.textarea.value = cur ? `${cur} ${result.text}` : result.text;
@@ -1216,12 +1251,15 @@ export class Composer {
           this.syncUrlHighlight();
         }
       } catch (err) {
-        toast(err.message || "Transcription failed", { tone: "error" });
+        if (!this.lifetime.signal.aborted) toast(err.message || "Transcription failed", { tone: "error" });
       } finally {
-        this.setTranscribingUI(false);
-        this.showRecordingBar(false);
-        this.syncSendEnabled();
-        this.textarea.focus();
+        if (!this.lifetime.signal.aborted) {
+          const focusInput = document.activeElement === document.body || this.recordingBar.contains(document.activeElement);
+          this.setTranscribingUI(false);
+          this.showRecordingBar(false);
+          this.syncSendEnabled();
+          if (focusInput) this.textarea.focus();
+        }
       }
     });
     this.mediaRecorder.start();
@@ -1269,6 +1307,10 @@ export class Composer {
   }
 
   destroy() {
+    if (this.lifetime.signal.aborted) return;
+    this.lifetime.abort();
+    this.cancelRecording = true;
+    for (const upload of this.uploadingFiles) upload.controller?.abort();
     this.skillLayoutObserver?.disconnect();
     this.skillPicker.destroy();
     this.stopRecordTimer();

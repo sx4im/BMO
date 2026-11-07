@@ -478,7 +478,7 @@ def test_trivial_prompts_skip_thinking():
         assert _is_trivial_prompt(real) is False, real
 
 
-def test_iter_response_thinking_toggle_for_deepseek(monkeypatch):
+def test_iter_response_thinking_toggle_for_deepseek(monkeypatch, provider_budget):
     """thinking=False must send chat_template_kwargs.thinking=False (fast path),
     thinking=True must enable it. Non-DeepSeek models ignore the flag."""
     from app import nvidia_client
@@ -541,11 +541,10 @@ def test_iter_response_thinking_toggle_for_deepseek(monkeypatch):
     assert captured["extra_body"]["chat_template_kwargs"]["reasoning_effort"] == "medium"
 
 
-def test_qwen_stanza_gets_full_token_budget(monkeypatch):
-    """Stanza (qwen) must get the same 16384 output cap as the other lanes — not
-    the lower env default it used to fall through to, which capped its replies at
-    half the others and truncated them mid-sentence."""
+def test_qwen_stanza_obeys_configured_output_budget(monkeypatch, provider_budget):
+    """Every lane obeys the same explicit application output ceiling."""
     from app import nvidia_client
+    monkeypatch.setenv("BMO_MAX_LLM_OUTPUT_TOKENS", "8192")
 
     captured = {}
 
@@ -567,14 +566,15 @@ def test_qwen_stanza_gets_full_token_budget(monkeypatch):
         [{"role": "user", "content": "hi"}],
         model="qwen/qwen3-next-80b-a3b-instruct",
     ))
-    assert captured["max_tokens"] == 16384
+    assert captured["max_tokens"] == 8192
 
 
-def test_nemotron_reasoning_directive(monkeypatch):
+def test_nemotron_reasoning_directive(monkeypatch, provider_budget):
     """Nemotron (the Nexos deep model) gates reasoning via a system directive,
     not chat_template_kwargs: thinking=True -> 'detailed thinking on',
-    thinking=False -> 'detailed thinking off', capped at 16384 output tokens."""
+    thinking=False -> 'detailed thinking off', within the application cap."""
     from app import nvidia_client
+    monkeypatch.setenv("BMO_MAX_LLM_OUTPUT_TOKENS", "8192")
 
     captured = {}
 
@@ -596,7 +596,7 @@ def test_nemotron_reasoning_directive(monkeypatch):
 
     list(nvidia_client.iter_response(base, model="nvidia/nemotron-3-ultra-550b-a55b", thinking=True))
     assert "detailed thinking on" in captured["messages"][0]["content"].lower()
-    assert captured["max_tokens"] == 16384
+    assert captured["max_tokens"] == 8192
 
     list(nvidia_client.iter_response(base, model="nvidia/nemotron-3-ultra-550b-a55b", thinking=False))
     assert "detailed thinking off" in captured["messages"][0]["content"].lower()
@@ -621,24 +621,20 @@ def test_client_is_cached(monkeypatch):
     assert third is not first
 
 
-def test_friendly_error_disambiguates_supabase_vs_nvidia():
-    """'Invalid API key' is ambiguous — we MUST name which service rejected us."""
+def test_friendly_error_keeps_provider_and_database_details_out_of_product_errors():
+    """Provider bodies and deployment instructions belong in trusted operations."""
     from app.main import _friendly_error
 
-    # Supabase rejection -> should explicitly name SUPABASE_SERVICE_ROLE_KEY
     supabase_msg = _friendly_error(Exception("Invalid API key"))
-    assert "SUPABASE_SERVICE_ROLE_KEY" in supabase_msg
-    assert "Supabase" in supabase_msg
+    assert "Invalid API key" not in supabase_msg
+    assert "try again" in supabase_msg.lower()
 
-    # NVIDIA rejection (already prefixed by nvidia_client._format_api_error)
-    # should NOT be misclassified as Supabase
     nvidia_msg = _friendly_error(Exception("NVIDIA 401: Invalid API key"))
     assert "SUPABASE_SERVICE_ROLE_KEY" not in nvidia_msg
-    assert "NVIDIA 401" in nvidia_msg
+    assert "NVIDIA 401" not in nvidia_msg
 
-    # Unrelated errors pass through untouched
     other = _friendly_error(Exception("connection reset by peer"))
-    assert other == "connection reset by peer"
+    assert "connection reset by peer" not in other
 
 
 def test_coerce_alternating_fixes_broken_history():
@@ -707,6 +703,7 @@ def test_whatsapp_signature_verification(monkeypatch):
 
 def test_whatsapp_uses_aeon_model_groq(monkeypatch):
     from app import whatsapp
+    monkeypatch.setenv("BMO_WHATSAPP_IDENTITY_PEPPER", "fixture-whatsapp-principal-pepper-32-bytes")
 
     sent_messages = []
     def mock_send(to_phone, msg):
@@ -734,6 +731,7 @@ def test_whatsapp_uses_aeon_model_groq(monkeypatch):
 
 def test_whatsapp_uses_aeon_model(monkeypatch):
     from app import whatsapp
+    monkeypatch.setenv("BMO_WHATSAPP_IDENTITY_PEPPER", "fixture-whatsapp-principal-pepper-32-bytes")
 
     sent_messages = []
     def mock_send(to_phone, msg):
@@ -808,6 +806,7 @@ def test_tts_voice_validation(client, monkeypatch):
 
 def test_whatsapp_maintains_conversation_context(monkeypatch):
     from app import whatsapp
+    monkeypatch.setenv("BMO_WHATSAPP_IDENTITY_PEPPER", "fixture-whatsapp-principal-pepper-32-bytes")
 
     sent_messages = []
     def mock_send(to_phone, msg):
@@ -823,7 +822,7 @@ def test_whatsapp_maintains_conversation_context(monkeypatch):
     monkeypatch.setattr(whatsapp, "_generate_groq_reply", mock_generate_groq)
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test123")
 
-    test_phone = "9876543210_test_suite"
+    test_phone = "15559876543"
     whatsapp._clear_phone_history(test_phone)
 
     # Turn 1
@@ -1135,6 +1134,7 @@ def test_chat_aeon_model_stream(client, monkeypatch):
     import jwt
     from app import store
     from app.prompts import AEON_SYSTEM_PROMPT
+    monkeypatch.setattr(store, "recent_usage_events", lambda *_: [])
 
     claims = {
         "sub": "test_aeon_user",
@@ -1273,7 +1273,7 @@ def test_chat_default_reasoning_efforts(client, monkeypatch):
     assert captured_kwargs.get("reasoning_effort") is None
 
 
-def test_scrape_endpoint(client, monkeypatch):
+def test_scrape_endpoint(client, monkeypatch, provider_budget):
     import time
     import jwt
     import requests
@@ -1353,7 +1353,7 @@ def test_scrape_endpoint(client, monkeypatch):
     assert res.status_code == 502
 
 
-def test_search_endpoint(client, monkeypatch):
+def test_search_endpoint(client, monkeypatch, provider_budget):
     import time
     import jwt
     import requests
@@ -1638,7 +1638,7 @@ def test_force_search_falls_back_to_the_raw_prompt(monkeypatch):
     assert query == "Hello Bimo"
 
 
-def test_run_search_normalizes_tinyfish_results(monkeypatch):
+def test_run_search_normalizes_tinyfish_results(monkeypatch, provider_budget):
     import requests
 
     from app import search_router
@@ -1687,7 +1687,7 @@ def test_run_search_normalizes_tinyfish_results(monkeypatch):
     assert captured["params"]["domain_type"] == "news"
 
 
-def test_run_search_orders_results_newest_first(monkeypatch):
+def test_run_search_orders_results_newest_first(monkeypatch, provider_budget):
     import requests
 
     from app import search_router
@@ -1723,7 +1723,7 @@ def test_run_search_orders_results_newest_first(monkeypatch):
     assert [r["title"] for r in results] == ["Fresh story", "Old story"]
 
 
-def test_run_search_falls_back_to_web_when_news_is_empty(monkeypatch):
+def test_run_search_falls_back_to_web_when_news_is_empty(monkeypatch, provider_budget):
     import requests
 
     from app import search_router
@@ -2092,7 +2092,7 @@ def test_chat_survives_a_search_that_returns_nothing(client, monkeypatch):
     assert "<live_web_search" not in content
 
 
-def test_generate_title_normalizes_pascal_case_and_strips_prefixes(monkeypatch):
+def test_generate_title_normalizes_pascal_case_and_strips_prefixes(monkeypatch, provider_budget):
     """generate_title must normalize PascalCase/CamelCase into cleanly spaced words
     and strip prefixes like 'Title:'."""
     from app import nvidia_client

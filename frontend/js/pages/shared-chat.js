@@ -11,13 +11,18 @@ import { whenMarkdownReady } from "../components/markdown.js?v=34";
 import { navigate } from "../router.js";
 import * as api from "../api.js?v=64";
 
-export async function renderSharedChat({ shareId } = {}) {
+export async function renderSharedChat({ shareId } = {}, navigation = {}) {
+  if (navigation.signal?.aborted || navigation.isCurrent?.() === false) return;
   const root = document.getElementById("app");
   if (!root) return;
   clear(root);
 
   const page = el("div", { class: "shared-chat-page" });
   root.appendChild(page);
+  const controller = new AbortController();
+  const cleanup = () => controller.abort();
+  navigation.onCleanup?.(cleanup);
+  const isCurrent = () => !controller.signal.aborted && page.isConnected && navigation.isCurrent?.() !== false;
 
   // Top header bar
   const logoBtn = el(
@@ -72,11 +77,12 @@ export async function renderSharedChat({ shareId } = {}) {
         }),
       ])
     );
-    return;
+    return cleanup;
   }
 
   try {
-    const data = await api.getPublicShare(shareId);
+    const data = await api.getPublicShare(shareId, controller.signal);
+    if (!isCurrent()) return cleanup;
     if (!data || !Array.isArray(data.messages)) {
       throw new Error("Shared conversation not found");
     }
@@ -85,6 +91,7 @@ export async function renderSharedChat({ shareId } = {}) {
     let attachmentRefresh = null;
 
     const renderMessages = () => {
+      if (!isCurrent()) return;
       clear(feedContainer);
       for (const msg of data.messages) {
         const bubbleNode = messageBubble({
@@ -98,8 +105,10 @@ export async function renderSharedChat({ shareId } = {}) {
           onRenderQuiz: null,
           onExport: null,
           onRefreshAttachment: async attachment => {
-            if (!attachmentRefresh) attachmentRefresh = api.getPublicShare(shareId).finally(() => { attachmentRefresh = null; });
+            if (!isCurrent()) return;
+            if (!attachmentRefresh) attachmentRefresh = api.getPublicShare(shareId, controller.signal).finally(() => { attachmentRefresh = null; });
             const refreshed = await attachmentRefresh;
+            if (!isCurrent()) return;
             return refreshed.messages?.flatMap(message => message.attachments || []).find(a => a.path === attachment.path)?.url;
           },
         });
@@ -112,6 +121,7 @@ export async function renderSharedChat({ shareId } = {}) {
     // Footer removed per user design specifications
 
   } catch (err) {
+    if (!isCurrent()) return cleanup;
     titleText.textContent = "Chat not found";
     feedContainer.appendChild(
       el("div", { class: "shared-chat-empty" }, [
@@ -125,4 +135,5 @@ export async function renderSharedChat({ shareId } = {}) {
       ])
     );
   }
+  return cleanup;
 }

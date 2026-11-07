@@ -215,13 +215,43 @@ def test_upload_returns_only_metadata(gateway, headers, db):
     assert db.rows["project_files"][0]["extracted_text"] == "Private document contents"
 
 
-def test_incognito_history_and_metering_without_persistence(gateway, headers, db, monkeypatch):
+@pytest.fixture
+def billed_inference(monkeypatch, db):
+    """Real chat/adapter/admission lifecycle with only DB and SDK boundaries fake."""
+    from app import usage_service
+    reservations = {}
     captured = []
+    monkeypatch.setenv("NVIDIA_STANZA_MODEL", "native-fixture")
+    monkeypatch.setenv("MISTRAL_MODEL", "")
     monkeypatch.setattr(chat_routes, "get_usage_status", lambda uid: {"blocked": False})
-    def stream(messages, **kwargs):
-        captured.append(messages)
-        yield {"type": "delta", "data": "Your number is 731."}
-    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
+    def reserve(user, request_id, resource, units, **_):
+        assert request_id not in reservations
+        reservations[request_id] = {"user": user, "resource": resource, "units": units, "settled": False}
+    def settle(user, request_id, used, **_):
+        reservation = reservations[request_id]
+        assert reservation["user"] == user and not reservation["settled"]
+        assert 0 <= used <= reservation["units"]
+        reservation["settled"] = True
+        store.record_usage(user, reservation["resource"], used)
+    monkeypatch.setattr(usage_service, "reserve_usage", reserve)
+    monkeypatch.setattr(usage_service, "settle_usage", settle)
+    def install(reply, *, fail=False):
+        def create(**kwargs):
+            assert reservations, "SDK started without admission"
+            captured.append(kwargs["messages"])
+            def chunks():
+                for content, reasoning in [(None, "Thinking through the problem"), (reply, None)]:
+                    yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content, reasoning_content=reasoning), finish_reason=None)])
+                if fail: raise RuntimeError("provider failed")
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=None), finish_reason="stop")])
+            return chunks()
+        monkeypatch.setattr(nvidia_client, "_client", lambda *_: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+        return captured
+    return install
+
+
+def test_incognito_history_and_metering_without_persistence(gateway, headers, db, monkeypatch, billed_inference):
+    captured = billed_inference("Your number is 731.")
     response = gateway.post("/chat/incognito", headers=headers, json={
         "message": "What number did I give you?", "auto_search": False,
         "history": [{"role": "user", "content": "Remember my number: 731"}],
@@ -247,13 +277,8 @@ def test_incognito_rejects_invalid_or_foreign_history(gateway, headers, history,
     assert response.status_code == status
 
 
-def test_partial_incognito_reasoning_is_metered_once(gateway, headers, db, monkeypatch):
-    monkeypatch.setattr(chat_routes, "get_usage_status", lambda uid: {"blocked": False})
-    def stream(*args, **kwargs):
-        yield {"type": "reasoning_delta", "data": "Thinking through the problem"}
-        yield {"type": "delta", "data": "A partial answer"}
-        raise RuntimeError("provider failed")
-    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
+def test_partial_incognito_reasoning_is_metered_once(gateway, headers, db, monkeypatch, billed_inference):
+    billed_inference("A partial answer", fail=True)
     response = gateway.post("/chat/incognito", headers=headers, json={"message": "Explain", "auto_search": False})
     response.get_data()
     assert len(db.rows["usage_events"]) == 1
@@ -367,11 +392,13 @@ def _cancel_in_other_process(stream_id, user_id, results):
 def test_cancellation_crosses_process_boundaries_and_checks_owner(monkeypatch, tmp_path):
     monkeypatch.setenv("BMO_STATE_DIR", str(tmp_path))
     event = cancellation.register("stream", "owner")
-    context = multiprocessing.get_context("fork")
+    # A fresh interpreter proves shared storage, without forking live service
+    # maintenance threads (deprecated and unsafe on current Python).
+    context = multiprocessing.get_context("spawn")
     results = context.Queue()
     worker = context.Process(target=_cancel_in_other_process, args=("stream", "owner", results))
     worker.start()
-    worker.join(timeout=5)
+    worker.join(timeout=10)
     assert worker.exitcode == 0
     assert results.get(timeout=1) is True
     assert event.wait(1)

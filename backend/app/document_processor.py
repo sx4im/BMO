@@ -153,7 +153,7 @@ def _extract_pdf(file_bytes: bytes, max_pages: int = 30) -> list[dict]:
             finally:
                 pix = None
     except Exception as exc:
-        logger.warning("pdf extraction error: %s", exc)
+        logger.warning("extract_pdf_failed error_type=%s", type(exc).__name__)
     finally:
         if doc is not None:
             try:
@@ -322,7 +322,7 @@ def _extract_zip(
 
             # Zip-bomb guard 1: check compression ratio (abnormally high expansion ratio)
             if member.compress_size > 0 and (member.file_size / member.compress_size) > 100:
-                logger.warning("zip: rejected suspicious decompression ratio on %s", member.filename)
+                logger.warning("zip_decompression_ratio_denied")
                 parts.append(_text_part(f"[ZIP: skipped suspicious file with high compression ratio: {member.filename}]"))
                 continue
 
@@ -348,7 +348,7 @@ def _extract_zip(
                     break
                 data = bytes(buf)
             except Exception as exc:
-                logger.warning("zip: failed to read %s: %s", member.filename, exc)
+                logger.warning("extract_zip_failed error_type=%s", type(exc).__name__)
                 continue
 
             total_extracted += len(data)
@@ -367,7 +367,7 @@ def _extract_zip(
                     parts.append(_text_part(f"\n--- File in ZIP: {member.filename} ---\n"))
                     parts.extend(nested)
             except Exception as exc:
-                logger.warning("zip: failed to process %s: %s", member.filename, exc)
+                logger.warning("extract_zip_failed error_type=%s", type(exc).__name__)
                 parts.append(_text_part(f"[Could not process {member.filename}: {exc}]"))
 
     if not parts:
@@ -429,7 +429,7 @@ def process_attachment(attachment: dict, download_fn) -> list[dict]:
     try:
         file_bytes = download_fn(path)
     except Exception as exc:
-        logger.warning("document_processor: failed to download %s: %s", path, exc)
+        logger.warning("process_attachment_failed error_type=%s", type(exc).__name__)
         return []
 
     if not file_bytes:
@@ -450,15 +450,10 @@ def process_attachment(attachment: dict, download_fn) -> list[dict]:
 
         if delimited_parts:
             logger.info(
-                "document_processor: %s -> %d parts",
-                filename,
+                "document_processed parts=%d",
                 len(delimited_parts),
             )
         return delimited_parts
     except Exception as exc:
-        logger.warning(
-            "document_processor: failed to parse %s: %s",
-            filename,
-            exc,
-        )
+        logger.warning("process_attachment_failed error_type=%s", type(exc).__name__)
         return []
