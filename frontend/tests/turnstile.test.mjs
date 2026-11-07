@@ -81,3 +81,43 @@ test('verification iframe participates in modal keyboard navigation',async t=>{
   assert.equal(doc.activeElement.tagName,'IFRAME');
   controller.abort();await assert.rejects(result,{name:'AbortError'});
 });
+
+
+test('incognito chat obtains clearance before its paid request',async t=>{
+  const proofs=[],requests=[];
+  const app=moduleLoader({
+    'config.js':{config:{apiUrl:'https://gateway.invalid'}},
+    'auth.js':{getAuth:()=>({auth:{token:'fixture'}}),refreshSession:async()=>null},
+    'turnstile.js':{hasTurnstile:()=>true,getClearance:async(...args)=>{proofs.push(args);return 'fixture-clearance';}},
+  },{globals:{TextDecoder}});
+  t.after(()=>app.dom.window.close());
+  app.context.fetch=async(url,options)=>{requests.push({url,...options});return new Response('data: {"type":"complete"}\n\n',{headers:{'Content-Type':'text/event-stream'}});};
+  const api=await app.load('js/api.js');
+  await api.streamChat('fixture',{incognito:true,message:'Hello'});
+  assert.equal(proofs.length,1);
+  assert.equal(requests[0].headers['X-Bimo-Clearance'],'fixture-clearance');
+  assert.ok(requests[0].url.endsWith('/chat/incognito'));
+});
+
+test('ticket transport deadline starts after human verification and aborts a stalled fetch',async t=>{
+  const deadlines=[];let verify,transportSignal;
+  const app=moduleLoader({
+    'config.js':{config:{apiUrl:'https://gateway.invalid'}},
+    'auth.js':{getAuth:()=>({auth:{token:'fixture'}}),refreshSession:async()=>null},
+    'turnstile.js':{hasTurnstile:()=>true,getClearance:()=>new Promise(resolve=>{verify=resolve;})},
+  },{globals:{setTimeout:(fn,ms)=>{deadlines.push({fn,ms});return deadlines.length;},clearTimeout(){}}});
+  t.after(()=>app.dom.window.close());
+  app.context.fetch=async(_url,options)=>{
+    transportSignal=options.signal;
+    return new Promise((_,reject)=>options.signal?.addEventListener('abort',()=>reject(new DOMException('Timed out','AbortError')),{once:true}));
+  };
+  const api=await app.load('js/api.js');
+  const result=api.createTtsTicket('fixture');result.catch(()=>{});
+  await tick();assert.equal(deadlines.length,0);
+  verify('fixture-clearance');await tick();
+  assert.equal(deadlines.length,1);
+  assert.equal(deadlines[0].ms,10000);
+  deadlines[0].fn();
+  await assert.rejects(result,{name:'AbortError'});
+  assert.equal(transportSignal.aborted,true);
+});

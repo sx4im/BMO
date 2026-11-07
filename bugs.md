@@ -19,7 +19,7 @@ Work is on `fix/bimo-security-and-frontend`. Connected-account setup is delegate
 | BIMO-09: vulnerable dependencies | Reviewed Python/npm/browser fixes, compatible Riva runtimes, vendored DOMPurify with provenance, exact browser versions, redacted secret scanning and OSV metadata checks. | Run current advisory checks at release; native/transitive CDN coverage limitations are in the verification record. |
 | FE-01–FE-13 | Route/auth ownership, draft recovery, cancellation/stream EOF, deliberate sharing, dialog focus, Projects native keyboard controls, focus intent, contrast and usage Retry are repaired with regressions. | Physical-device, screen-reader and live-provider checks remain manual. |
 | Additional integration fixes | Denied image work no longer persists a draft the browser restores. Compact verification widget fixes reproduced320px overflow. Client build/entrypoint versions updated for release. | Follow coordinated maintenance release; do not publish blank gateway settings. |
-| Verification checkpoint | **488 backend tests /110 frontend tests** pass in networkless containers; real SQL permissions, retention and concurrent admission plus real Redis fresh-process tests pass. Local browser checks cover320/375/1440 widths, both themes, explicit sharing/focus and computed control contrast. | Fresh portable-install verification and final whole-branch review are being completed; production evidence is not claimed. |
+| Verification checkpoint | **496 backend tests /113 frontend tests** pass in networkless containers; real SQL permissions, retention and concurrent admission plus real Redis fresh-process tests pass. Local browser checks cover320/375/1440 widths, both themes, explicit sharing/focus and computed control contrast. | Fresh whole-branch review completed: all four Important findings fixed with regressions and green full suites. Fresh portable-install verification is still running; production evidence is not claimed. |
 
 The detailed findings below describe the original reviewed revision. Their line references and initial acceptance checklists are historical; this status table and the final verification record describe the remediation branch. **Account changes, live deployment and device checks are coordinated separately through the private agent handoff.**
 
@@ -317,7 +317,7 @@ These references were consulted during the source review. Recheck version-sensit
 
 ## Original backend-plan handoff — 2026-11-02
 
-**Plan created; implementation has not started.** No production resource was probed or changed, no migrations were applied, and no application tests were run while writing this document. Resume at Task 0 only when the user asks to continue.
+**Historical planning handoff:** implementation had not started on2026-11-02. No production resources were probed/changed or application tests run while preparing that original audit. The user subsequently authorized implementation; use the current status at the top and the verification record below.
 
 ---
 
@@ -610,6 +610,13 @@ All files listed as new below are proposed. No frontend test or source file was 
 - [WCAG 2.2: minimum text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
 - [WCAG 2.2: minimum target size and exceptions](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)
 
-### Current handoff
+### Original frontend-audit handoff
 
-**Frontend audit documented; implementation has not started.** The earlier backend plan remains open. Only `bugs.md` is intended to change in the repository. No cloud settings, production data, application source, or permanent test files were changed. Resume with the task corresponding to the user's next requested scope; do not automatically begin the backend plan because the calendar date changed.
+At the2026-11-03 audit handoff, implementation had not started and only this document changed. The later active goal authorized the fixes now summarized at the top. Cloud/account changes and deployment are coordinated separately through the private agent handoff. Do not restart completed remediation from the historical checklists.
+
+
+## Final review fix-pass checkpoint — 2026-11-07
+
+The independent whole-branch review found four Important integration gaps and no confirmed Critical finding. All four are fixed: incognito now requires Turnstile, model admission denials retain typed SSE error status instead of a completed busy answer, failed auth deletion preserves active usage and reports503, and voice allows human verification before its separate10s ticket-network deadline. Full bounded suites pass **496 backend /113 frontend /6 edge**; backend reports119 understood legacy dummy-JWT/deprecation warnings, none suppressed. Real SQL/Redis and browser evidence is recorded in [docs/SECURITY_VERIFICATION.md](docs/SECURITY_VERIFICATION.md). No deferred Minor findings were reported.
+
+Current-source redacted secret scanning and the152-version advisory query of the actually tested dependencies are clean. Clean dependency installation and remote Actions are separate evidence boundaries; their final local status is recorded at handoff. Production/cloud/account actions are delegated through a private agent handoff outside version control. The historical unchecked checklists above are the original plan, not a request to redo verified fixes.

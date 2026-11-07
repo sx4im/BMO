@@ -42,11 +42,16 @@ def siteverify(module, monkeypatch, result=None):
     return post
 
 
-def test_paid_calls_require_clearance_even_without_browser_headers(protection):
+def test_paid_calls_require_clearance_even_without_browser_headers(protection, monkeypatch):
+    from app.routes import chat_routes
     _, client = protection
-    for path in ["/chat", "/images/generate", "/tts", "/tts/ticket", "/transcribe", "/search", "/scrape", "/attachments", "/export"]:
-        assert client.post(path, headers=auth(), json={}).status_code == 403
+    monkeypatch.setattr(chat_routes,"get_usage_status",lambda _: {"blocked":False})
+    provider=MagicMock(return_value=iter([]))
+    monkeypatch.setattr(chat_routes.nvidia_client,"iter_response_with_fallback",provider)
+    for path in ["/chat", "/chat/incognito", "/images/generate", "/tts", "/tts/ticket", "/transcribe", "/search", "/scrape", "/attachments", "/export"]:
+        assert client.post(path, headers=auth(), json={"message":"Explain databases","auto_search":False}).status_code == 403
         assert client.post(path, headers={**auth(), "Origin": "https://frontend.invalid", "X-Bimo-Clearance": "forged"}, json={}).json["code"] == "verification_required"
+    provider.assert_not_called()
     assert client.post("/security/clearance", json={"token": "fixture-proof"}).status_code == 401
 
 

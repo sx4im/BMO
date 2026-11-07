@@ -69,6 +69,7 @@ def delete_me(user):
         auth_row_deleted = True
     except Exception as exc:  # noqa: BLE001
         logger.warning("delete_me_failed error_type=%s", type(exc).__name__)
+        return bad_request("Your content was removed, but account deletion is incomplete. Please retry shortly.", 503)
     return jsonify({"status": "deleted", "auth_row_deleted": auth_row_deleted})
 
 

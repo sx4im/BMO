@@ -517,7 +517,7 @@ def all_feedback_dataframe_rows(user_id: Optional[str] = None) -> list[dict]:
 # ---------- account deletion ----------
 
 def delete_all_user_data(user_id: str) -> None:
-    """Wipe every row this user owns. Messages cascade with conversations
+    """Wipe user content. Messages cascade with conversations
     via the FK in 0001_init.sql; feedback and profile go separately.
     Storage objects are cleaned up explicitly since there is no FK
     cascade from Postgres to Supabase Storage.
@@ -546,8 +546,8 @@ def delete_all_user_data(user_id: str) -> None:
     _execute(sb.table("preferences").delete().eq("user_id", user_id))
     # 3) Feedback (in case any orphaned rows survived the cascade)
     _execute(sb.table("feedback").delete().eq("user_id", user_id))
-    # 4) Usage events (FK is on auth.users, so they outlive a data-only wipe)
-    _execute(sb.table("usage_events").delete().eq("user_id", user_id))
+    # Preserve active allowances if the subsequent auth deletion fails. The
+    # auth.users FK removes personal usage only after actual account deletion.
     # 5) Profile row
     _execute(sb.table("profiles").delete().eq("id", user_id))
 

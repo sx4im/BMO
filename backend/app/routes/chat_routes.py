@@ -806,6 +806,8 @@ def chat(user):
                         if delta:
                             yield sse_event({"type": "token", "data": {"delta": delta}})
                         break
+                    except (usage_service.MeteringUnavailable, usage_service.QuotaExceeded, usage_service.AdmissionConflict):
+                        raise
                     except Exception as exc:  # noqa: BLE001
                         # Retrying after tokens reached the client would duplicate them.
                         if not streamed and attempt < len(retry_delays) and is_transient_model_error(exc):

@@ -51,7 +51,7 @@ test("voice obtains a cancellable bearer-authenticated ticket and puts only that
   assert.equal((await api.createTtsTicket("old-token", {model:"flux-sienna-en", sampleRate:24000, speed:1.1, expressivity:1, signal:controller.signal})).ticket, ticket);
   assert.equal(call.url, "https://test.invalid/tts/ticket");
   assert.equal(call.headers.Authorization, "Bearer login-jwt-secret");
-  assert.equal(call.signal, controller.signal);
+  assert.equal(call.signal.aborted, false);
   assert.equal(JSON.parse(call.body).sample_rate, 24000);
   const url = new URL(api.ttsStreamUrl(ticket));
   assert.equal(url.protocol, "wss:");
@@ -59,6 +59,17 @@ test("voice obtains a cancellable bearer-authenticated ticket and puts only that
   assert.equal(url.searchParams.get("ticket"), ticket);
   assert.equal(url.href.includes("login-jwt"), false);
   assert.throws(() => api.ttsStreamUrl("login.jwt.credential"));
+  const pendingController = new AbortController();
+  let activeSignal;
+  app.context.fetch = async (_url, options) => {
+    activeSignal = options.signal;
+    return new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")), {once:true}));
+  };
+  const pending = api.createTtsTicket("old-token", {signal:pendingController.signal});
+  await new Promise(resolve => setImmediate(resolve));
+  pendingController.abort();
+  await assert.rejects(pending, {name:"AbortError"});
+  assert.equal(activeSignal.aborted, true);
 });
 
 test("paid HTTP requests get session clearance and renew it once when the server expires it",async t=>{

@@ -224,7 +224,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     ttsController = controller;
     const abort = () => controller.abort();
     lifetime.signal.addEventListener("abort", abort, { once: true });
-    const timeout = setTimeout(abort, 10000);
     const pending = (async () => {
       try {
         const { ticket } = await api.createTtsTicket(token, { model: activeLang.model, sampleRate: 24000, ...controls, signal: controller.signal });
@@ -238,7 +237,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         if (!controller.signal.aborted) console.warn("[bimo-voice] Voice connection unavailable");
         return null;
       } finally {
-        clearTimeout(timeout);
         lifetime.signal.removeEventListener("abort", abort);
         if (generation === ttsGeneration) { ttsPending = null; ttsController = null; }
       }

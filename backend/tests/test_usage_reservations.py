@@ -357,3 +357,33 @@ def test_transcription_is_bounded_and_does_not_bypass_admission_via_fallback(cli
     response = client.post("/transcribe", data={"audio": (io.BytesIO(data), "recording.wav")}, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == expected
     assert calls == []
+
+
+@pytest.mark.parametrize("error_type,status", [(usage_service.QuotaExceeded,429), (usage_service.MeteringUnavailable,503), (usage_service.AdmissionConflict,409)])
+@pytest.mark.parametrize("partial", [False, True])
+def test_model_admission_denial_is_an_sse_error_not_a_completed_busy_answer(client, monkeypatch, error_type, status, partial):
+    import jwt
+    import time
+    import json
+    from app.routes import chat_routes
+    secret = "fixture-only-signing-key-for-usage-tests"
+    monkeypatch.setenv("SUPABASE_JWT_SECRET",secret)
+    token=jwt.encode({"sub":USER,"aud":"authenticated","iss":"https://example.supabase.co/auth/v1","exp":int(time.time())+3600},secret,algorithm="HS256")
+    monkeypatch.setattr(chat_routes,"get_usage_status",lambda _: {"blocked":False})
+    called=[]
+    fake=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: called.append(kw) or iter([]))))
+    monkeypatch.setattr(chat_routes.nvidia_client,"_client",lambda *args:fake)
+    def denied(*_,**__):raise error_type("Admission refused")
+    monkeypatch.setattr(usage_service,"reserve_usage",denied)
+    real_stream=chat_routes.nvidia_client.iter_response_with_fallback
+    def stream(*args,**kwargs):
+        if partial:yield {"type":"delta","data":"Partial answer"}
+        kwargs["model"]="native-fixture"
+        yield from real_stream(*args,**kwargs)
+    monkeypatch.setattr(chat_routes.nvidia_client,"iter_response_with_fallback",stream)
+    response=client.post("/chat/incognito",headers={"Authorization":f"Bearer {token}"},json={"message":"Explain databases","model":"thinking","auto_search":False})
+    events=[json.loads(line[6:]) for line in response.get_data(as_text=True).splitlines() if line.startswith("data: ")]
+    assert any(event.get("type")=="error" and event.get("status")==status for event in events),events
+    assert not any(event.get("type")=="complete" for event in events)
+    assert called==[]
+    if partial:assert "Partial answer" in str(events)

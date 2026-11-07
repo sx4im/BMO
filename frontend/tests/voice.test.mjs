@@ -45,7 +45,7 @@ async function voicePage(sendTurn, language='en', options={}) {
     ...(options.convert ? {'audio-wav.js':{blobToWav16kMono:options.convert}} : {}),
     'toast.js':{toast:message=>notices.push(message)},
   },{globals:{WebSocket:Socket,Blob,performance:{now:options.now || (()=>Date.now())},
-    setTimeout:(fn,ms)=>setTimeout(fn,ms).unref(),
+    setTimeout:options.setTimeout || ((fn,ms)=>setTimeout(fn,ms).unref()),
     requestAnimationFrame:fn=>setTimeout(fn,10).unref(),cancelAnimationFrame:clearTimeout,
   }});
   app.dom.window.localStorage.setItem('bimo-voice-lang',language);
@@ -219,4 +219,16 @@ test('SSE voice metadata reaches its handler before answer text',async()=>{
   const {streamChat}=await app.load('js/api.js');
   await streamChat('test',{message:'News?',model:'aeon'},{onVoiceStyle:data=>seen.push(data.tone),onSearching:()=>seen.push('search'),onToken:data=>seen.push(data.delta)});
   assert.deepEqual(seen,['lively','search','Here is the answer.']);
+});
+
+
+test('human verification may take more than ten seconds before voice receives a ticket',async t=>{
+  const deadlines=[];let release;
+  const page=await voicePage(async()=>'', 'en',{
+    setTimeout:(fn,ms)=>{if(ms===10000){deadlines.push(fn);return {unref(){}};}return setTimeout(fn,ms).unref();},
+    ticket:()=>new Promise(resolve=>{release=resolve;})});
+  t.after(()=>{page.overlay.close();page.dom.window.close();});
+  for(const timeout of deadlines)timeout();
+  assert.equal(page.tickets[0].settings.signal.aborted,false);
+  release();await until(()=>page.sockets.length===1);
 });

@@ -419,3 +419,29 @@ def test_stream_ids_are_isolated_by_user_and_duplicates_do_not_replace(monkeypat
     assert not owner.is_set()
     cancellation.unregister(owner)
     cancellation.unregister(other)
+
+
+@pytest.mark.parametrize("auth_failure",[False,True])
+def test_content_cleanup_keeps_active_allowance_until_auth_deletion_cascades(gateway,headers,db,monkeypatch,auth_failure):
+    from app.routes import helpers
+    db.rows["usage_events"]=[{"id":"usage","user_id":"owner","model":"thinking","tokens":100000,"created_at":datetime.now(timezone.utc).isoformat()}]
+    def delete_auth(owner):
+        if auth_failure:raise RuntimeError("private admin failure")
+        # The auth.users FK performs this cascade in the actual database.
+        assert db.rows["usage_events"],"Content cleanup erased usage before auth deletion"
+        db.rows["usage_events"]=[]
+    monkeypatch.setattr(store,"delete_auth_user",delete_auth)
+    response=gateway.delete("/me",headers=headers)
+    if auth_failure:
+        assert db.rows["usage_events"],"An active identity regained its allowance"
+        from app import usage_service
+        monkeypatch.setattr(usage_service,"held_usage",lambda _:[])
+        monkeypatch.setattr(store,"recent_usage_events",lambda *_:copy.deepcopy(db.rows["usage_events"]))
+        assert helpers.get_usage_status("owner")["blocked"] is True
+        assert gateway.post("/images/generate",headers=headers,json={"prompt":"A sunset"}).status_code==429
+        assert response.status_code==503
+        assert "private admin failure" not in response.get_data(as_text=True)
+    else:
+        assert response.status_code==200
+        assert response.json["auth_row_deleted"] is True
+        assert db.rows["usage_events"]==[]

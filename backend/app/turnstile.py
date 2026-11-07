@@ -20,7 +20,7 @@ from .limiter import limiter
 logger = logging.getLogger("bmo.turnstile")
 ACTION = "bimo_paid"
 CLEARANCE_SECONDS = 900
-PROTECTED_PATHS = frozenset({"/chat", "/images/generate", "/tts", "/tts/ticket", "/transcribe", "/search", "/scrape", "/attachments", "/export"})
+PROTECTED_PATHS = frozenset({"/chat", "/chat/incognito", "/images/generate", "/tts", "/tts/ticket", "/transcribe", "/search", "/scrape", "/attachments", "/export"})
 
 
 class InvalidProof(ValueError):

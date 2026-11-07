@@ -13,21 +13,35 @@ function authHeaders(token) {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-const clearancePaths = new Set(["/chat", "/images/generate", "/tts", "/tts/ticket", "/transcribe", "/search", "/scrape", "/attachments", "/export"]);
+const clearancePaths = new Set(["/chat", "/chat/incognito", "/images/generate", "/tts", "/tts/ticket", "/transcribe", "/search", "/scrape", "/attachments", "/export"]);
+
+async function fetchTicket(url, options) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  options.signal?.addEventListener("abort", cancel, {once:true});
+  if (options.signal?.aborted) cancel();
+  const timeout = setTimeout(cancel, 10000);
+  try { return await fetch(url, {...options,signal:controller.signal}); }
+  finally { clearTimeout(timeout); options.signal?.removeEventListener("abort",cancel); }
+}
 
 async function fetchWithClearance(url, options = {}) {
   const protectedRequest = options.method === "POST" && clearancePaths.has(new URL(url, location.href).pathname);
   if (!protectedRequest) return fetch(url, options);
+  // Human interaction owns its120s verification deadline. Start the short
+  // ticket transport deadline only after each verification/renewal finishes.
+  const send = headers => new URL(url, location.href).pathname === "/tts/ticket"
+    ? fetchTicket(url, {...options,headers}) : fetch(url, {...options,headers});
   const token = (options.headers?.Authorization || "").replace(/^Bearer /i, "");
   let headers = { ...options.headers };
   if (hasTurnstile()) headers["X-Bimo-Clearance"] = await getClearance(token, {signal:options.signal});
-  let response = await fetch(url, {...options,headers});
+  let response = await send(headers);
   if (response.status === 403) {
     let detail;
     try { detail = await response.clone().json(); } catch {}
     if (detail?.code === "verification_required") {
       headers = {...headers,"X-Bimo-Clearance":await getClearance(token,{signal:options.signal,force:true})};
-      response = await fetch(url,{...options,headers});
+      response = await send(headers);
     }
   }
   return response;
