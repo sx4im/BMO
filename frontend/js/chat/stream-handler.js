@@ -3,40 +3,9 @@
  * Manages token assembly, reasoning timer, background buffering, status phrases, and stream cancellation.
  */
 
-import * as api from "../api.js?v=64";
+import * as api from "../api.js?v=65";
 
-export const ROTATING_PHRASES = [
-  "Extrapolating…",
-  "Adjudicating…",
-  "Disambiguating…",
-  "Triangulating…",
-  "Ruminating…",
-  "Elucidating…",
-  "Deliberating…",
-  "Contextualizing…",
-  "Operationalizing…",
-  "Instantiating…",
-  "Substantiating…",
-  "Corroborating…",
-  "Reconciling…",
-  "Interpolating…",
-  "Delineating…",
-  "Disaggregating…",
-  "Recalibrating…",
-  "Abstracting…",
-  "Generalizing…",
-  "Rationalizing…",
-  "Codifying…",
-  "Demystifying…",
-  "Excavating…",
-  "Marshaling…",
-  "Orchestrating…",
-  "Harmonizing…",
-  "Reconfiguring…",
-  "Problematizing…",
-  "Metabolizing…",
-  "Extemporizing…",
-];
+export const INITIAL_STATUS = "Preparing response…";
 
 // Shown for the moment between "Bmo decided to search" and the results
 // landing. Transient chrome, never persisted into the reply.
@@ -56,16 +25,6 @@ export function getSearchPreamble() {
   } while (i === _lastPreambleIndex && SEARCH_PREAMBLES.length > 1);
   _lastPreambleIndex = i;
   return SEARCH_PREAMBLES[i];
-}
-
-let _lastPhraseIndex = -1;
-export function getRandomPhrase() {
-  let i = 0;
-  do {
-    i = Math.floor(Math.random() * ROTATING_PHRASES.length);
-  } while (i === _lastPhraseIndex && ROTATING_PHRASES.length > 1);
-  _lastPhraseIndex = i;
-  return ROTATING_PHRASES[i];
 }
 
 export function formatElapsedSeconds(totalSeconds) {
@@ -103,7 +62,6 @@ export class StreamHandler {
 
     this.controller = null;
     this.currentStreamId = null;
-    this.rotateInterval = null;
     this.reasoningInterval = null;
     this.reasoningStartTime = null;
     this.lastReasoningSeconds = null;
@@ -120,10 +78,10 @@ export class StreamHandler {
 
   // Idempotent so the search card is settled exactly once, whether the server
   // closes it explicitly or the first token simply arrives.
-  endSearch({ count = 0, elapsedMs = null, results = [] } = {}) {
+  endSearch({ count = 0, elapsedMs = null, results = [], status = results.length ? "ok" : "empty" } = {}) {
     if (!this.isSearching) return;
     this.isSearching = false;
-    this.onSearchComplete({ count, elapsedMs, results });
+    this.onSearchComplete({ count, elapsedMs, results, status });
   }
 
   startReasoningTimer(onTick) {
@@ -146,23 +104,6 @@ export class StreamHandler {
     this.reasoningStartTime = null;
   }
 
-  startStatusRotation(onRotate) {
-    this.stopStatusRotation();
-    const tick = () => {
-      this.currentPhrase = getRandomPhrase();
-      if (onRotate) onRotate(this.currentPhrase);
-    };
-    tick();
-    this.rotateInterval = setInterval(tick, 3000);
-  }
-
-  stopStatusRotation() {
-    if (this.rotateInterval) {
-      clearInterval(this.rotateInterval);
-      this.rotateInterval = null;
-    }
-  }
-
   cancel() {
     const token = this.getAuthToken();
     if (this.currentStreamId && token) {
@@ -175,7 +116,6 @@ export class StreamHandler {
   }
 
   cleanup() {
-    this.stopStatusRotation();
     this.stopReasoningTimer();
     this.endSearch();
     this.controller = null;
@@ -201,9 +141,8 @@ export class StreamHandler {
     const token = this.getAuthToken();
     if (!token) throw new Error("Not authenticated");
 
-    this.startStatusRotation((phrase) => {
-      this.onStatusChange({ phrase });
-    });
+    this.currentPhrase = INITIAL_STATUS;
+    this.onStatusChange({ phrase: this.currentPhrase });
 
     try {
       await api.streamChat(
@@ -214,11 +153,21 @@ export class StreamHandler {
           onConversation: (convo) => this.onConversation(convo),
           onVoiceStyle,
           onUserMessage: (msg) => this.onUserMessage(msg),
+          onSearchStatus: ({ label }) => {
+            if (label) {
+              this.currentPhrase = label;
+              this.onStatusChange({ phrase: label });
+            }
+          },
           onSearching: ({ query }) => {
             this.isSearching = true;
             this.onSearching({ query, preamble: getSearchPreamble() });
           },
-          onSearchComplete: (done) => this.endSearch(done),
+          onSearchComplete: (done) => {
+            this.currentPhrase = "Preparing response…";
+            this.onStatusChange({ phrase: this.currentPhrase });
+            this.endSearch(done);
+          },
           onReasoningToken: ({ delta }) => {
             this.endSearch();
             this.streamingReasoning += delta;
@@ -254,7 +203,6 @@ export class StreamHandler {
             });
           },
           onComplete: () => {
-            this.stopStatusRotation();
             this.onComplete();
           },
           onAssistantMessage: (msg) => {

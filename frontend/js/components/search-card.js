@@ -82,7 +82,7 @@ function pendingRow() {
  * @param {number|null} [opts.elapsedMs] Round-trip time, shown once finished.
  * @param {boolean} [opts.searching] True while the request is still open.
  */
-export function searchCard({ query = "", results = [], elapsedMs = null, searching = false } = {}) {
+export function searchCard({ query = "", results = [], elapsedMs = null, searching = false, status = "empty" } = {}) {
   const mark = el("span", { class: "orb-slot" });
   if (searching) {
     mark.append(searchOrb(16));
@@ -112,7 +112,7 @@ export function searchCard({ query = "", results = [], elapsedMs = null, searchi
 
   if (!results.length) {
     list.append(el("li", { class: "search-result empty" }, [
-      el("p", { class: "search-result-snippet", text: "No results came back for this one." }),
+      el("p", { class: "search-result-snippet", text: status === "unavailable" ? "Web search is temporarily unavailable. Current information could not be verified." : "No results came back for this one." }),
     ]));
   }
 

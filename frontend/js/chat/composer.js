@@ -5,13 +5,13 @@
  */
 
 import { el, clear } from "../utils.js?v=20";
-import { icon } from "../icons.js?v=66";
+import { icon } from "../icons.js?v=73";
 import { FileIcon } from "../components/file-icon.js?v=6";
 import { toast } from "../components/toast.js?v=58";
 import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 import { getAuth } from "../auth.js";
-import * as api from "../api.js?v=64";
+import * as api from "../api.js?v=66";
 import { SkillPicker } from "./skill-picker.js?v=6";
 
 export const URL_REGEX = /(?:https?:\/\/|www\.)[^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’]))|\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?::\d+)?(?:[\/?#][^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’])))?/gi;
@@ -130,10 +130,8 @@ export class Composer {
     // whether a question actually needs live results. Switching it off opts
     // the conversation out of searching entirely.
     this.autoSearch = true;
-    this.studyMode = false;
     this.isGenerating = false;
     this.isImageGenerating = false;
-    this.isStudyGenerating = false;
     this.isRecording = false;
 
 
@@ -455,7 +453,7 @@ export class Composer {
       class: "composer",
       onsubmit: async (e) => {
         e.preventDefault();
-        if (this.isRecording || this.isGenerating || this.isImageGenerating || this.isStudyGenerating) return;
+        if (this.isRecording || this.isGenerating || this.isImageGenerating) return;
         const text = this.textarea.value.trim();
         if (this.isImageMode() && !text) {
           toast("Add a prompt", { tone: "error" });
@@ -473,7 +471,6 @@ export class Composer {
           model: this.currentModel,
           reasoningEffort: this.getReasoningEffort(),
           autoSearch: this.autoSearch,
-          studyMode: this.studyMode,
           skills: this.skillPicker.selected,
         });
         this.pendingAttachments = [];
@@ -602,9 +599,8 @@ export class Composer {
   renderToolsMenu() {
     clear(this.toolsMenu);
     const items = [
-      { kind: "search", ic: "globe", label: "Web search", desc: this.autoSearch ? "Reads web pages when needed" : "Off for this chat", active: this.autoSearch && !this.isImageMode() && !this.studyMode },
-      { kind: "generate", ic: "imageSparkles", label: "Create image", desc: "Generate an image with Iris", active: this.isImageMode() && !this.studyMode },
-      { kind: "study", ic: "helpStudy", label: "Learning Mode", desc: "Test yourself with quizzes", active: this.studyMode },
+      { kind: "search", ic: "globe", label: "Web search", desc: this.autoSearch ? "Reads web pages when needed" : "Off for this chat", active: this.autoSearch && !this.isImageMode() },
+      { kind: "generate", ic: "imageSparkles", label: "Create image", desc: "Generate an image with Iris", active: this.isImageMode() },
     ];
     for (const it of items) {
       this.toolsMenu.append(
@@ -655,30 +651,19 @@ export class Composer {
       if (this.autoSearch && this.isImageMode()) {
         this.currentModel = this.defaultModel || "thinking";
       }
-      // Leave study mode, otherwise the toggle the user just tapped stays
-      // greyed out and appears to do nothing.
-      if (this.autoSearch && this.studyMode) { this.studyMode = false; }
     } else if (kind === "generate") {
       this.currentModel = "image";
-      this.studyMode = false;
-    } else if (kind === "study") {
-      this.studyMode = !this.studyMode;
-      if (this.studyMode) {
-        this.currentModel = "thinking";
-      }
     }
     this.updateComposerForMode();
     this.renderModelBadge();
     this.renderToolsMenu();
     this.syncSendEnabled();
-    this.onToolsChange?.({ autoSearch: this.autoSearch, studyMode: this.studyMode, model: this.currentModel });
+    this.onToolsChange?.({ autoSearch: this.autoSearch, model: this.currentModel });
   }
 
   updateComposerForMode() {
     if (this.skillPicker.selectedIds.length) {
       this.textarea.placeholder = "";
-    } else if (this.studyMode) {
-      this.textarea.placeholder = "What topic do you want to study?";
     } else if (this.isImageMode()) {
       this.textarea.placeholder = "Describe an image to create…";
     } else {
@@ -991,16 +976,6 @@ export class Composer {
       this.sendBtn.classList.remove("stopping");
       this.sendBtn.setAttribute("aria-label", "Generating image");
       this.sendBtn.title = "Generating image";
-      this.sendBtn.innerHTML = `<span class="send-spin">${icon("loader", { width: 16, height: 16 })}</span>`;
-      return;
-    }
-    if (this.isStudyGenerating) {
-      this.voiceAssistantBtn.style.display = "none";
-      this.sendBtn.style.display = "";
-      this.sendBtn.disabled = true;
-      this.sendBtn.classList.remove("stopping");
-      this.sendBtn.setAttribute("aria-label", "Generating quiz");
-      this.sendBtn.title = "Generating quiz";
       this.sendBtn.innerHTML = `<span class="send-spin">${icon("loader", { width: 16, height: 16 })}</span>`;
       return;
     }

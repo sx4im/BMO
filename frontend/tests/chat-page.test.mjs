@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleLoader } from "./modules.mjs";
 
-async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash } = {}) {
+async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt } = {}) {
   let composer, feed, voice, lastRender;
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
   const shareStates = [], shareCallbacks = [];
@@ -23,7 +23,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     listSkills: async () => skills,
     listModels: async () => ({ models: [{ id: "thinking", label: "Stanza" }], default: "thinking" }),
     listConversations: async () => [],
-    getMessages: async () => ({ conversation: { id, model: "thinking", title: "Original chat", active_skills: activeSkills }, messages }),
+    getMessages: async () => ({ conversation: { id, model: "thinking", title: "Original chat", active_skills: activeSkills, system_prompt: conversationPrompt }, messages }),
     branchConversation: async (_token, parentId, messageId) => {
       branchCalls.push({ parentId, messageId });
       const prefix = messages.slice(0, messages.findIndex(m => m.id === messageId));
@@ -41,6 +41,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
       callbacks.onAssistantMessage({ id: `assistant-${turn}`, role: "assistant", content: `Answer ${turn}` });
     },
     cancelChat: async () => {},
+    scrapeUrl,
     exportDocument: async () => { throw Error("Export service unavailable"); },
   };
   const stubs = {
@@ -78,7 +79,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
   const page = await app.load("js/pages/chat.js");
   const unmount = await page.renderChat({ id, incognito });
   await new Promise(resolve => setImmediate(resolve));
-  const turn = (text, extras = {}) => composer.onSubmit({ text, attachments: [], model: "thinking", studyMode: false, autoSearch: false, ...extras });
+  const turn = (text, extras = {}) => composer.onSubmit({ text, attachments: [], model: "thinking", autoSearch: false, ...extras });
   return { app, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, shareStates, shareCallbacks, turn, unmount,
            voice: () => voice, rendered: () => lastRender };
 }
@@ -127,6 +128,13 @@ test("selected voice language reaches the actual outgoing chat request", async t
   assert.match(page.payloads.at(-1).system_prompt, /Respond fluently and naturally in French/);
   assert.equal(page.payloads.at(-1).model, "aeon");
   assert.equal(page.payloads.at(-1).auto_search, true);
+});
+
+test("conversation instructions and per-turn instructions both reach the chat request", async t => {
+  const page = await chatPage({id:'saved-chat', conversationPrompt:'Use concise explanations.'});
+  t.after(page.unmount);
+  await page.turn('Explain kinetic energy', {systemPrompt:'Use SI units.'});
+  assert.equal(page.payloads[0].system_prompt, 'Use concise explanations.\n\nUse SI units.');
 });
 
 for (const action of ["edit", "retry-user", "retry-assistant"]) {
@@ -184,4 +192,55 @@ test("returning to a chat refreshes skills added in another tab", async t => {
   page.app.dom.window.dispatchEvent(new page.app.dom.window.Event("focus"));
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(page.composer.skillPicker.skills[0].name, "new-skill");
+});
+
+
+test("web search off does not fetch pasted URLs", async t => {
+  let fetches = 0;
+  const page = await chatPage({ scrapeUrl: async () => { fetches++; return { markdown: "A page" }; } });
+  t.after(page.unmount);
+  await page.turn("Explain https://example.com", { autoSearch: false });
+  assert.equal(fetches, 0);
+  assert.equal(page.payloads.length, 1);
+  assert.equal(page.payloads[0].auto_search, false);
+});
+
+test("Tools offers web search and image creation with working mode transitions", async t => {
+  const page = await chatPage();
+  t.after(page.unmount);
+  const { composer } = page;
+  composer.renderToolsMenu();
+  assert.deepEqual(Array.from(composer.toolsMenu.querySelectorAll('.menu-title'), node => node.textContent),
+    ['Web search', 'Create image']);
+  composer.applyTool('generate');
+  assert.equal(composer.isImageMode(), true);
+  assert.match(composer.textarea.placeholder, /Describe an image/);
+  if (composer.autoSearch) composer.applyTool('search');
+  composer.applyTool('search');
+  assert.equal(composer.isImageMode(), false);
+  assert.equal(composer.autoSearch, true);
+  composer.textarea.value = 'Explain conservation of momentum';
+  composer.syncSendEnabled();
+  composer.sendBtn.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.payloads.at(-1).auto_search, true);
+  assert.equal(page.payloads.at(-1).message, 'Explain conservation of momentum');
+});
+
+test("stop during URL retrieval aborts the fetch and never sends the chat", async t => {
+  let started, signal;
+  const fetching = new Promise(resolve => { started = resolve; });
+  const page = await chatPage({ scrapeUrl: async (_token, _url, requestSignal) => {
+    signal = requestSignal;
+    started();
+    return new Promise(resolve => setTimeout(() => resolve({ markdown: "Late result" }), 10));
+  } });
+  t.after(page.unmount);
+  const turn = page.turn("Explain https://example.com", { autoSearch: true });
+  await fetching;
+  page.composer.onStop();
+  await turn;
+  assert.equal(signal?.aborted, true);
+  assert.equal(page.payloads.length, 0);
+  assert.equal(page.composer.isGenerating, false);
 });

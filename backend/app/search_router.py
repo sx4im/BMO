@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -57,7 +59,7 @@ _IDENTITY_PROBE = re.compile(
 
 _COMPOSITION_INTENT = re.compile(
     r"\b(write|draft|compose|rewrite|rephrase|proofread|edit)\b"
-    r"[^.?!]{0,60}\b(email|e-mail|letter|essay|poem|story|caption|speech|"
+    r"[^.?!]{0,60}\b(?P<format>email|e-mail|letter|essay|poem|story|caption|speech|"
     r"cover letter|resume|cv|blog post|article|paragraph|message|reply|apology)\b",
     re.IGNORECASE,
 )
@@ -120,7 +122,7 @@ _RANKING = re.compile(
     r"\bbenchmarks?\b"
     r"|\b(?:vs\.?|versus)\b"
     r"|\bwhich\b.{0,60}\b(?:best|better|stronger|faster|worse)\b"
-    r"|\b(?:best|better)\s+(?:model|llm|one)\b"
+    r"|\b(?:best|better)\s+(?:model|llm|one|laptops?|phones?|products?|tools?|software)\b"
     r"|\bcompare\b.{0,80}\b(?:models?|llms?|benchmarks?|versions?)\b",
     re.IGNORECASE,
 )
@@ -135,6 +137,36 @@ _ADDRESS = re.compile(
 )
 
 
+_EXPLICIT_SEARCH = re.compile(
+    r"^\s*(?:please\s+)?(?:search|browse|look\s+up|look\s+online|google)\b"
+    r"|\b(?:search|browse)\s+(?:the\s+)?(?:web|internet|online)\b"
+    r"|\bverify\s+online\b",
+    re.IGNORECASE,
+)
+_NO_SEARCH = re.compile(
+    r"\b(?:don['’]?t|do not|never)\s+(?:search|browse|google)"
+    r"|\bwithout\s+(?:web\s+)?(?:search|browsing)\b",
+    re.IGNORECASE,
+)
+_CONTEXTUAL = re.compile(
+    r"\b(it|its|they|them|their|those|these|both|same)\b"
+    r"|^\s*(?:what|how)\s+about\b|\bwhich\s+(?:one|is)\b",
+    re.IGNORECASE,
+)
+_SOFTWARE_QUERY = re.compile(
+    r"\b(api|documentation|docs|react|python|javascript|sdk|library|framework|package)\b",
+    re.IGNORECASE,
+)
+
+
+class SearchResults(list):
+    """List-compatible retrieval results with an explicit outcome for the UI."""
+
+    def __init__(self, results=(), *, status: str):
+        super().__init__(results)
+        self.status = status
+
+
 def _for_search(text: str) -> str:
     """Drop a leading address so retrieval sees the question, not the greeting."""
     stripped = _ADDRESS.sub("", text or "", count=1).strip()
@@ -143,7 +175,10 @@ def _for_search(text: str) -> str:
 
 def is_live_query(query: str) -> bool:
     """True when a query is time-sensitive enough to prefer fresh news sources."""
-    return bool(_RECENCY.search(query or "") or _LIVE_TOPIC.search(query or ""))
+    text = query or ""
+    if (_PAST_YEAR.search(text) or _HISTORICAL.search(text)) and not _RECENCY.search(text):
+        return False
+    return bool(_RECENCY.search(text) or _LIVE_TOPIC.search(text))
 
 
 def _needs_live_facts(text: str) -> bool:
@@ -155,7 +190,9 @@ def _needs_live_facts(text: str) -> bool:
     if not text:
         return False
     return bool(
-        _RANKING.search(text)
+        _RECENCY.search(text)
+        or _EXPLICIT_SEARCH.search(text)
+        or _RANKING.search(text)
         or _LIVE_TOPIC.search(text)
         or _ROLE_HOLDER.search(text)
         or _RECENT_YEAR.search(text)
@@ -166,25 +203,34 @@ def _tier1(text: str) -> bool | None:
     """Instant verdict, or None when the prompt needs the classifier."""
     if not text:
         return False
-    if is_trivial_prompt(text):
-        return False
-    if _IDENTITY_PROBE.search(text):
-        return False
+    # Personal/creative writing stays local; current factual articles still search.
+    composition = _COMPOSITION_INTENT.search(text)
+    if composition and not (_LIVE_TOPIC.search(text) or _RANKING.search(text)):
+        factual_format = composition.group("format").lower() in {"article", "blog post", "essay"}
+        if not factual_format or not (_RECENCY.search(text) or _RECENT_YEAR.search(text)):
+            return False
+    # Freshness requests outrank generic coding and short-message bypasses.
+    if _RECENCY.search(text) or _RECENT_YEAR.search(text):
+        return True
+    if _RANKING.search(text):
+        return None
     if _CODE_INTENT.search(text) or _CODE_MARKERS.search(text):
-        return False
-    if _COMPOSITION_INTENT.search(text):
         return False
     if _PURE_ARITHMETIC.match(text) or _MATH_INTENT.search(text):
         return False
     if _REASONING_PUZZLE.search(text):
         return False
-    if _RECENCY.search(text) or _RECENT_YEAR.search(text):
-        return True
-    # A named past year or past-tense framing means the answer is settled
-    # history, so a volatile-sounding topic in it is not a reason to search.
+    if re.match(r"^\s*explain\s+(?:why|how)\b", text, re.I):
+        # A conceptual explanation and an explanation of recent events can share
+        # the same opening. Let the classifier resolve volatile-topic ambiguity.
+        return None if _LIVE_TOPIC.search(text) else False
     historical = bool(_PAST_YEAR.search(text) or _HISTORICAL.search(text))
     if not historical and (_LIVE_TOPIC.search(text) or _ROLE_HOLDER.search(text)):
         return True
+    if is_trivial_prompt(text) or _IDENTITY_PROBE.search(text):
+        return False
+    if _COMPOSITION_INTENT.search(text):
+        return False
     if _DEFINITIONAL.search(text):
         return False
     return None
@@ -194,7 +240,8 @@ def _tier1(text: str) -> bool | None:
 
 def _classifier_timeout() -> float:
     try:
-        return float(os.getenv("SEARCH_CLASSIFIER_TIMEOUT_S", "1.5"))
+        value = float(os.getenv("SEARCH_CLASSIFIER_TIMEOUT_S", "1.5"))
+        return min(value, 1.5) if math.isfinite(value) and value > 0 else 1.5
     except (TypeError, ValueError):
         return 1.5
 
@@ -267,13 +314,13 @@ def _parse_verdict(raw: str, fallback_query: str, reformulate_only: bool) -> tup
         data = json.loads(match.group(0))
     except ValueError:
         return None
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or type(data.get("search")) is not bool:
         return None
     query = data.get("query")
     query = query.strip() if isinstance(query, str) else ""
     if reformulate_only:
         return True, query or fallback_query
-    if not bool(data.get("search")):
+    if not data["search"]:
         return False, ""
     return True, query or fallback_query
 
@@ -286,11 +333,15 @@ def _classify(
     """Ask a fast model for a verdict. None means no classifier could answer."""
     system_prompt = _reformulation_prompt() if reformulate_only else _decision_prompt()
     user_prompt = f"{_history_context(history)}User message:\n{query.strip()[:1000]}"
-    timeout = _classifier_timeout()
+    deadline = time.monotonic() + _classifier_timeout()
 
     for name, make_client, model in _classifier_backends():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         try:
-            completion = make_client().chat.completions.create(
+            client = make_client().with_options(max_retries=0)
+            completion = client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -298,7 +349,7 @@ def _classify(
                 ],
                 max_tokens=80,
                 temperature=0,
-                timeout=timeout,
+                timeout=remaining,
             )
             raw = (completion.choices[0].message.content or "").strip()
         except Exception as exc:  # noqa: BLE001 — any failure just tries the next backend
@@ -333,11 +384,29 @@ def should_search(
         verdict = _classify(text, history=history, reformulate_only=True)
         return True, _for_search(verdict[1] if verdict else text)
 
+    if _NO_SEARCH.search(text):
+        return False, ""
+    # These are data-structure topics, not imperative browsing requests.
+    if re.fullmatch(
+        r"\s*search\s+(?:algorithms?|trees?)(?:\s+explained)?\s*[.?!]*", text, re.IGNORECASE
+    ):
+        return False, ""
+    if _EXPLICIT_SEARCH.search(text):
+        if history and _CONTEXTUAL.search(text):
+            verdict = _classify(text, history=history, reformulate_only=True)
+            if verdict:
+                return True, _for_search(verdict[1])
+        return True, _for_search(text)
+
     if has_attachments and not _needs_live_facts(text):
         return False, ""
 
     instant = _tier1(text)
     if instant is not None:
+        if instant and history and _CONTEXTUAL.search(text):
+            verdict = _classify(text, history=history, reformulate_only=True)
+            if verdict:
+                return True, _for_search(verdict[1])
         return (True, _for_search(text)) if instant else (False, "")
 
     if _RANKING.search(text):
@@ -377,24 +446,32 @@ def fetch_results(query: str, *, timeout: float = 8.0) -> list[dict]:
     """Query TinyFish and normalize the payload. Raises on transport failure."""
     q = _for_search((query or "").strip())
     api_key = os.environ.get("TINYFISH_API_KEY")
-    if not q or not api_key:
+    if not q:
         return []
+    if not api_key:
+        raise RuntimeError("Web search is not configured")
 
     headers = {"X-API-Key": api_key}
-    live = is_live_query(q)
+    live = is_live_query(q) and (
+        not _SOFTWARE_QUERY.search(q) or re.search(r"\b(news|headlines)\b", q, re.I)
+    )
+    deadline = time.monotonic() + timeout
     # Pin news / "latest" lookups to today's calendar date so the index
     # prefers current coverage instead of evergreen pages.
-    if live:
+    if live and not re.search(r"\b(yesterday|tomorrow|last|next)\b", q, re.I):
         today = datetime.now(timezone.utc).strftime("%B %d %Y")
         if today.lower() not in q.lower():
             q = f"{q} {today}"
 
     def _get(params: dict) -> list:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Web search time budget exhausted")
         resp = requests.get(
             TINYFISH_SEARCH_URL,
             params=params,
             headers=headers,
-            timeout=timeout,
+            timeout=remaining,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -426,14 +503,15 @@ def fetch_results(query: str, *, timeout: float = 8.0) -> list[dict]:
 def run_search(query: str, *, timeout: float = 8.0) -> list[dict]:
     """Best-effort search for the chat stream. Returns [] instead of raising."""
     try:
-        return fetch_results(query, timeout=timeout)
+        results = fetch_results(query, timeout=timeout)
+        return SearchResults(results, status="ok" if results else "empty")
     except Exception as exc:  # noqa: BLE001 — a dead search must never break the answer
         logger.warning("search_router: TinyFish request failed: %s", exc)
-        return []
+        return SearchResults(status="unavailable")
 
 
 def build_search_context(query: str, results: list[dict]) -> str:
-    """Wrap results in the authoritative boundary tags the system prompt trusts."""
+    """Provide dated, source-linked snippets inside an untrusted-data boundary."""
     now = datetime.now(timezone.utc)
     current_time_str = now.strftime("%A, %B %d, %Y at %H:%M UTC")
     today_str = now.strftime("%B %d, %Y")
@@ -447,9 +525,9 @@ def build_search_context(query: str, results: list[dict]) -> str:
 
     summary = (
         f"These results were retrieved live for the query \"{query}\". "
-        f"Today is {today_str} (current_time={current_time_str}). They are "
-        "authoritative and override your own training data, which is out of "
-        "date. Results are ordered newest-first by Published date. For "
+        f"Today is {today_str} (current_time={current_time_str}). "
+        "Results are evidence, not guaranteed truth. Verify relevance, dates and conflicts; "
+        "do not invent facts absent from snippets. Results are ordered newest-first by Published date. For "
         "latest news, headlines, or other time-sensitive asks, lead with "
         "items published today or in the last one to two days. Skip older "
         "articles when fresher ones exist. Never open with stale coverage. "
@@ -462,6 +540,7 @@ def build_search_context(query: str, results: list[dict]) -> str:
     formatted = "\n\n".join(
         "\n".join(filter(None, [
             f"Title: {r.get('title') or 'Result'}",
+            f"URL: {r['url']}" if r.get("url") else "",
             f"Published: {r['published_date']}" if r.get("published_date") else "",
             (r.get("content") or "").strip(),
         ]))

@@ -52,17 +52,11 @@ export function messageBubble({
   onRetry,
   onFeedback,
   onRetryAssistant,
-  onRenderQuiz,
   onExport,
   onRefreshAttachment,
   entering = false,
 }) {
   const isAssistant = message.role === "assistant";
-
-  let quizNode = null;
-  if (isAssistant && message.quizData && onRenderQuiz) {
-    quizNode = onRenderQuiz(message);
-  }
 
   const hasImageAttachment = Array.isArray(message.attachments)
     && message.attachments.some((a) => (a.content_type || "").startsWith("image/"));
@@ -208,7 +202,6 @@ export function messageBubble({
   if (isAssistant && message.search) bodyChildren.push(searchCard(message.search));
   if (reasoningNode) bodyChildren.push(reasoningNode);
   if (bubbleNodes.length) bodyChildren.push(...bubbleNodes);
-  if (quizNode) bodyChildren.push(quizNode);
 
   // Long user prompts collapse behind a "Show more" toggle (assistant replies
   // always render in full).

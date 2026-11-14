@@ -1,0 +1,19 @@
+{
+  "scope": "Real WebGL2 using SwiftShader; 96 CSS pixels, DPR 2, 30fps draw cap",
+  "idle": {
+    "time": 0.059999166666666694,
+    "activity": 0,
+    "level": 0,
+    "frames": 56,
+    "fps": 23.270573302305902
+  },
+  "speaking": {
+    "uTime": 0.2040372993809136,
+    "uActivity": 0.1813971021578673,
+    "uLevel": 0.7999999747861105,
+    "uLow": 0.4974481200556029,
+    "uMid": 0.39998958065399903,
+    "error": 0
+  },
+  "releaseBelow": 0.04
+}

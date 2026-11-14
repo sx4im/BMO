@@ -1,0 +1,43 @@
+{
+  "browser": "Chromium with SwiftShader WebGL2",
+  "scope": "Real GPU shaders and Web Audio; synthetic microphone and TTS signals, network services stubbed",
+  "desktop": {
+    "orb": {
+      "x": 672,
+      "y": 624,
+      "width": 96,
+      "height": 96
+    },
+    "bar": {
+      "x": 410,
+      "y": 800,
+      "width": 620,
+      "height": 60
+    },
+    "canvas": 192
+  },
+  "mobile": {
+    "left": 16,
+    "right": 374,
+    "width": 390,
+    "orb": 92
+  },
+  "metrics": {
+    "micRms": 0.10816267045438474,
+    "playbackRms": 0.14407844497899744,
+    "allTracksEnded": true,
+    "draws": 114
+  },
+  "checks": [
+    "GPU shader compile",
+    "mic waveform",
+    "playback waveform",
+    "interruption",
+    "responsive desktop/mobile/short landscape",
+    "reduced motion stops draws",
+    "context loss and restore",
+    "tracks and rendering stop on close",
+    "reopen"
+  ],
+  "errors": []
+}

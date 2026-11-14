@@ -8,8 +8,8 @@ async function until(condition) {
   assert.fail('Voice state did not settle');
 }
 
-async function voicePage(sendTurn, language='en') {
-  const sockets=[], commands=[], notices=[];
+async function voicePage(sendTurn, language='en', options = {}) {
+  const sockets=[], commands=[], notices=[], orbEvents=[], analysers=[], recorders=[], recognitions=[];
   class Socket {
     static CONNECTING=0; static OPEN=1;
     readyState=0;
@@ -22,29 +22,72 @@ async function voicePage(sendTurn, language='en') {
     close() {this.readyState=3;this.onclose?.();}
   }
   class Audio {
-    constructor(){this.startTime=Date.now();this.state='running';this.destination={};}
+    constructor(){this.startTime=Date.now();this.state='running';this.destination={};this.sampleRate=48000;this.playing=0;}
     get currentTime(){return (Date.now()-this.startTime)/1000;}
     createBuffer(_,length,rate){return {duration:length/rate,getChannelData:()=>new Float32Array(length)};}
-    createAnalyser(){return {fftSize:256,frequencyBinCount:4,connect(){},getByteFrequencyData(){}};}
-    createBufferSource(){return {connect(){},start(when){setTimeout(()=>this.onended?.(),Math.max(20,(when||0)*1000+20));},stop(){}};}
+    createAnalyser(){
+      const context = this;
+      const analyser = {fftSize:512,frequencyBinCount:256,connect(){},disconnect(){},
+        getFloatTimeDomainData(data){
+          const level = options.micLevel || (context.playing ? 0.12 : 0);
+          for(let i=0;i<data.length;i++) data[i]=level*(i%2?1:-1);
+        },
+        getByteFrequencyData(data){data.fill(context.playing || options.micLevel ? 100 : 0);},
+      };
+      analysers.push(analyser);return analyser;
+    }
+    createMediaStreamSource(){return {connect(){},disconnect(){}};}
+    createBufferSource(){
+      const context=this;
+      return {connect(){},disconnect(){},start(){
+        context.playing++;
+        setTimeout(()=>{context.playing--;this.onended?.();},50).unref();
+      },stop(){}};
+    }
     resume(){return Promise.resolve();} close(){return Promise.resolve();}
   }
+  class Recorder {
+    static isTypeSupported() { return true; }
+    constructor() { this.state = 'inactive'; this.listeners = {}; recorders.push(this); }
+    addEventListener(name, callback) { this.listeners[name] = callback; }
+    start() { this.state = 'recording'; }
+    stop() {
+      this.state = 'inactive';
+      queueMicrotask(() => {
+        if (options.recordingData) this.listeners.dataavailable?.({data: new Blob(['recorded audio'])});
+        this.listeners.stop?.();
+      });
+    }
+  }
   const app=moduleLoader({
-    'api.js':{health:async()=>({tts:'configured'}),ttsStreamUrl:(_token,options)=>'wss://voice.invalid/?'+new URLSearchParams(options)},
+    'api.js':{health:async()=>({tts:'configured'}),ttsStreamUrl:(_token,options)=>'wss://voice.invalid/?'+new URLSearchParams(options),
+      transcribeAudio: options.transcribeAudio},
+    'audio-wav.js':{blobToWav16kMono: options.convertRecording || (async blob => blob)},
     'toast.js':{toast:message=>notices.push(message)},
-  },{globals:{WebSocket:Socket,performance:{now:()=>Date.now()},
+    'voice-orb.js':{createVoiceOrb:canvas=>{
+      orbEvents.push({canvas});
+      return {setState:state=>orbEvents.push({state}),setLevels:levels=>orbEvents.push({levels}),
+        destroy:()=>orbEvents.push({destroy:true}),resize(){}};
+    }},
+  },{globals:{Blob, MediaRecorder: Recorder, ArrayBuffer, Int16Array, WebSocket:Socket,performance:{now:()=>Date.now() + (options.clockOffset?.() || 0)},
     setTimeout:(fn,ms)=>setTimeout(fn,ms).unref(),
     requestAnimationFrame:fn=>setTimeout(fn,10).unref(),cancelAnimationFrame:clearTimeout,
   }});
+  Object.defineProperty(app.dom.window.document,'hidden',{configurable:true,value:false});
+  if(options.getUserMedia) Object.defineProperty(app.dom.window.navigator,'mediaDevices',{
+    configurable:true,value:{getUserMedia:options.getUserMedia},
+  });
   app.dom.window.localStorage.setItem('bimo-voice-lang',language);
   app.dom.window.AudioContext=Audio;
-  app.dom.window.SpeechRecognition=class {start(){this.onstart?.();}stop(){};};
+  app.dom.window.SpeechRecognition=options.recorder ? undefined : class {
+    constructor(){recognitions.push(this);} start(){this.onstart?.();} stop(){};
+  };
   app.dom.window.HTMLMediaElement.prototype.play=()=>Promise.resolve();
   const {openVoiceOverlay,voiceDelivery}=await app.load('js/components/voice-overlay.js');
   let interrupted=0;
   const overlay=openVoiceOverlay({token:'test',sendTurn,onInterrupt:()=>interrupted++});
   await tick();
-  return {...app,sockets,commands,notices,overlay,voiceDelivery,interrupted:()=>interrupted,
+  return {...app,sockets,commands,notices,orbEvents,analysers,recorders,recognitions,overlay,voiceDelivery,interrupted:()=>interrupted,
     submit(text){const input=app.dom.window.document.querySelector('.voice-type');input.value=text;input.dispatchEvent(new app.dom.window.KeyboardEvent('keydown',{key:'Enter'}));}};
 }
 
@@ -110,4 +153,193 @@ test('SSE voice metadata reaches its handler before answer text',async()=>{
   const {streamChat}=await app.load('js/api.js');
   await streamChat('test',{message:'News?',model:'aeon'},{onVoiceStyle:data=>seen.push(data.tone),onSearching:()=>seen.push('search'),onToken:data=>seen.push(data.delta)});
   assert.deepEqual(seen,['lively','search','Here is the answer.']);
+});
+
+
+test('voice renders a procedural canvas and releases its renderer on close', async () => {
+  const page = await voicePage(async () => '');
+  assert.equal(page.dom.window.document.querySelectorAll('.voice-globe canvas').length, 1);
+  assert.equal(page.dom.window.document.querySelectorAll('.voice-globe video').length, 0);
+  page.overlay.close();page.overlay.close();
+  assert.equal(page.orbEvents.filter(e => e.destroy).length, 1);
+});
+
+test('all streamed audio chunks share one playback analyser and actual waveform levels', async t => {
+  const reply = 'One sentence. Another sentence. Last sentence.';
+  const page = await voicePage(async (_, handlers) => {
+    handlers.onDelta('One sentence. ');
+    handlers.onDelta('One sentence. Another sentence. ');
+    handlers.onDelta(reply);
+    return reply;
+  });
+  t.after(() => page.overlay.close());
+  page.submit('Say something');
+  await until(() => page.commands.filter(e => e.type === 'Speak').length >= 3);
+  assert.equal(page.analysers.length, 1);
+  await until(() => page.orbEvents.some(e => e.levels?.playback > 0));
+});
+
+test('Web Speech also feeds real microphone energy and releases the capture', async t => {
+  let stopped = 0;
+  const page = await voicePage(async () => '', 'en', {
+    micLevel: 0.1,
+    getUserMedia: async () => ({getTracks: () => [{stop(){stopped++;}}]}),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.orbEvents.some(e => e.levels?.mic > 0));
+  page.overlay.close();
+  assert.equal(stopped, 1);
+});
+
+test('a microphone acquired after close is immediately released', async () => {
+  let resolveCapture, stopped = 0;
+  const page = await voicePage(async () => '', 'en', {
+    getUserMedia: () => new Promise(resolve => {resolveCapture = resolve;}),
+  });
+  await until(() => resolveCapture);
+  page.overlay.close();
+  resolveCapture({getTracks: () => [{stop(){stopped++;}}]});
+  await tick();
+  assert.equal(stopped, 1);
+});
+
+test('language control is operable with a normal button click', async t => {
+  const page = await voicePage(async () => '');
+  t.after(() => page.overlay.close());
+  page.dom.window.document.querySelector('.voice-lang-btn').click();
+  assert.match(page.dom.window.document.querySelector('.voice-lang-btn').getAttribute('aria-label'), /Dutch/);
+});
+
+
+test('recorder VAD and visual microphone levels share one capture and analyser', async () => {
+  let captures = 0, stopped = 0;
+  const page = await voicePage(async () => '', 'en', {
+    recorder: true,
+    micLevel: 0.1,
+    getUserMedia: async () => {
+      captures++;
+      return { getTracks: () => [{ stop() { stopped++; } }] };
+    },
+  });
+  try {
+    await until(() => page.orbEvents.some(event => event.levels?.mic > 0));
+    assert.equal(captures, 1);
+    assert.equal(page.analysers.length, 1);
+  } finally {
+    page.overlay.close();
+  }
+  await tick();
+  assert.equal(stopped, 1);
+});
+
+for (const action of ['close', 'type', 'listen']) {
+  test(`${action} cancels pending transcription and ignores its late failure`, async t => {
+    let rejectTranscription, signal, offset = 0;
+    const sent = [];
+    const page = await voicePage(async text => { sent.push(text); return ''; }, 'en', {
+      recorder: true, recordingData: true, clockOffset: () => offset,
+      getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+      transcribeAudio: (_token, _blob, options) => {
+        signal = options.signal;
+        return new Promise((_resolve, reject) => {rejectTranscription = reject;});
+      },
+    });
+    t.after(() => page.overlay.close());
+    await until(() => page.recorders[0]?.state === 'recording');
+    offset = 700;
+    page.dom.window.document.querySelector('.voice-mic').click();
+    await until(() => rejectTranscription);
+    if (action === 'close') page.overlay.close();
+    else if (action === 'type') {page.submit('A newer typed turn'); await tick();}
+    else page.dom.window.document.querySelector('.voice-mic').click();
+    assert.equal(signal?.aborted, true);
+    const eventCount = page.orbEvents.length;
+    rejectTranscription(new Error('Late transcription failure'));
+    await tick();
+    assert.deepEqual(page.notices, []);
+    assert.equal(page.orbEvents.slice(eventCount).some(event => event.state === 'idle'), false);
+    assert.deepEqual(sent, action === 'type' ? ['A newer typed turn'] : []);
+  });
+}
+
+test('late recognition start cannot replace a typed turn state', async t => {
+  const page = await voicePage(() => new Promise(() => {}));
+  t.after(() => page.overlay.close());
+  await until(() => page.recognitions.length);
+  const lateStart = page.recognitions[0].onstart;
+  page.submit('A typed turn');
+  await tick();
+  lateStart();
+  assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state, 'thinking');
+});
+
+test('transcription API forwards cancellation to fetch', async () => {
+  const controller = new AbortController();
+  let sentSignal;
+  const app = moduleLoader({
+    'config.js':{config:{apiUrl:'https://api.invalid'}},
+    'auth.js':{getAuth:()=>({auth:{token:'test'}}),refreshSession:async()=>null},
+    'supabaseClient.js':{isSupabaseConfigured:()=>false,supabaseClient(){}},
+  }, {globals:{fetch:async (_url, options) => {sentSignal = options.signal; return new Response('{"text":"hello"}');}}});
+  const {transcribeAudio} = await app.load('js/api.js');
+  const result = await transcribeAudio('test', new Blob(['audio']), {language:'en', signal:controller.signal});
+  assert.equal(result.text, 'hello');
+  assert.equal(sentSignal, controller.signal);
+});
+
+test('a late transcription result cannot submit over a newer typed turn', async t => {
+  let resolveTranscription, offset = 0;
+  const sent = [];
+  const page = await voicePage(async text => {sent.push(text); return '';}, 'en', {
+    recorder: true, recordingData: true, clockOffset: () => offset,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    transcribeAudio: () => new Promise(resolve => {resolveTranscription = resolve;}),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recorders[0]?.state === 'recording');
+  offset = 700;
+  page.dom.window.document.querySelector('.voice-mic').click();
+  await until(() => resolveTranscription);
+  page.submit('Use the typed question');
+  await tick();
+  resolveTranscription({text: 'An older recording'});
+  await tick();
+  assert.deepEqual(sent, ['Use the typed question']);
+});
+
+test('closing during audio conversion prevents a later transcription request', async t => {
+  let finishConversion, offset = 0, requests = 0;
+  const page = await voicePage(async () => '', 'en', {
+    recorder: true, recordingData: true, clockOffset: () => offset,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    convertRecording: blob => new Promise(resolve => {finishConversion = () => resolve(blob);}),
+    transcribeAudio: async () => {requests++; return {text: 'Old recording'};},
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recorders[0]?.state === 'recording');
+  offset = 700;
+  page.dom.window.document.querySelector('.voice-mic').click();
+  await until(() => finishConversion);
+  page.overlay.close();
+  finishConversion();
+  await tick();
+  assert.equal(requests, 0);
+  assert.deepEqual(page.notices, []);
+});
+
+test('a current recording is transcribed and submits its recognized text', async t => {
+  let offset = 0;
+  const sent = [];
+  const page = await voicePage(async text => {sent.push(text); return '';}, 'en', {
+    recorder: true, recordingData: true, clockOffset: () => offset,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    transcribeAudio: async () => ({text:'A spoken question'}),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recorders[0]?.state === 'recording');
+  offset = 700;
+  page.dom.window.document.querySelector('.voice-mic').click();
+  await until(() => sent.length);
+  assert.deepEqual(sent, ['A spoken question']);
+  assert.deepEqual(page.notices, []);
 });

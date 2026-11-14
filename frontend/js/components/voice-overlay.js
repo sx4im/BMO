@@ -2,8 +2,8 @@
 //
 // Flow: open -> listen (live transcription) -> on silence, send the turn ->
 // voice-themed wait text while the reply streams -> read the reply aloud
-// (Deepgram Flux/Aura streaming) -> listen again. The X closes it. A glowing globe
-// reflects the state and pulses with the spoken audio.
+// (Deepgram Flux/Aura streaming) -> listen again. The X closes it. A procedural
+// fog sphere follows the voice state and the microphone/playback audio envelopes.
 //
 // Speech input uses browser recognition when available, with a MediaRecorder
 // and /transcribe fallback. Recording auto-stops via an adaptive Web Audio
@@ -16,29 +16,12 @@
 // normal API call) and lets an AnalyserNode drive the globe animation.
 
 import { el } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=58";
+import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
-import * as api from "../api.js?v=64";
+import * as api from "../api.js?v=66";
+import { createVoiceOrb } from "./voice-orb.js?v=2";
+import { createAudioMeter } from "./voice-audio-meter.js?v=1";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
-
-const VOICE_WAIT_PHRASES = [
-  "Listening…",
-  "Transcribing…",
-  "Understanding…",
-  "Thinking…",
-  "Processing…",
-  "Responding…",
-];
-
-let _lastVoiceWaitIndex = -1;
-function voiceWaitPhrase() {
-  let i;
-  do {
-    i = Math.floor(Math.random() * VOICE_WAIT_PHRASES.length);
-  } while (i === _lastVoiceWaitIndex && VOICE_WAIT_PHRASES.length > 1);
-  _lastVoiceWaitIndex = i;
-  return VOICE_WAIT_PHRASES[i];
-}
 
 // ---------- voice-activity detection (VAD) tuning ----------
 // The mic may be at arm's length (laptop) OR close to the mouth (phone), so the
@@ -147,6 +130,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let mediaRecorder = null;
   let mediaStream = null;
   let audioChunks = [];
+  let transcription = null;
 
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
@@ -172,6 +156,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let audioCtx = null;
   let ttsSource = null;
   let meterRaf = null;
+  let playbackAnalyser = null;
+  let playbackMeter = null;
+  let microphoneMeter = null;
+  let visualMicStream = null;
+  let visualMicSource = null;
+  let micSequence = 0;
+  let recorderSequence = 0;
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
   let activeSpeech = null;   // current speech playback handle
 
   // Language selection (7 supported languages)
@@ -228,28 +220,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   const TTS_COOLDOWN_MS = 250; // let the last frame clear before reopening the mic
 
   // ---------- DOM ----------
-  // The orb is a muted, looping video of the iridescent bubble. CSS blends its
-  // near-white background into the cream canvas (mix-blend-mode: multiply) so
-  // only the bubble shows. State classes on the wrapper drive the float/pulse
-  // and the amplitude-reactive scale while speaking.
-  const globeVideo = el("video", {
-    class: "voice-globe-video",
-    src: "/assets/voice-orb.mp4",
-    autoplay: true,
-    loop: true,
-    muted: true,
-    playsInline: true,
-    preload: "auto",
-    "aria-hidden": "true",
-  });
-  globeVideo.muted = true; // required for muted autoplay in some browsers
-  // Overlay layers on top of the untouched bubble video: a soft ambient glow
-  // behind it, a specular glint that orbits the bubble, and a mouth that smiles
-  // at rest and "talks" (opens with the spoken-audio amplitude). The video
-  // already carries the iridescence + blinking eyes; these add the rest of the
-  const globe = el("div", { class: "voice-globe", "aria-hidden": "true" }, [
-    globeVideo,
-  ]);
+  const orbCanvas = el("canvas", { class: "voice-orb-canvas", "aria-hidden": "true" });
+  const globe = el("div", { class: "voice-globe", "aria-hidden": "true" }, [orbCanvas]);
   const statusText = el("div", { class: "voice-status", "aria-live": "polite", text: "Start talking" });
   const transcriptText = el("div", { class: "voice-transcript" });
 
@@ -306,14 +278,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     type: "button",
     "aria-label": `Language: ${getLangConfig().label} (click to change)`,
     title: "Click to change language",
-    onmousedown: (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      cycleLanguage();
-    },
     onclick: (e) => {
       e.preventDefault();
       e.stopPropagation();
+      cycleLanguage();
     },
   }, [langLabelEl]);
 
@@ -343,21 +311,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     ]),
   ]);
 
+  const previousFocus = document.activeElement;
   document.body.append(overlay);
+  const orb = createVoiceOrb(orbCanvas);
   document.body.classList.add("voice-open");
   requestAnimationFrame(() => overlay.classList.add("open"));
-  // Autoplay is muted; nudge play() inside the opening gesture for browsers
-  // that need it. Honor reduced-motion by holding a single still frame.
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
-    globeVideo.autoplay = false;
-    globeVideo.removeAttribute("autoplay");
-    const hold = () => { try { globeVideo.pause(); globeVideo.currentTime = 0.5; } catch { /* ignore */ } };
-    if (globeVideo.readyState >= 2) hold();
-    else globeVideo.addEventListener("loadeddata", hold, { once: true });
-  } else {
-    globeVideo.play?.().catch(() => {});
-  }
-
   // Create + unlock the AudioContext now, while we're still inside the click
   // gesture that opened the overlay, so later TTS playback isn't blocked by
   // the browser autoplay policy.
@@ -375,12 +333,27 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     toast("Speech not configured", { tone: "warning" });
   }).catch(() => {});
 
-  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const onKey = (event) => {
+    if (event.key === "Escape") close();
+    if (event.key === "Tab") {
+      const controls = [typeInput, langBtn, micBtn, closeBtn];
+      const index = controls.indexOf(document.activeElement);
+      if (index === -1 || (event.shiftKey && index === 0) || (!event.shiftKey && index === controls.length - 1)) {
+        event.preventDefault();
+        controls[event.shiftKey ? controls.length - 1 : 0].focus();
+      }
+    }
+  };
   document.addEventListener("keydown", onKey);
+  closeBtn.focus();
+  document.addEventListener("visibilitychange", meterVisibilityChanged);
+  reducedMotion?.addEventListener?.("change", meterVisibilityChanged);
 
   // ---------- state ----------
   function setState(next, label) {
     state = next;
+    orb.setState(next);
+    if (next !== "listening") stopMicrophoneMeter();
     overlay.dataset.state = next;
     globe.className = `voice-globe ${next}`;
     if (label != null) statusText.textContent = label;
@@ -393,6 +366,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   // ---------- listening ----------
   function startListening() {
     if (!active || turnInFlight || state === "speaking" || activeSpeech || ttsSource) return;
+    cancelTranscription();
     setTranscript("");
     setState("listening", "Listening…");
     micBtn.classList.add("active");
@@ -482,7 +456,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   function startSpeechRecognition() {
     stopRecognition();
     try {
-      recognition = new SpeechRec();
+      const currentRecognition = new SpeechRec();
+      recognition = currentRecognition;
+      const isCurrent = () => active && recognition === currentRecognition;
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
@@ -491,12 +467,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       let lastRecognizedText = "";
 
       recognition.onstart = () => {
-        if (!active) { try { recognition.stop(); } catch {} return; }
+        if (!isCurrent()) return;
         setState("listening", "Listening… speak now");
       };
 
       recognition.onresult = (event) => {
-        if (!active || turnInFlight) return;
+        if (!isCurrent() || turnInFlight) return;
         const currentText = extractCleanTranscript(event.results);
         if (currentText) {
           lastRecognizedText = currentText;
@@ -514,6 +490,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       };
 
       recognition.onerror = (event) => {
+        if (!isCurrent()) return;
         console.warn("[bimo-voice] Web Speech error:", event?.error);
         if (event?.error !== "no-speech") {
           speechRecSupported = false;
@@ -524,7 +501,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       let emptyEndCount = 0;
       recognition.onend = () => {
-        if (active && state === "listening" && !turnInFlight) {
+        if (isCurrent() && state === "listening" && !turnInFlight) {
           // If the 2-second silence timer is running, the user just paused to think — do NOT cut them off
           if (speechSilenceTimer) {
             try {
@@ -559,6 +536,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       };
 
       recognition.start();
+      startMicrophoneMeter();
     } catch (err) {
       console.warn("[bimo-voice] Web Speech init failed, using MediaRecorder fallback:", err);
       speechRecSupported = false;
@@ -573,6 +551,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
     if (recognition) {
       try {
+        recognition.onstart = null;
         recognition.onresult = null;
         recognition.onerror = null;
         recognition.onend = null;
@@ -583,6 +562,42 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     stopVAD();
   }
 
+  async function startMicrophoneMeter() {
+    stopMicrophoneMeter();
+    if (!audioCtx || !navigator.mediaDevices?.getUserMedia) return;
+    const sequence = micSequence;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: {
+        echoCancellation: true, noiseSuppression: true, autoGainControl: false,
+      } });
+      if (!active || state !== "listening" || sequence !== micSequence) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      visualMicStream = stream;
+      visualMicSource = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      visualMicSource.connect(analyser);
+      microphoneMeter = createAudioMeter(analyser, audioCtx.sampleRate);
+      scheduleMeter();
+    } catch {
+      // Native speech recognition may still work if meter capture is unavailable.
+      stream?.getTracks().forEach(track => track.stop());
+      if (sequence === micSequence) stopMicrophoneMeter();
+    }
+  }
+
+  function stopMicrophoneMeter() {
+    micSequence++;
+    microphoneMeter = null;
+    if (visualMicSource) { try { visualMicSource.disconnect(); } catch {} visualMicSource = null; }
+    if (visualMicStream) { visualMicStream.getTracks().forEach(track => track.stop()); visualMicStream = null; }
+    orb.setLevels({ mic: 0, low: 0, mid: 0 });
+    if (!playbackMeter && meterRaf !== null) { cancelAnimationFrame(meterRaf); meterRaf = null; }
+  }
+
   // ---------- listening fallback (record -> /transcribe, auto-stop on silence) ----------
   async function startRecorder() {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
@@ -590,15 +605,22 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       micBtn.classList.remove("active");
       return;
     }
+    const sequence = ++recorderSequence;
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: false,
         },
       });
+      if (!active || state !== "listening" || sequence !== recorderSequence) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      mediaStream = stream;
     } catch {
+      if (!active || sequence !== recorderSequence) return;
       toast("Mic denied", { tone: "error" });
       micBtn.classList.remove("active");
       setState("idle", "Tap the mic to talk");
@@ -620,12 +642,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     discardTake = false;
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
-      const vadCtx = audioCtx || new Ctx();
+      const vadCtx = audioCtx || (audioCtx = new Ctx());
       vadSource = vadCtx.createMediaStreamSource(mediaStream);
       vadAnalyser = vadCtx.createAnalyser();
       vadAnalyser.fftSize = 512;
       vadAnalyser.smoothingTimeConstant = 0.2;
       vadSource.connect(vadAnalyser);
+      microphoneMeter = createAudioMeter(vadAnalyser, vadCtx.sampleRate);
+      scheduleMeter();
       const bins = new Uint8Array(vadAnalyser.frequencyBinCount);
       // Voice band ≈ 200–3500 Hz: ignores low rumble (handling, wind, mains
       // hum) and high hiss, so the level tracks the voice, not the room.
@@ -721,18 +745,26 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   function stopVAD() {
+    stopMicrophoneMeter();
     if (vadRaf) { cancelAnimationFrame(vadRaf); vadRaf = null; }
     if (vadSource) { try { vadSource.disconnect(); } catch { /* ignore */ } vadSource = null; }
     vadAnalyser = null;
   }
 
   function stopRecorder() {
+    recorderSequence++;
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       try { mediaRecorder.stop(); } catch { /* ignore */ }
     }
   }
 
+  function cancelTranscription() {
+    transcription?.abort();
+    transcription = null;
+  }
+
   async function onRecorderStop() {
+    stopVAD();
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
     const recorder = mediaRecorder;
     mediaRecorder = null;
@@ -759,24 +791,36 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       setState("idle", vadHadSpeech ? "Tap the mic to talk" : "Didn't hear anything — tap the mic to talk");
       return;
     }
+    cancelTranscription();
+    const controller = new AbortController();
+    transcription = controller;
+    const isCurrent = () => active && transcription === controller && !controller.signal.aborted;
     setState("thinking", "Transcribing…");
     try {
       const blob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
+      audioChunks = [];
       let wav;
       try { wav = await blobToWav16kMono(blob); } catch { wav = blob; }
-      const res = await api.transcribeAudio(token, wav, { language: currentLangId });
+      if (!isCurrent()) return;
+      const res = await api.transcribeAudio(token, wav, { language: currentLangId, signal: controller.signal });
+      if (!isCurrent()) return;
       const t = (res?.text || "").trim();
       if (t) endTurn(t);
       else setState("idle", "Didn't catch that — tap the mic");
     } catch (err) {
-      toast(err.message || "Transcription failed", { tone: "error" });
-      setState("idle", "Tap the mic to talk");
+      if (isCurrent()) {
+        toast(err.message || "Transcription failed", { tone: "error" });
+        setState("idle", "Tap the mic to talk");
+      }
+    } finally {
+      if (transcription === controller) transcription = null;
     }
   }
 
   // ---------- turn ----------
   async function endTurn(text) {
     if (turnInFlight || !active) return;
+    cancelTranscription();
     const turn = ++turnSequence;
     const isCurrent = () => active && turn === turnSequence;
     turnInFlight = true;
@@ -784,7 +828,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     stopRecognition();
     stopRecorder();
     setTranscript(text);
-    setState("thinking", voiceWaitPhrase());
+    setState("thinking", "Preparing response…");
 
     let speech = null;
     let searchSpeech = null;
@@ -1020,12 +1064,16 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       const source = audioCtx.createBufferSource();
       source.buffer = audioBuffer;
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyser.connect(audioCtx.destination);
+      if (!playbackAnalyser) {
+        playbackAnalyser = audioCtx.createAnalyser();
+        playbackAnalyser.fftSize = 512;
+        playbackAnalyser.smoothingTimeConstant = 0.15;
+        playbackAnalyser.connect(audioCtx.destination);
+      }
+      source.connect(playbackAnalyser);
       ttsSource = source;
-      driveGlobe(analyser);
+      if (!playbackMeter) playbackMeter = createAudioMeter(playbackAnalyser, audioCtx.sampleRate);
+      scheduleMeter();
 
       const now = audioCtx.currentTime;
       // Start immediately with minimum jitter buffer (10ms)
@@ -1037,6 +1085,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       hasReceivedAudio = true;
       queuedSources.push(source);
       source.onended = () => {
+        source.disconnect();
         const idx = queuedSources.indexOf(source);
         if (idx !== -1) queuedSources.splice(idx, 1);
         if (queuedSources.length === 0) {
@@ -1115,7 +1164,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
       pendingTextQueue.length = 0;
       for (const s of queuedSources) {
-        try { s.onended = null; s.stop(); } catch {}
+        try { s.onended = null; s.stop(); s.disconnect(); } catch {}
       }
       queuedSources.length = 0;
       nextPlayTime = 0;
@@ -1139,22 +1188,31 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     };
   }
 
-  function driveGlobe(analyser) {
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const tick = () => {
-      analyser.getByteFrequencyData(data);
-      let sum = 0;
-      for (let i = 0; i < data.length; i++) sum += data[i];
-      const avg = sum / data.length / 255; // 0..1
-      globe.style.setProperty("--amp", String(1 + Math.min(0.24, avg * 0.45)));
-      meterRaf = requestAnimationFrame(tick);
-    };
-    meterRaf = requestAnimationFrame(tick);
+  function scheduleMeter() {
+    if (!active || document.hidden || reducedMotion?.matches || meterRaf !== null || (!microphoneMeter && !playbackMeter)) return;
+    meterRaf = requestAnimationFrame(sampleMeters);
+  }
+
+  function sampleMeters(now) {
+    meterRaf = null;
+    if (!active || document.hidden) return;
+    const mic = state === "listening" ? microphoneMeter?.sample(now) : null;
+    const playback = state === "speaking" ? playbackMeter?.sample(now) : null;
+    const bands = playback || mic;
+    orb.setLevels({ mic: mic?.level || 0, playback: playback?.level || 0,
+      low: bands?.low || 0, mid: bands?.mid || 0 });
+    scheduleMeter();
+  }
+
+  function meterVisibilityChanged() {
+    if (meterRaf !== null) { cancelAnimationFrame(meterRaf); meterRaf = null; }
+    scheduleMeter();
   }
 
   function stopMeter() {
-    if (meterRaf) { cancelAnimationFrame(meterRaf); meterRaf = null; }
-    globe.style.removeProperty("--amp");
+    playbackMeter = null;
+    orb.setLevels({ playback: 0, low: 0, mid: 0 });
+    if (!microphoneMeter && meterRaf !== null) { cancelAnimationFrame(meterRaf); meterRaf = null; }
   }
 
   function stopSpeaking() {
@@ -1189,6 +1247,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         vadHadSpeech = true;
         stopRecorder();
       } else {
+        stopRecognition();
         micBtn.classList.remove("active");
         setState("idle", "Tap the mic to talk");
       }
@@ -1216,7 +1275,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   function close() {
     if (!active) return;
     active = false;
+    cancelTranscription();
     document.removeEventListener("keydown", onKey);
+    document.removeEventListener("visibilitychange", meterVisibilityChanged);
+    reducedMotion?.removeEventListener?.("change", meterVisibilityChanged);
     stopRecognition();
     stopRecorder();
     stopSpeaking();
@@ -1227,10 +1289,13 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       ttsWS = null;
     }
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
+    if (playbackAnalyser) { try { playbackAnalyser.disconnect(); } catch {} playbackAnalyser = null; }
+    orb.destroy();
     if (audioCtx) { try { audioCtx.close(); } catch { /* ignore */ } audioCtx = null; }
     document.body.classList.remove("voice-open");
     overlay.classList.remove("open");
     setTimeout(() => overlay.remove(), 220);
+    if (previousFocus?.isConnected) previousFocus.focus();
     if (typeof onClose === "function") onClose();
   }
 

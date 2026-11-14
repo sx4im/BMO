@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-14",
+  "scope": "Actual overlay v59, styles v242, WebGL2 and Web Audio in Chromium/SwiftShader. Microphone oscillator and PCM speech data are synthetic; recognition/network services stubbed.",
+  "micLevel": 0.24898668353685607,
+  "silentMicLevel": 0.021945998806551473,
+  "playbackLevel": 0.2967393681247537,
+  "speechPauseLevel": 0.02338906276455434,
+  "mobile": {
+    "x": 149,
+    "y": 648,
+    "width": 92,
+    "height": 92
+  },
+  "checks": [
+    "microphone energy and silence release",
+    "PCM playback energy and speech-pause release",
+    "speaking interrupted into listening",
+    "thinking interrupted; late reply ignored",
+    "desktop/mobile/short landscape",
+    "reduced motion stops draws",
+    "context loss fallback and restoration",
+    "no draws or live capture tracks after close",
+    "reopen and close"
+  ],
+  "errors": []
+}

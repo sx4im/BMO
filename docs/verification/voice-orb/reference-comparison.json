@@ -1,0 +1,142 @@
+{
+  "date": "2026-11-14",
+  "reference_sha256": "40c3073daec1be7abff35ae48eff5d76ee3dc73e4dc0f73eceeb9245f49a6bab",
+  "reference_size": [
+    1437,
+    852
+  ],
+  "reference_geometry": {
+    "method": "visual bounds in supplied screenshot, approximate pixels",
+    "orb_diameter": 92,
+    "bar_width": 768,
+    "bar_height": 52,
+    "orb_to_bar_gap": 26
+  },
+  "implementation_geometry": {
+    "canvas_css_diameter": 96,
+    "painted_diameter_approx": 93,
+    "bar_width": 768,
+    "bar_height": 52,
+    "canvas_to_bar_gap": 28
+  },
+  "comparison": "Inspected actual desktop/mobile renders against supplied still. Replaced all-over cloud mottling with a broad white lower volume, saturated blue upper atmosphere and a softer diagonal boundary. Lowered orb and widened/shortened bar. Preserved language, microphone and close controls and centered within Bimo rather than copying the screenshot browser/sidebar offset.",
+  "samples": [
+    {
+      "normalized_position": [
+        0.5,
+        0.08
+      ],
+      "reference_rgb": [
+        56,
+        101,
+        229
+      ],
+      "rendered_rgb": [
+        60,
+        107,
+        237
+      ]
+    },
+    {
+      "normalized_position": [
+        0.5,
+        0.22
+      ],
+      "reference_rgb": [
+        76,
+        121,
+        236
+      ],
+      "rendered_rgb": [
+        81,
+        124,
+        243
+      ]
+    },
+    {
+      "normalized_position": [
+        0.24,
+        0.45
+      ],
+      "reference_rgb": [
+        228,
+        235,
+        253
+      ],
+      "rendered_rgb": [
+        226,
+        238,
+        255
+      ]
+    },
+    {
+      "normalized_position": [
+        0.5,
+        0.5
+      ],
+      "reference_rgb": [
+        192,
+        210,
+        251
+      ],
+      "rendered_rgb": [
+        220,
+        234,
+        255
+      ]
+    },
+    {
+      "normalized_position": [
+        0.76,
+        0.5
+      ],
+      "reference_rgb": [
+        109,
+        149,
+        243
+      ],
+      "rendered_rgb": [
+        167,
+        192,
+        249
+      ]
+    },
+    {
+      "normalized_position": [
+        0.5,
+        0.83
+      ],
+      "reference_rgb": [
+        207,
+        219,
+        252
+      ],
+      "rendered_rgb": [
+        205,
+        216,
+        243
+      ]
+    },
+    {
+      "normalized_position": [
+        0.5,
+        0.94
+      ],
+      "reference_rgb": [
+        191,
+        207,
+        250
+      ],
+      "rendered_rgb": [
+        198,
+        209,
+        238
+      ]
+    }
+  ],
+  "limitations": [
+    "A single screenshot cannot establish the original shader, state machine or motion.",
+    "Recreation is approximate; screenshots show one procedural phase, not identical pixels.",
+    "Original live ChatGPT renderer was not reached through REA."
+  ]
+}

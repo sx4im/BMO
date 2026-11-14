@@ -1801,8 +1801,8 @@ def test_build_search_context_wraps_results_in_boundary_tags():
     assert "ordered newest-first" in context
     assert "Today is" in context
     assert "[Source](" not in context
-    assert "https://example.com/btc" not in context
-    assert "URL:" not in context
+    assert "https://example.com/btc" in context
+    assert "URL:" in context
 
     mixed = search_router.build_search_context(
         "latest AI news",
@@ -1920,7 +1920,7 @@ def test_chat_streams_search_events_and_augments_the_prompt(client, monkeypatch)
     assert "<live_web_search" in content
     assert "Bitcoin price" in content
     assert "91,204" in content
-    assert "https://example.com/btc" not in content
+    assert "https://example.com/btc" in content
     assert "What is the price of Bitcoin today?" in content
 
 
@@ -2306,3 +2306,67 @@ def test_background_description_is_saved_on_the_message(monkeypatch):
     assert "Step 1: Cells" in saved["attachments"][0]["text_context"]
     assert saved["attachments"][0]["text_context"].startswith('<attachment_data filename="flow.png">')
     assert "text_context" not in attachments[0]
+
+@pytest.mark.parametrize('outcome', ['ok', 'empty', 'unavailable'])
+def test_search_reports_decision_and_outcome_before_answer(client, monkeypatch, outcome):
+    from app import search_router, nvidia_client
+    _stub_chat_persistence(monkeypatch)
+    monkeypatch.setattr(search_router, 'should_search', lambda *a, **k: (True, 'current rates'))
+    class Results(list):
+        status = outcome
+    rows = Results([{'title': 'Rates', 'url': 'https://example.com/rates', 'content': 'Verified rates.'}] if outcome == 'ok' else [])
+    monkeypatch.setattr(search_router, 'run_search', lambda *a, **k: rows)
+    captured = []
+    def answer(messages, **kwargs):
+        captured.extend(messages)
+        yield {'type': 'delta', 'data': 'An answer'}
+        yield {'type': 'done', 'content': 'An answer'}
+    monkeypatch.setattr(nvidia_client, 'iter_response_with_fallback', answer)
+    resp = client.post('/chat', headers={'Authorization': f'Bearer {_search_chat_token()}'}, json={'conversation_id': 'c_status', 'message': 'Current rates?'})
+    events = [json.loads(line[6:]) for line in resp.get_data(as_text=True).splitlines() if line.startswith('data: ')]
+    kinds = [e['type'] for e in events]
+    assert kinds.index('search_status') < kinds.index('searching') < kinds.index('search_complete') < kinds.index('token')
+    assert next(e for e in events if e['type'] == 'search_complete')['status'] == outcome
+    if outcome != 'ok':
+        assert 'Do not invent current facts' in str(captured)
+
+
+def test_stop_during_search_decision_prevents_retrieval_and_model(client, monkeypatch):
+    import threading
+    from app import search_router, nvidia_client
+    from app.routes import chat_routes
+    _stub_chat_persistence(monkeypatch)
+    cancelled = threading.Event()
+    monkeypatch.setattr(chat_routes, '_register_cancel', lambda *a: cancelled)
+    monkeypatch.setattr(chat_routes, '_unregister_cancel', lambda *a: None)
+    def decide(*a, **k):
+        cancelled.set()
+        return True, 'current rates'
+    calls = []
+    def forbidden(*a, **k):
+        calls.append(True)
+        return []
+    monkeypatch.setattr(search_router, 'should_search', decide)
+    monkeypatch.setattr(search_router, 'run_search', forbidden)
+    monkeypatch.setattr(nvidia_client, 'iter_response_with_fallback', forbidden)
+    resp = client.post('/chat', headers={'Authorization': f'Bearer {_search_chat_token()}'}, json={'conversation_id': 'c_stop', 'message': 'Current rates?', 'stream_id': 'stop-search'})
+    assert '"type": "token"' not in resp.get_data(as_text=True)
+    assert not calls
+
+
+def test_augmented_page_can_still_request_current_web_facts(client, monkeypatch):
+    from app import search_router, nvidia_client
+    _stub_chat_persistence(monkeypatch)
+    decisions = []
+    def decide(query, **kwargs):
+        decisions.append(kwargs)
+        return True, 'current benchmarks'
+    monkeypatch.setattr(search_router, 'should_search', decide)
+    monkeypatch.setattr(search_router, 'run_search', lambda *a, **k: [])
+    def answer(*args, **kwargs):
+        yield {'type': 'delta', 'data': 'Qualified answer'}
+        yield {'type': 'done', 'content': 'Qualified answer'}
+    monkeypatch.setattr(nvidia_client, 'iter_response_with_fallback', answer)
+    resp = client.post('/chat', headers={'Authorization': f'Bearer {_search_chat_token()}'}, json={'conversation_id': 'c_page', 'message': 'Compare this page with current benchmarks', 'augmented_message': 'Fetched page text'})
+    assert '"type": "searching"' in resp.get_data(as_text=True)
+    assert decisions[0]['has_attachments'] is True

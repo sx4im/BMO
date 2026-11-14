@@ -4,7 +4,7 @@
  */
 
 import { el, clear, formatTitle } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=71";
+import { icon } from "../icons.js?v=73";
 import { getAuth } from "../auth.js";
 import { navigate } from "../router.js";
 import { mountAppShell } from "../app-shell.js";
@@ -13,13 +13,12 @@ import { openConfirmModal, openPromptModal } from "../components/confirm-modal.j
 import { openShareModal } from "../components/share-modal.js?v=3";
 import { openMoveChatModal } from "./projects.js";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=34";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=56";
-import * as api from "../api.js?v=64";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=59";
+import * as api from "../api.js?v=66";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=34";
-import { MessageFeed } from "../chat/message-feed.js?v=42";
-import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=9";
-import { STUDY_SYSTEM_PROMPT } from "../chat/study-mode.js?v=3";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=35";
+import { MessageFeed } from "../chat/message-feed.js?v=44";
+import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=11";
 import {
   detectExportIntent,
   buildCanonicalMarkdown,
@@ -86,6 +85,7 @@ export async function renderChat({ id, incognito }) {
 
   let enteringId = null;
   let searching = false;
+  let pageFetchController = null;
   let searchPreamble = "";
   // The live turn's search card: null, then in-flight, then filled with
   // results. Handed to the assistant message once the answer lands.
@@ -536,12 +536,13 @@ export async function renderChat({ id, incognito }) {
       messageFeed.follower.attach();
       messageFeed.scrollToBottom();
     },
-    onSearchComplete: ({ results, elapsedMs }) => {
+    onSearchComplete: ({ results, elapsedMs, status }) => {
       searching = false;
       searchCardData = {
         query: searchCardData?.query || "",
         results: Array.isArray(results) ? results : [],
         elapsedMs: elapsedMs ?? null,
+        status,
         searching: false,
       };
       renderUI();
@@ -584,7 +585,10 @@ export async function renderChat({ id, incognito }) {
   // Composer
   const composer = new Composer({
     onSubmit: (turn) => handleComposerSubmit(turn),
-    onStop: () => streamHandler.cancel(),
+    onStop: () => {
+      pageFetchController?.abort();
+      streamHandler.cancel();
+    },
     onOpenVoiceAssistant: () => openVoiceMode(),
     onModelChange: async (model) => {
       conversation = { ...(conversation || {}), model };
@@ -597,7 +601,7 @@ export async function renderChat({ id, incognito }) {
         toast(err.message || "Couldn't switch model", { tone: "error" });
       }
     },
-    onToolsChange: ({ autoSearch, studyMode, model }) => {
+    onToolsChange: ({ model }) => {
       if (id && conversation && model !== conversation.model) {
         api.updateConversation(auth.token, id, { model }).catch(() => {});
       }
@@ -796,7 +800,7 @@ export async function renderChat({ id, incognito }) {
   }
 
   async function handleComposerSubmit(turn) {
-    const { text, attachments, model, reasoningEffort, studyMode, autoSearch = true, systemPrompt } = turn;
+    const { text, attachments, model, reasoningEffort, autoSearch = true, systemPrompt } = turn;
     const skills = turn.skills || composer.skillPicker.selected;
     composer.skillPicker.setSelected([]);
 
@@ -842,7 +846,7 @@ export async function renderChat({ id, incognito }) {
     searchPreamble = "";
     streamHandler.streamingText = "";
     streamHandler.streamingReasoning = "";
-    streamHandler.currentPhrase = getRandomPhrase();
+    streamHandler.currentPhrase = INITIAL_STATUS;
 
     composer.isGenerating = true;
     composer.syncSendEnabled();
@@ -853,7 +857,9 @@ export async function renderChat({ id, incognito }) {
     const streamId = uid("stream");
     let llmMessage = text;
 
-    const urls = model === "aeon" ? [] : extractUrls(text);
+    const urls = model === "aeon" || !autoSearch ? [] : extractUrls(text);
+    const fetchController = new AbortController();
+    pageFetchController = fetchController;
     if (urls.length > 0) {
       searching = true;
       searchVariant = "reading";
@@ -864,12 +870,12 @@ export async function renderChat({ id, incognito }) {
       try {
         const scrapePromises = urls.slice(0, 3).map(async (u) => {
           try {
-            const res = await api.scrapeUrl(auth.token, u);
+            const res = await api.scrapeUrl(auth.token, u, fetchController.signal);
             if (res?.markdown) {
               return { url: u, title: res.title || u, description: res.description, markdown: res.markdown };
             }
           } catch (err) {
-            console.warn(`Scrape failed for ${u}:`, err.message);
+            if (err?.name !== "AbortError") console.warn(`Scrape failed for ${u}:`, err.message);
           }
           return null;
         });
@@ -890,6 +896,13 @@ export async function renderChat({ id, incognito }) {
       }
     }
 
+    if (pageFetchController === fetchController) pageFetchController = null;
+    if (fetchController.signal.aborted || unmounted) {
+      composer.isGenerating = false;
+      composer.syncSendEnabled();
+      if (!unmounted) renderUI();
+      return;
+    }
     renderUI();
     messageFeed.follower.attach();
     messageFeed.scrollToBottom();
@@ -906,9 +919,9 @@ export async function renderChat({ id, incognito }) {
           history: incognitoHistory,
           skill_ids: skills.map(skill => skill.id),
           model: activeModel,
-          system_prompt: [studyMode ? STUDY_SYSTEM_PROMPT : conversation?.system_prompt, systemPrompt].filter(Boolean).join("\n\n") || undefined,
+          system_prompt: [conversation?.system_prompt, systemPrompt].filter(Boolean).join("\n\n") || undefined,
           reasoning_effort: reasoningEffort || composer.getReasoningEffort(activeModel),
-          auto_search: autoSearch && !studyMode,
+          auto_search: autoSearch,
           incognito,
         },
         streamId,
@@ -1094,7 +1107,6 @@ export async function renderChat({ id, incognito }) {
         model: composer.currentModel,
         reasoningEffort: composer.getReasoningEffort(),
         autoSearch: composer.autoSearch,
-        studyMode: composer.studyMode,
       });
     }
   }
@@ -1122,7 +1134,6 @@ export async function renderChat({ id, incognito }) {
         model: composer.currentModel,
         reasoningEffort: composer.getReasoningEffort(),
         autoSearch: composer.autoSearch,
-        studyMode: composer.studyMode,
       });
     }
   }
@@ -1178,7 +1189,6 @@ export async function renderChat({ id, incognito }) {
             model: "aeon",
             reasoningEffort: "low",
             autoSearch: true,
-            studyMode: false,
             systemPrompt: langInstruction,
           });
           for (let i = messages.length - 1; i >= 0; i--) {
@@ -1273,6 +1283,7 @@ export async function renderChat({ id, incognito }) {
     unmounted = true;
     if (imagePollTimer) { clearInterval(imagePollTimer); imagePollTimer = null; }
     messageFeed.unmountScrollFollower();
+    pageFetchController?.abort();
     streamHandler.cancel();
     composer.destroy();
     if (voiceHandle) { try { voiceHandle.close(); } catch {} voiceHandle = null; }

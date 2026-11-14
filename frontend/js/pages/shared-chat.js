@@ -4,9 +4,9 @@
  */
 
 import { el, clear, formatTitle } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=72";
+import { icon } from "../icons.js?v=73";
 import { brandMark, logo } from "../components/logo.js?v=32";
-import { messageBubble } from "../components/message.js?v=77";
+import { messageBubble } from "../components/message.js?v=78";
 import { whenMarkdownReady } from "../components/markdown.js?v=34";
 import { navigate } from "../router.js";
 import * as api from "../api.js?v=64";
@@ -95,7 +95,6 @@ export async function renderSharedChat({ shareId } = {}) {
           onRetry: null,
           onFeedback: null,
           onRetryAssistant: null,
-          onRenderQuiz: null,
           onExport: null,
           onRefreshAttachment: async attachment => {
             if (!attachmentRefresh) attachmentRefresh = api.getPublicShare(shareId).finally(() => { attachmentRefresh = null; });

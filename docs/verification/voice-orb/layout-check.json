@@ -1,0 +1,23 @@
+{
+  "scope": "Chromium/SwiftShader; current styles.css v242 and actual voice module; services stubbed",
+  "checks": [
+    "WebGL2 initializes",
+    "desktop 96px and mobile 92px",
+    "body scroll locked while open and restored on close",
+    "Escape closes overlay",
+    "previous focus restored"
+  ],
+  "desktop": {
+    "x": 672,
+    "y": 700,
+    "width": 96,
+    "height": 96
+  },
+  "mobile": {
+    "x": 149,
+    "y": 648,
+    "width": 92,
+    "height": 92
+  },
+  "errors": []
+}

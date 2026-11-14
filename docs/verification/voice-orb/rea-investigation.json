@@ -1,0 +1,14 @@
+{
+  "operation": "capture_browser_scenario",
+  "evidence_id": "ev_0e41333a459b70ac699bf92cdeba8beb3d7c0ef2b9eb0f950b3b56222ed4554b",
+  "url": "https://chatgpt.com/",
+  "authority": "controlled-replay",
+  "browser_cleanup": "terminated-owned-process",
+  "observation": "The final DOM was a Just a moment... Cloudflare challenge page. No voice application, orb shader or authenticated voice state was observed.",
+  "scope": "Launched temporary Chromium; navigated to ChatGPT and waited 1500ms. No authenticated browser CDP target was available on localhost:9222.",
+  "conclusion": "REA was tried, but did not reverse engineer the original voice renderer. Implementation changes derive from the user screenshot and existing Bimo code.",
+  "limitations": [
+    "Incomplete network capture; some bodies exceeded capture budget or had not finished.",
+    "Challenge code and response details are not treated as voice-renderer evidence."
+  ]
+}

@@ -556,12 +556,8 @@ def chat(user):
     except RuntimeError as exc:
         return bad_request(str(exc), 503)
 
-    # Augmented turns already carry retrieved context; all other models share
-    # the same selective search router, including voice.
-    search_allowed = (
-        (auto_search or force_search)
-        and not augmented_message
-    )
+    # Fetched pages are grounding, but may still need current facts elsewhere.
+    search_allowed = auto_search or force_search
     # Chat cannot draw. Answer image asks here so the model cannot refuse them.
     settings_reply = "" if chosen_friendly == "image" else image_settings_reply(message_text)
     if settings_reply:
@@ -616,47 +612,6 @@ def chat(user):
         yield sse_event({"type": "conversation", "data": {k: v for k, v in convo.items() if not str(k).startswith("_")}})
         yield sse_event({"type": "user_message", "data": user_message})
 
-        if search_allowed:
-            try:
-                needs_search, search_query = search_router.should_search(
-                    message_text,
-                    history=history,
-                    has_attachments=has_any_attachment,
-                    force=force_search,
-                )
-            except Exception as exc:  # noqa: BLE001 — routing must never break the turn
-                logger.warning("chat: search routing failed: %s", exc)
-                needs_search, search_query = False, ""
-
-            if needs_search:
-                yield sse_event({"type": "searching", "query": search_query})
-                t_search = time.time()
-                results = search_router.run_search(search_query)
-                elapsed = time.time() - t_search
-                # Everything the search card renders: the results Bmo actually
-                # read, plus how long the round trip took.
-                yield sse_event({
-                    "type": "search_complete",
-                    "count": len(results),
-                    "elapsed_ms": int(elapsed * 1000),
-                    "results": [
-                        {
-                            "title": r.get("title") or "",
-                            "url": r.get("url") or "",
-                            "snippet": (r.get("content") or "").strip()[:220],
-                            "published_date": r.get("published_date") or "",
-                        }
-                        for r in results if r.get("url")
-                    ],
-                })
-                logger.info(
-                    "chat: auto-search query=%r results=%d in %.2fs",
-                    search_query, len(results), elapsed,
-                )
-                if results and user_text_part is not None:
-                    context = search_router.build_search_context(search_query, results)
-                    user_text_part["text"] = f"{context}\n\n{model_text}"
-
         full_reply = ""
         full_reasoning = ""
         saved = False
@@ -696,6 +651,66 @@ def chat(user):
                 return None
 
         try:
+            if search_allowed and not cancel_event.is_set():
+                yield sse_event({"type": "search_status", "status": "checking", "label": "Checking whether web search is needed…"})
+                try:
+                    needs_search, search_query = search_router.should_search(
+                        message_text,
+                        history=history,
+                        has_attachments=has_any_attachment or bool(augmented_message),
+                        force=force_search,
+                    )
+                except Exception as exc:  # noqa: BLE001 — routing must never break the turn
+                    logger.warning("chat: search routing failed: %s", exc)
+                    needs_search, search_query = False, ""
+
+                if cancel_event.is_set():
+                    return
+                if needs_search:
+                    yield sse_event({"type": "searching", "query": search_query})
+                    t_search = time.time()
+                    results = search_router.run_search(search_query)
+                    if cancel_event.is_set():
+                        return
+                    search_status = getattr(results, "status", "ok" if results else "empty")
+                    elapsed = time.time() - t_search
+                    # Everything the search card renders: the results Bmo actually
+                    # read, plus how long the round trip took.
+                    yield sse_event({
+                        "type": "search_complete",
+                        "count": len(results),
+                        "status": search_status,
+                        "elapsed_ms": int(elapsed * 1000),
+                        "results": [
+                            {
+                                "title": r.get("title") or "",
+                                "url": r.get("url") or "",
+                                "snippet": (r.get("content") or "").strip()[:220],
+                                "published_date": r.get("published_date") or "",
+                            }
+                            for r in results if r.get("url")
+                        ],
+                    })
+                    logger.info(
+                        "chat: auto-search query=%r results=%d in %.2fs",
+                        search_query, len(results), elapsed,
+                    )
+                    if user_text_part is not None:
+                        if results:
+                            context = search_router.build_search_context(search_query, results)
+                        else:
+                            context = (
+                                "Additional web search returned no usable evidence. Use any supplied page or attachment "
+                                "only for facts it actually supports. Do not invent current facts, "
+                                "prices, results, or citations. Tell the user briefly that live information "
+                                "could not be verified, and offer only clearly qualified background."
+                            )
+                        user_text_part["text"] = f"{context}\n\n{model_text}"
+                else:
+                    yield sse_event({"type": "search_status", "status": "answering", "label": "Preparing response…"})
+
+            if cancel_event.is_set():
+                return
             if settings_reply:
                 full_reply = settings_reply
                 yield sse_event({"type": "token", "data": {"delta": settings_reply}})
@@ -754,6 +769,8 @@ def chat(user):
                 prose_filter = ProseDashFilter(enabled=not long_dashes_allowed)
                 retry_delays = (1.5, 3.0)
                 for attempt in range(len(retry_delays) + 1):
+                    if cancel_event.is_set():
+                        return
                     streamed = False
                     try:
                         for ev in nvidia_client.iter_response_with_fallback(

@@ -273,14 +273,15 @@ export async function getPublicShare(shareId) {
  * events with one of these `type`s:
  *   - "conversation"      conversation row (whether new or existing)
  *   - "user_message"      the persisted user message row
+ *   - "search_status"     { status, label } checking/preparing progress
  *   - "searching"         { query } Bmo chose to search; results are pending
- *   - "search_complete"   { count, elapsed_ms, results } search finished (count may be 0)
+ *   - "search_complete"   { status, count, elapsed_ms, results } ok/empty/unavailable
  *   - "token"             { delta, content } incremental text
  *   - "assistant_message" the persisted assistant message row (final)
  *   - "error"             { detail }
  */
 export async function streamChat(token, payload, handlers = {}) {
-  const { onConversation, onUserMessage, onToken, onReasoningToken, onAssistantMessage, onComplete, onError, onSearching, onSearchComplete, onVoiceStyle, signal } = handlers;
+  const { onConversation, onUserMessage, onToken, onReasoningToken, onAssistantMessage, onComplete, onError, onSearching, onSearchComplete, onSearchStatus, onVoiceStyle, signal } = handlers;
   
   // Extract incognito flag if present so we don't send it to the normal payload
   const isIncognito = !!payload.incognito;
@@ -367,12 +368,16 @@ export async function streamChat(token, payload, handlers = {}) {
         case "user_message":
           onUserMessage?.(event.data);
           break;
+        case "search_status":
+          onSearchStatus?.({ status: event.status, label: event.label || "" });
+          break;
         case "searching":
           // Bmo decided this turn needs live results and is fetching them.
           onSearching?.({ query: event.query || "" });
           break;
         case "search_complete":
           onSearchComplete?.({
+            status: event.status || (event.count ? "ok" : "empty"),
             count: event.count || 0,
             elapsedMs: event.elapsed_ms ?? null,
             results: event.results || [],
@@ -502,7 +507,7 @@ export async function listModels(token) {
 
 // ---------- voice transcription ----------
 
-export async function transcribeAudio(token, audioBlob, { language } = {}) {
+export async function transcribeAudio(token, audioBlob, { language, signal } = {}) {
   const execute = async (t) => {
     const fd = new FormData();
     const isWav = (audioBlob.type || "").includes("wav");
@@ -512,6 +517,7 @@ export async function transcribeAudio(token, audioBlob, { language } = {}) {
       method: "POST",
       headers: authHeaders(t),
       body: fd,
+      signal,
     });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
