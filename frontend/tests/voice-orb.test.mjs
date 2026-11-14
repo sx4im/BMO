@@ -121,3 +121,17 @@ test('sustained slow frames reduce pixel work without changing the CSS orb size'
   assert.equal(view.callbacks.size, 1);
   view.orb.destroy();
 });
+
+test('real voice amplitude visibly enlarges the orb and silence returns its size', async () => {
+  const view = await scene();
+  view.orb.setState('listening');
+  view.orb.setLevels({mic:1});
+  for (let time=0;time<=800;time+=40) view.tick(time);
+  const loudScale = Number(view.canvas.style.transform.match(/scale\(([^)]+)\)/)?.[1] || 1);
+  assert.ok(loudScale >= 1.20 && loudScale <= 1.30);
+  view.orb.setLevels({mic:0});
+  for (let time=840;time<=3000;time+=40) view.tick(time);
+  const quietScale = Number(view.canvas.style.transform.match(/scale\(([^)]+)\)/)?.[1] || 1);
+  assert.ok(quietScale < 1.01);
+  view.orb.destroy();
+});

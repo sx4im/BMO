@@ -52,12 +52,12 @@ float fbm(vec3 p) {
 }
 
 float fog(vec3 p) {
-  vec3 drift = vec3(uTime * 0.14, -uTime * 0.09, uTime * 0.11);
+  vec3 drift = vec3(uTime * 0.55, -uTime * 0.36, uTime * 0.43);
   vec3 warp = vec3(noise(p*1.1 + drift),
                    noise(p*1.1 - drift.yzx + 8.0),
                    noise(p*1.1 + drift.zxy + 19.0));
   // Separate drift and deformation change the cloud itself instead of spinning it.
-  return fbm(p * (1.25 + uMid*0.13) + (warp-0.5)*1.15 + drift*0.65 + 3.8);
+  return fbm(p * (1.65 + uMid*0.18) + (warp-0.5)*1.70 + drift*0.80 + 3.8);
 }
 
 void main() {
@@ -73,7 +73,8 @@ void main() {
   vec3 front = vec3(uv, depth);
   float illumination = max(0.0, dot(front, lightDirection));
   // Haze reaches the lower silhouette instead of forming a dark blue rim.
-  vec3 atmosphere = mix(LOWER_HAZE, BRAND_ORANGE, smoothstep(-0.50,0.90,uv.y));
+  float hazeFlow = (noise(vec3(uv*1.3,uTime*0.5))-0.5)*0.55;
+  vec3 atmosphere = mix(LOWER_HAZE, BRAND_ORANGE, smoothstep(-0.50,0.90,uv.y+hazeFlow));
   vec3 scattered = vec3(0.0);
   float transmission = 1.0;
   const int STEPS = 16;
@@ -83,7 +84,7 @@ void main() {
     vec3 p = vec3(uv,z);
     float field = fog(p);
     float bankHeight = -0.04 + BANK_SLOPE*p.x
-      + 0.07*sin(p.x*2.2 + uTime*0.35) + (field-0.48)*0.45;
+      + 0.24*sin(p.x*2.2 + uTime*0.80) + (field-0.48)*1.0;
     float cloud = smoothstep(-CLOUD_SOFTNESS,CLOUD_SOFTNESS,bankHeight-p.y+z*0.10);
     float density = cloud*(1.5+field*0.9+uLevel*0.18) + 0.012;
     float opacity = 1.0-exp(-density*stepLength*1.75);

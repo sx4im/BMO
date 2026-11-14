@@ -19,8 +19,8 @@ import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
 import * as api from "../api.js?v=66";
-import { createVoiceOrb } from "./voice-orb.js?v=3";
-import { createAudioMeter } from "./voice-audio-meter.js?v=1";
+import { createVoiceOrb } from "./voice-orb.js?v=4";
+import { createAudioMeter } from "./voice-audio-meter.js?v=2";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 
 // ---------- voice-activity detection (VAD) tuning ----------
@@ -47,7 +47,7 @@ const VAD_ENTER_FACTOR = 2.0;    // speech: level > floor * 2.0 (and > MIN)
 const VAD_EXIT_FACTOR  = 1.4;    // silence again below floor * 1.4 (hysteresis)
 const VAD_MIN_LEVEL    = 0.005;  // absolute gate so dead-quiet rooms don't fire on hiss
 const VAD_ENTER_FRAMES = 2;      // ~2 consecutive loud frames (~35 ms) to confirm speech
-const VAD_SILENCE_MS   = 1100;   // short pause without sending in the middle of normal speech
+const VAD_SILENCE_MS   = 650;    // finish promptly after a real quiet gap
 const VAD_NO_SPEECH_MS = 8000;   // never spoke -> release the mic, don't transcribe noise
 const VAD_MAX_TURN_MS  = 60000;  // hard safety cap per turn
 
@@ -131,6 +131,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let mediaStream = null;
   let audioChunks = [];
   let transcription = null;
+  let finalCaption = "";
+  let finalCaptionAt = 0;
+  let stoppedCaption = "";
 
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
@@ -500,8 +503,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       recognition.onresult = (event) => {
         if (!isCurrent() || turnInFlight) return;
+        finalCaption = "";
+        finalCaptionAt = 0;
+        stoppedCaption = "";
         const currentText = extractCleanTranscript(event.results);
         if (currentText) {
+          if (captionsOnly && Array.from(event.results).every(result => result.isFinal)) {
+            finalCaption = currentText;
+            finalCaptionAt = performance.now();
+          }
           clearTimeout(speechResultTimer);
           speechResultTimer = null;
           lastRecognizedText = currentText;
@@ -512,18 +522,28 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
               const textToSend = lastRecognizedText;
               lastRecognizedText = "";
               if (captionsOnly) {
-                if (mediaRecorder?.state === "recording") stopRecorder();
+                // Only healthy final words followed by actual microphone quiet
+                // may skip offline ASR. Interim/error/manual takes keep the WAV.
+                if (!finalCaption && microphoneMeter) return;
+                const micLevel = microphoneMeter?.sample(performance.now()).rawLevel || 0;
+                if (mediaRecorder?.state === "recording") {
+                  if (!microphoneMeter) stopRecorder();
+                  else if (micLevel < 0.08) stopRecorder({ useFinalCaption: true });
+                  else finalCaption = "";
+                }
                 return;
               }
               stopRecognition();
               endTurn(textToSend);
             }
-          }, event.results[event.results.length - 1]?.isFinal ? 750 : VAD_SILENCE_MS);
+          }, event.results[event.results.length - 1]?.isFinal ? 500 : VAD_SILENCE_MS);
         }
       };
 
       recognition.onerror = (event) => {
         if (!isCurrent()) return;
+        finalCaption = "";
+        stoppedCaption = "";
         console.warn("[bimo-voice] Web Speech error:", event?.error);
         if (event?.error !== "no-speech") {
           speechRecSupported = false;
@@ -539,6 +559,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
             // The owned recording already contains this utterance. Recognition
             // supplies captions only; a service failure must not discard audio.
             if (speechSilenceTimer) return;
+            finalCaption = "";
             emptyEndCount++;
             if (emptyEndCount < 3) {
               try { currentRecognition.start(); return; } catch {}
@@ -595,6 +616,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   function stopRecognition({ keepCapture = false } = {}) {
+    finalCaption = "";
+    finalCaptionAt = 0;
     clearTimeout(speechStartTimer);
     clearTimeout(speechResultTimer);
     speechStartTimer = null;
@@ -749,6 +772,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         const level = sum / (hiBin - loBin + 1) / 255;
         peakLevel = Math.max(peakLevel, level);
         const now = performance.now();
+        if (finalCaption && now-finalCaptionAt > 180 && microphoneMeter?.sample(now).rawLevel > 0.08) {
+          finalCaption = "";
+        }
         const elapsed = now - startedAt;
 
         // Asymmetric noise-floor tracker: drops quickly when the input gets
@@ -805,7 +831,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         } else if (level <= exitAt) {
           if (!silenceStart) silenceStart = now;
           else if (now - silenceStart >= VAD_SILENCE_MS) {
-            stopRecorder();
+            stopRecorder({ useFinalCaption: true });
             return;
           }
         } else {
@@ -835,8 +861,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     vadAnalyser = null;
   }
 
-  function stopRecorder() {
+  function stopRecorder({ useFinalCaption = false } = {}) {
     recorderSequence++;
+    stoppedCaption = useFinalCaption ? finalCaption : "";
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       try { mediaRecorder.stop(); } catch { /* ignore */ }
     }
@@ -848,6 +875,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   async function onRecorderStop() {
+    const readyCaption = stoppedCaption;
+    stoppedCaption = "";
     stopRecognition();
     stopVAD();
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
@@ -861,6 +890,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       discardTake = false;
       audioChunks = [];
       if (state === "listening" && !turnInFlight) startListening();
+      return;
+    }
+    if (readyCaption) {
+      audioChunks = [];
+      endTurn(readyCaption);
       return;
     }
     // The local VAD is ADVISORY, not a hard gate. Transcribe whenever the take

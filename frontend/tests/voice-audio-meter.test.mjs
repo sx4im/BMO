@@ -27,6 +27,7 @@ test('microphone noise is gated and genuine waveform energy drives a smooth enve
   input.signal = 0;
   const release = meter.sample(82).level;
   assert.ok(release > 0 && release < sustained);
+  assert.equal(meter.sample(90).rawLevel, 0);
   assert.ok(meter.sample(1082).level < 0.01);
 });
 

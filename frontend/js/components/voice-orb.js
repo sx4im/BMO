@@ -1,4 +1,4 @@
-import { vertexShader, fragmentShader } from './voice-orb-shaders.js?v=3';
+import { vertexShader, fragmentShader } from './voice-orb-shaders.js?v=4';
 
 const STATES = {
   idle: { speed: 0.22, activity: 0 },
@@ -29,6 +29,7 @@ export function createVoiceOrb(canvas) {
   let lastDraw = -Infinity;
   let resolutionScale = 1;
   let slowFrames = 0;
+  let drawnScale = 1;
 
   function cancelFrame() {
     if (frame !== null) cancelAnimationFrame(frame);
@@ -131,6 +132,11 @@ export function createVoiceOrb(canvas) {
       activity += (desired.activity-activity)*(1-Math.exp(-dt/0.4));
       speed += (desired.speed + level * 0.50 - speed)*(1-Math.exp(-dt/0.4));
       if (!still) time += dt*speed;
+      const scale = still ? 1 : 1 + level * 0.28;
+      if (Math.abs(scale-drawnScale) > 0.001 || (still && drawnScale !== 1)) {
+        canvas.style.transform = `scale(${scale.toFixed(3)})`;
+        drawnScale = scale;
+      }
       const { uniforms } = gpu;
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.useProgram(gpu.program);

@@ -29,10 +29,14 @@ async function voicePage(sendTurn, language='en', options = {}) {
       const context = this;
       const analyser = {fftSize:512,frequencyBinCount:256,connect(){},disconnect(){},
         getFloatTimeDomainData(data){
-          const level = options.micLevel || (context.playing ? 0.12 : 0);
+          const configured = typeof options.micLevel === 'function' ? options.micLevel() : options.micLevel;
+          const level = configured || (context.playing ? 0.12 : 0);
           for(let i=0;i<data.length;i++) data[i]=level*(i%2?1:-1);
         },
-        getByteFrequencyData(data){data.fill(context.playing || options.micLevel ? 100 : 0);},
+        getByteFrequencyData(data){
+          const configured = typeof options.micLevel === 'function' ? options.micLevel() : options.micLevel;
+          data.fill(context.playing || configured ? 100 : 0);
+        },
       };
       analysers.push(analyser);return analyser;
     }
@@ -71,7 +75,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
     }},
   },{globals:{Blob, MediaRecorder: Recorder, ArrayBuffer, Int16Array, WebSocket:Socket,performance:{now:()=>Date.now() + (options.clockOffset?.() || 0)},
     setTimeout:(fn,ms)=>setTimeout(fn,ms).unref(),
-    requestAnimationFrame:fn=>setTimeout(fn,10).unref(),cancelAnimationFrame:clearTimeout,
+    requestAnimationFrame:fn=>setTimeout(()=>fn(Date.now()),10).unref(),cancelAnimationFrame:clearTimeout,
   }});
   Object.defineProperty(app.dom.window.document,'hidden',{configurable:true,value:false});
   if(options.getUserMedia) Object.defineProperty(app.dom.window.navigator,'mediaDevices',{
@@ -489,4 +493,38 @@ test('rapid language changes create one replacement recording with the final lan
   await tick();
   assert.equal(captures, 2);
   assert.equal(page.recognitions.at(-1).lang, 'fr-FR');
+});
+
+test('healthy final browser speech starts the answer without a second transcription request', async t => {
+  let uploads = 0;
+  const sent = [];
+  const page = await voicePage(async text => {sent.push(text);return '';}, 'en', {
+    recordingData: true,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    transcribeAudio: async () => {uploads++;return new Promise(()=>{});},
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recognitions.length);
+  page.recognitions[0].onresult({results:[Object.assign([{transcript:'How are you today?'}],{isFinal:true})]});
+  await until(() => sent.length, 1200);
+  assert.deepEqual(sent, ['How are you today?']);
+  assert.equal(uploads, 0);
+});
+
+test('continued microphone speech invalidates an earlier final caption', async t => {
+  let level = 0.1, uploads = 0;
+  const sent = [];
+  const page = await voicePage(async text => {sent.push(text);return '';}, 'en', {
+    recordingData: true, micLevel: () => level,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    transcribeAudio: async () => {uploads++;return {text:'What is the weather in Lahore?'};},
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recognitions.length);
+  page.recognitions[0].onresult({results:[Object.assign([{transcript:'What is'}],{isFinal:true})]});
+  await new Promise(resolve=>setTimeout(resolve,350));
+  level = 0;
+  await until(() => sent.length, 1700);
+  assert.deepEqual(sent, ['What is the weather in Lahore?']);
+  assert.equal(uploads, 1);
 });

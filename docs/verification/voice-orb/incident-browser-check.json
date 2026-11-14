@@ -1,13 +1,9 @@
 {
+  "loudScale": 1.2,
   "scope": "Chromium real MediaRecorder/WebM, real Web Audio and actual WAV conversion; ASR/chat/TTS network responses and native recognition events simulated.",
   "uploads": [
     {
-      "bytes": 71084,
-      "sampleRate": 16000,
-      "channels": 1
-    },
-    {
-      "bytes": 26924,
+      "bytes": 67244,
       "sampleRate": 16000,
       "channels": 1
     }
@@ -20,9 +16,10 @@
     "mobile interim captions update immediately",
     "all seven language locales restart correctly",
     "captions clear on first reply audio",
-    "recorded audio remains authoritative despite partial browser captions",
+    "healthy complete final captions bypass duplicate offline transcription",
     "status labels visually hidden",
     "all capture tracks ended on close"
   ],
-  "errors": []
+  "errors": [],
+  "fast_path_scope": "Healthy all-final native recognition after microphone quiet bypassed the second ASR request; real providers were simulated."
 }

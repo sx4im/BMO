@@ -3,7 +3,7 @@ export function createAudioMeter(analyser, sampleRate) {
   const waveform = new Float32Array(analyser.fftSize);
   const bytes = new Uint8Array(analyser.fftSize);
   const frequencies = new Uint8Array(analyser.frequencyBinCount);
-  const result = { level: 0, low: 0, mid: 0 };
+  const result = { level: 0, low: 0, mid: 0, rawLevel: 0 };
   const targets = { level: 0, low: 0, mid: 0 };
   const keys = ["level", "low", "mid"];
   const binHz = sampleRate / analyser.fftSize;
@@ -29,6 +29,7 @@ export function createAudioMeter(analyser, sampleRate) {
       }
       const rms = Math.sqrt(sum / waveform.length);
       const level = Math.min(1, Math.max(0, (rms - 0.006) / 0.18));
+      result.rawLevel = level;
       analyser.getByteFrequencyData?.(frequencies);
       const dt = previousTime == null ? 1 / 60 : Math.max(0, (now - previousTime) / 1000);
       previousTime = now;
