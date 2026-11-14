@@ -3,8 +3,8 @@ import test from 'node:test';
 import { moduleLoader } from './modules.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function until(condition) {
-  for (let i=0;i<150;i++) { if (condition()) return; await new Promise(resolve=>setTimeout(resolve,5)); }
+async function until(condition, timeout = 750) {
+  for (let i=0;i<timeout/5;i++) { if (condition()) return; await new Promise(resolve=>setTimeout(resolve,5)); }
   assert.fail('Voice state did not settle');
 }
 
@@ -80,7 +80,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
   app.dom.window.localStorage.setItem('bimo-voice-lang',language);
   app.dom.window.AudioContext=Audio;
   app.dom.window.SpeechRecognition=options.recorder ? undefined : class {
-    constructor(){recognitions.push(this);} start(){this.onstart?.();} stop(){};
+    constructor(){recognitions.push(this);} start(){if (!options.recognitionStalls) this.onstart?.();} stop(){};
   };
   app.dom.window.HTMLMediaElement.prototype.play=()=>Promise.resolve();
   const {openVoiceOverlay,voiceDelivery}=await app.load('js/components/voice-overlay.js');
@@ -342,4 +342,46 @@ test('a current recording is transcribed and submits its recognized text', async
   await until(() => sent.length);
   assert.deepEqual(sent, ['A spoken question']);
   assert.deepEqual(page.notices, []);
+});
+
+test('a browser speech service that never starts falls back to recording', async t => {
+  const page = await voicePage(async () => '', 'en', {
+    recognitionStalls: true,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recorders[0]?.state === 'recording', 4300);
+  assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state, 'listening');
+});
+
+test('real microphone speech with no browser transcript falls back and can answer', async t => {
+  let offset = 0;
+  const sent = [];
+  const page = await voicePage(async text => {sent.push(text); return '';}, 'en', {
+    micLevel: 0.1, recordingData: true, clockOffset: () => offset,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    transcribeAudio: async () => ({text:'A recovered spoken question'}),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recorders[0]?.state === 'recording', 7500);
+  offset = 700;
+  page.dom.window.document.querySelector('.voice-mic').click();
+  await until(() => sent.length);
+  assert.deepEqual(sent, ['A recovered spoken question']);
+});
+
+test('browser speech results submit the question and play the assistant reply', async t => {
+  const sent = [];
+  const reply = 'I heard your spoken question.';
+  const page = await voicePage(async (text, handlers) => {
+    sent.push(text); handlers.onDelta(reply); return reply;
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recognitions.length);
+  const result = Object.assign([{transcript:'Can you hear me?', confidence:1}], {isFinal:true});
+  page.recognitions[0].onresult({results:[result], resultIndex:0});
+  await until(() => page.commands.some(command => command.type === 'Speak'), 1500);
+  assert.deepEqual(sent, ['Can you hear me?']);
+  assert.equal(page.commands.filter(command => command.type === 'Speak').map(command => command.text).join('').trim(), reply);
+  assert.equal(page.recorders.length, 0);
 });

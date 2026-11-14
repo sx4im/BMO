@@ -1,4 +1,4 @@
-// The orb is a small volume of blue haze; no texture, video, or external assets.
+// Procedural Bimo orange fog; no texture, video, or external assets.
 export const vertexShader = `#version 300 es
 precision highp float;
 void main() {
@@ -17,9 +17,9 @@ uniform float uMid;
 out vec4 color;
 
 // Reference palette and the broad lower cloud bank. Keep visual tuning here.
-const vec3 TOP_BLUE = vec3(0.22, 0.40, 0.91);
-const vec3 LOWER_HAZE = vec3(0.75, 0.81, 0.98);
-const vec3 CLOUD_WHITE = vec3(0.96, 0.98, 1.0);
+const vec3 BRAND_ORANGE = vec3(0.851, 0.467, 0.341); // --primary: #d97757
+const vec3 LOWER_HAZE = vec3(1.0, 0.80, 0.66);
+const vec3 CLOUD_WHITE = vec3(1.0, 0.97, 0.93);
 const float BANK_SLOPE = -0.42;
 const float CLOUD_SOFTNESS = 0.20;
 
@@ -73,7 +73,7 @@ void main() {
   vec3 front = vec3(uv, depth);
   float illumination = max(0.0, dot(front, lightDirection));
   // Haze reaches the lower silhouette instead of forming a dark blue rim.
-  vec3 blue = mix(LOWER_HAZE, TOP_BLUE, smoothstep(-0.50,0.90,uv.y));
+  vec3 atmosphere = mix(LOWER_HAZE, BRAND_ORANGE, smoothstep(-0.50,0.90,uv.y));
   vec3 scattered = vec3(0.0);
   float transmission = 1.0;
   const int STEPS = 16;
@@ -85,17 +85,17 @@ void main() {
     float bankHeight = -0.04 + BANK_SLOPE*p.x
       + 0.07*sin(p.x*2.2 + uTime*0.35) + (field-0.48)*0.45;
     float cloud = smoothstep(-CLOUD_SOFTNESS,CLOUD_SOFTNESS,bankHeight-p.y+z*0.10);
-    float density = cloud*(2.0+uLevel*0.18) + 0.012;
+    float density = cloud*(1.5+field*0.9+uLevel*0.18) + 0.012;
     float opacity = 1.0-exp(-density*stepLength*1.75);
     float softLight = 0.94 + 0.04*illumination + 0.01*z;
-    vec3 mist = mix(vec3(0.66,0.79,1.0),CLOUD_WHITE,cloud);
+    vec3 mist = mix(LOWER_HAZE,CLOUD_WHITE,smoothstep(0.30,0.65,field));
     mist = mix(mist,LOWER_HAZE,smoothstep(0.10,0.85,-p.y)*0.65);
     mist *= softLight + uActivity*0.018 + uLevel*0.05;
     scattered += transmission * opacity * mist;
     transmission *= 1.0-opacity;
   }
-  vec3 result = blue*transmission + scattered;
+  vec3 result = atmosphere*transmission + scattered;
   // Broad diffuse light keeps the volume luminous without a specular rim.
-  result += vec3(0.018,0.025,0.04)*illumination*depth;
+  result += vec3(0.04,0.025,0.018)*illumination*depth;
   color = vec4(clamp(result,0.0,1.0),mask);
 }`;

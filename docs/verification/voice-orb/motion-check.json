@@ -1,0 +1,6 @@
+{
+  "scope": "Actual WebGL2 listening shader in Chromium/SwiftShader, 220px CSS canvas, no audio input. Two captures separated by two seconds.",
+  "mean_rgb_change": 1.08284435261708,
+  "minimum_mean_rgb_change": 1,
+  "passed": true
+}

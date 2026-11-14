@@ -1,6 +1,6 @@
 # Search review and procedural voice verification
 
-The voice overlay now renders blue and white fog with native WebGL2. The renderer, shader source and audio meter are separate modules; the existing overlay owns transcription, VAD, TTS and their cleanup. No rendering library or new dependency was added.
+The current voice overlay renders orange and cream fog with native WebGL2, centered within the original themed Bimo interface. [Correction details](correction.md) supersede the earlier black-screen screenshot reconstruction below. The renderer, shader source and audio meter are separate modules; the existing overlay owns transcription, VAD, TTS and their cleanup. No rendering library or new dependency was added.
 
 The November 14 brief also requested removal of the retired tutoring tool. Its composer state, menu entry, dedicated prompt module, submission/retry/voice fields, backend capability descriptions, dormant quiz rendering callbacks, icon and CSS have been removed. No dedicated table, migration, backend endpoint or standalone asset existed for that tool. Shared conversation prompts, normal educational answers and existing conversation records remain supported. Source scans found no remaining retired feature references in `frontend`, `backend` or the local Graft cards. The Graft CLI was unavailable, so those cards were consulted directly and their obsolete entries removed.
 
@@ -31,14 +31,14 @@ The mechanical design detector reported legacy CSS findings outside the voice se
 
 | Requirement | Evidence |
 | --- | --- |
-| Procedural spherical fog, blue/periwinkle/white palette, soft silhouette | GLSL volume sampling with warped 3D noise; actual browser images inspected: [orb](orb.png), [desktop](desktop.png), [mobile](mobile.png) |
+| Procedural spherical fog, Bimo orange/cream palette, soft silhouette | GLSL volume sampling with warped 3D noise; actual browser images inspected: [orb](orb.png), [desktop](desktop.png), [mobile](mobile.png) |
 | Four smooth states and real audio analysis | Renderer tests; RMS, frequency band, gate and attack/release tests; real Web Audio synthetic microphone and PCM playback checks |
 | Streamed speech, interruption and existing input paths | Voice integration tests exercise queued chunks, late replies after interruption, Web Speech capture, MediaRecorder/VAD capture, cancelled transcription, late errors and successful recording submission |
-| Responsive black surface and functional pill | Desktop 96px orb, mobile 92px orb, short landscape check; keyboard language action, focus containment/restoration and background scroll locking |
+| Original themed surface and controls, centered orb | Desktop 220px, mobile 170px and short-landscape 96px orb; original 48px buttons, visible title/status, keyboard language action, focus containment/restoration and background scroll locking |
 | Resource and rendering lifecycle | Tests cover one RAF, DPR cap, destroy, hidden/offscreen pause, context loss/restoration, fallback and reduced motion; browser close/reopen stops tracks and draws |
 | Bounded rendering cost | 30fps cap, DPR capped at 2, adaptive internal resolution after sustained slow frames, no textures or media downloads |
 | Remove old media without changing hero | Obsolete orb asset deleted, frontend references removed, service worker cache version updated; hero media diff is empty |
-| Existing suite regression checks | 414 backend tests and 78 frontend tests passed on November 14 |
+| Existing suite regression checks | 81 frontend tests passed after the correction; the unchanged backend last passed 414 tests |
 | Comparison to supplied screenshot | Screenshot received November 14; static appearance and desktop/mobile renders compared, palette/cloud distribution and layout refined in two bounded passes; [comparison](reference-comparison.json) |
 
 Commands run from the repository root:
@@ -60,7 +60,7 @@ The November 14 [browser check](current-browser-check.json) exercised the actual
 
 The isolated software-rendered sample achieved about 23fps while adapting resolution under a 30fps cap. This is a test-environment observation, not a production performance guarantee. Browser service calls were stubbed and audio was synthetic. Physical microphone behavior, live transcription/TTS providers, Safari/Firefox, mobile hardware performance and deployment were not verified. The supplied screenshot was inspected and used to refine the final appearance. The recreation remains approximate; a still cannot establish the original motion or shader.
 
-## Supplied reference and REA investigation
+## Earlier supplied reference and REA investigation (superseded visual direction)
 
 The reference has a saturated blue upper atmosphere and a broad soft white lower cloud, rather than small white clouds across the full sphere. The final shader retains 16 volume samples, warped 3D noise and audio-driven evolution, with palette and cloud-bank constants grouped in the shader module. The bar now measures 768×52px on desktop, with a 28px canvas gap and approximately 93px painted orb. Existing 44px control targets and the Bimo language control remain. The overlay stays centered in Bimo rather than copying the browser/sidebar offset in the supplied image. [Reference measurements and sampled colors](reference-comparison.json) document the comparison without claiming identical pixels.
 

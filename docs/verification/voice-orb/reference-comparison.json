@@ -138,5 +138,6 @@
     "A single screenshot cannot establish the original shader, state machine or motion.",
     "Recreation is approximate; screenshots show one procedural phase, not identical pixels.",
     "Original live ChatGPT renderer was not reached through REA."
-  ]
+  ],
+  "superseded_by": "The user clarified that only the orb should change, requested its original centered position and Bimo orange. See correction.md for current behavior; this record describes the earlier blue/black reconstruction."
 }

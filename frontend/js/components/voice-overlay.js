@@ -19,7 +19,7 @@ import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
 import * as api from "../api.js?v=66";
-import { createVoiceOrb } from "./voice-orb.js?v=2";
+import { createVoiceOrb } from "./voice-orb.js?v=3";
 import { createAudioMeter } from "./voice-audio-meter.js?v=1";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 
@@ -378,6 +378,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   let speechSilenceTimer = null;
+  let speechStartTimer = null;
+  let speechResultTimer = null;
 
   function dedupeWordsAndPhrases(str) {
     if (!str) return "";
@@ -468,13 +470,22 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       recognition.onstart = () => {
         if (!isCurrent()) return;
+        clearTimeout(speechStartTimer);
+        speechStartTimer = null;
         setState("listening", "Listening… speak now");
+        // Some browsers expose recognition but its remote service never returns
+        // words. Keep the existing recorder available instead of waiting forever.
+        speechResultTimer = setTimeout(() => {
+          if (isCurrent() && state === "listening" && !turnInFlight) useRecorderInput();
+        }, 6000);
       };
 
       recognition.onresult = (event) => {
         if (!isCurrent() || turnInFlight) return;
         const currentText = extractCleanTranscript(event.results);
         if (currentText) {
+          clearTimeout(speechResultTimer);
+          speechResultTimer = null;
           lastRecognizedText = currentText;
           setTranscript(currentText);
           if (speechSilenceTimer) clearTimeout(speechSilenceTimer);
@@ -535,16 +546,22 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         }
       };
 
+      speechStartTimer = setTimeout(() => {
+        if (isCurrent() && state === "listening" && !turnInFlight) useRecorderInput();
+      }, 3000);
       recognition.start();
       startMicrophoneMeter();
     } catch (err) {
       console.warn("[bimo-voice] Web Speech init failed, using MediaRecorder fallback:", err);
-      speechRecSupported = false;
-      startRecorder();
+      useRecorderInput();
     }
   }
 
   function stopRecognition() {
+    clearTimeout(speechStartTimer);
+    clearTimeout(speechResultTimer);
+    speechStartTimer = null;
+    speechResultTimer = null;
     if (speechSilenceTimer) {
       clearTimeout(speechSilenceTimer);
       speechSilenceTimer = null;
@@ -560,6 +577,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       recognition = null;
     }
     stopVAD();
+  }
+
+  function useRecorderInput() {
+    if (!active || state !== "listening" || turnInFlight) return;
+    speechRecSupported = false;
+    stopRecognition();
+    setState("listening", "Listening through your microphone…");
+    startRecorder();
   }
 
   async function startMicrophoneMeter() {

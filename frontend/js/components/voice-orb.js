@@ -1,10 +1,10 @@
-import { vertexShader, fragmentShader } from './voice-orb-shaders.js?v=2';
+import { vertexShader, fragmentShader } from './voice-orb-shaders.js?v=3';
 
 const STATES = {
-  idle: { speed: 0.025, activity: 0 },
-  listening: { speed: 0.045, activity: 0.15 },
-  thinking: { speed: 0.13, activity: 0.45 },
-  speaking: { speed: 0.055, activity: 0.2 },
+  idle: { speed: 0.22, activity: 0 },
+  listening: { speed: 0.40, activity: 0.15 },
+  thinking: { speed: 0.65, activity: 0.45 },
+  speaking: { speed: 0.35, activity: 0.2 },
 };
 const LEVEL_KEYS = ['mic', 'playback', 'low', 'mid'];
 const clamp = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
@@ -129,7 +129,7 @@ export function createVoiceOrb(canvas) {
       low += (targets.low-low)*(1-Math.exp(-dt/0.18));
       mid += (targets.mid-mid)*(1-Math.exp(-dt/0.09));
       activity += (desired.activity-activity)*(1-Math.exp(-dt/0.4));
-      speed += (desired.speed + level * 0.22 - speed)*(1-Math.exp(-dt/0.4));
+      speed += (desired.speed + level * 0.50 - speed)*(1-Math.exp(-dt/0.4));
       if (!still) time += dt*speed;
       const { uniforms } = gpu;
       gl.viewport(0, 0, canvas.width, canvas.height);
@@ -150,7 +150,8 @@ export function createVoiceOrb(canvas) {
     if (destroyed) return;
     const bounds = canvas.getBoundingClientRect();
     const dpr = Math.min(view.devicePixelRatio || 1, 2);
-    const side = Math.max(32, Math.min(384, Math.round(Math.min(bounds.width || 96, bounds.height || 96)*dpr*resolutionScale)));
+    const pixels = Math.min(256, Math.min(bounds.width || 96, bounds.height || 96)*dpr);
+    const side = Math.max(32, Math.round(pixels*resolutionScale));
     if (canvas.width !== side || canvas.height !== side) {
       canvas.width = side;
       canvas.height = side;

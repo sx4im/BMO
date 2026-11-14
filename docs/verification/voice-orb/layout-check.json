@@ -1,23 +1,23 @@
 {
-  "scope": "Chromium/SwiftShader; current styles.css v242 and actual voice module; services stubbed",
+  "scope": "Chromium/SwiftShader; current styles.css v243 and actual voice module; services stubbed",
   "checks": [
     "WebGL2 initializes",
-    "desktop 96px and mobile 92px",
+    "centered desktop 220px and mobile 170px, original themed controls",
     "body scroll locked while open and restored on close",
     "Escape closes overlay",
     "previous focus restored"
   ],
   "desktop": {
-    "x": 672,
-    "y": 700,
-    "width": 96,
-    "height": 96
+    "x": 610,
+    "y": 340,
+    "width": 220,
+    "height": 220
   },
   "mobile": {
-    "x": 149,
-    "y": 648,
-    "width": 92,
-    "height": 92
+    "x": 110,
+    "y": 337,
+    "width": 170,
+    "height": 170
   },
   "errors": []
 }
