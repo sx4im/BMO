@@ -50,7 +50,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
     static isTypeSupported() { return true; }
     constructor() { this.state = 'inactive'; this.listeners = {}; recorders.push(this); }
     addEventListener(name, callback) { this.listeners[name] = callback; }
-    start() { this.state = 'recording'; }
+    start() { if (options.recorderStartFails) throw new Error('Recorder failed'); this.state = 'recording'; }
     stop() {
       this.state = 'inactive';
       queueMicrotask(() => {
@@ -344,17 +344,20 @@ test('a current recording is transcribed and submits its recognized text', async
   assert.deepEqual(page.notices, []);
 });
 
-test('a browser speech service that never starts falls back to recording', async t => {
+test('recording owns the first utterance even when browser speech never starts', async t => {
+  let captures = 0;
   const page = await voicePage(async () => '', 'en', {
     recognitionStalls: true,
-    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    getUserMedia: async () => { captures++; return {getTracks: () => [{stop(){}}]}; },
   });
   t.after(() => page.overlay.close());
-  await until(() => page.recorders[0]?.state === 'recording', 4300);
+  assert.equal(captures, 1);
+  await until(() => page.recorders[0]?.state === 'recording');
+  assert.equal(captures, 1);
   assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state, 'listening');
 });
 
-test('real microphone speech with no browser transcript falls back and can answer', async t => {
+test('the first recording can answer without waiting for browser transcripts', async t => {
   let offset = 0;
   const sent = [];
   const page = await voicePage(async text => {sent.push(text); return '';}, 'en', {
@@ -363,7 +366,7 @@ test('real microphone speech with no browser transcript falls back and can answe
     transcribeAudio: async () => ({text:'A recovered spoken question'}),
   });
   t.after(() => page.overlay.close());
-  await until(() => page.recorders[0]?.state === 'recording', 7500);
+  await until(() => page.recorders[0]?.state === 'recording');
   offset = 700;
   page.dom.window.document.querySelector('.voice-mic').click();
   await until(() => sent.length);
@@ -384,4 +387,106 @@ test('browser speech results submit the question and play the assistant reply', 
   assert.deepEqual(sent, ['Can you hear me?']);
   assert.equal(page.commands.filter(command => command.type === 'Speak').map(command => command.text).join('').trim(), reply);
   assert.equal(page.recorders.length, 0);
+});
+
+test('live captions update immediately and disappear on first assistant audio', async t => {
+  let finish;
+  const page = await voicePage(async (_text, handlers) => {
+    handlers.onDelta('Here is your spoken answer.');
+    return new Promise(resolve => {finish = resolve;});
+  }, 'en', {
+    recordingData: true,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    transcribeAudio: async () => ({text:'Can you hear me?'}),
+  });
+  t.after(() => {finish?.('Here is your spoken answer.'); page.overlay.close();});
+  await until(() => page.recognitions.length);
+  const emit = (text, final) => page.recognitions[0].onresult({results:[Object.assign([{transcript:text}],{isFinal:final})]});
+  emit('Can you', false);
+  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, 'Can you');
+  emit('Can you hear me?', true);
+  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, 'Can you hear me?');
+  await until(() => page.dom.window.document.querySelector('.voice-overlay').dataset.state === 'speaking', 1600);
+  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, '');
+  assert.equal(page.recorders.length, 1);
+});
+
+test('all language selections restart captions and capture with the selected locale', async t => {
+  let stopped = 0;
+  const page = await voicePage(async () => '', 'en', {
+    getUserMedia: async () => ({getTracks: () => [{stop(){stopped++;}}]}),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recognitions.length);
+  const locales = ['nl-NL','fr-FR','de-DE','it-IT','es-ES','ja-JP','en-US'];
+  for (const locale of locales) {
+    const previous = page.recognitions.length;
+    page.dom.window.document.querySelector('.voice-lang-btn').click();
+    await until(() => page.recognitions.length > previous);
+    assert.equal(page.recognitions.at(-1).lang, locale);
+    assert.equal(page.dom.window.localStorage.getItem('bimo-voice-lang'), locale.slice(0,2));
+  }
+  assert.equal(stopped, locales.length);
+});
+
+test('recorder setup failure releases the microphone and permits retry', async t => {
+  let stopped = 0;
+  const page = await voicePage(async () => '', 'en', {
+    recorderStartFails: true,
+    getUserMedia: async () => ({getTracks: () => [{stop(){stopped++;}}]}),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.notices.length);
+  assert.equal(stopped, 1);
+  assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state, 'idle');
+});
+
+test('failed WAV conversion never uploads mislabeled compressed audio', async t => {
+  let offset = 0, uploads = 0;
+  const page = await voicePage(async () => '', 'en', {
+    recorder: true, recordingData: true, clockOffset: () => offset,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    convertRecording: async () => {throw Error('Audio conversion failed');},
+    transcribeAudio: async () => {uploads++; return {text:'wrong'};},
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recorders[0]?.state === 'recording');
+  offset = 700;
+  page.dom.window.document.querySelector('.voice-mic').click();
+  await until(() => page.notices.length);
+  assert.equal(uploads, 0);
+});
+
+test('failed browser captions never truncate the recorded question', async t => {
+  let offset = 0, uploads = 0;
+  const sent = [];
+  const page = await voicePage(async text => {sent.push(text);return '';}, 'en', {
+    recordingData: true, clockOffset: () => offset,
+    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
+    transcribeAudio: async () => {uploads++;return {text:'What is the weather in Lahore?'};},
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recognitions.length);
+  page.recognitions[0].onresult({results:[Object.assign([{transcript:'What is'}],{isFinal:false})]});
+  page.recognitions[0].onerror({error:'network'});
+  assert.equal(page.recorders[0].state, 'recording');
+  offset = 700;
+  page.dom.window.document.querySelector('.voice-mic').click();
+  await until(() => sent.length);
+  assert.deepEqual(sent, ['What is the weather in Lahore?']);
+  assert.equal(uploads, 1);
+});
+
+test('rapid language changes create one replacement recording with the final language', async t => {
+  let captures = 0;
+  const page = await voicePage(async () => '', 'en', {
+    getUserMedia: async () => {captures++;return {getTracks: () => [{stop(){}}]};},
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recorders.length === 1);
+  const button = page.dom.window.document.querySelector('.voice-lang-btn');
+  button.click();button.click();
+  await tick();
+  assert.equal(captures, 2);
+  assert.equal(page.recognitions.at(-1).lang, 'fr-FR');
 });

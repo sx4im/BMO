@@ -1,0 +1,28 @@
+{
+  "scope": "Chromium real MediaRecorder/WebM, real Web Audio and actual WAV conversion; ASR/chat/TTS network responses and native recognition events simulated.",
+  "uploads": [
+    {
+      "bytes": 71084,
+      "sampleRate": 16000,
+      "channels": 1
+    },
+    {
+      "bytes": 26924,
+      "sampleRate": 16000,
+      "channels": 1
+    }
+  ],
+  "checks": [
+    "first utterance recorded immediately with one owned mic stream",
+    "speech/silence automatically sends recording",
+    "real conversion uploads nonempty 16kHz mono WAV",
+    "reply audio starts",
+    "mobile interim captions update immediately",
+    "all seven language locales restart correctly",
+    "captions clear on first reply audio",
+    "recorded audio remains authoritative despite partial browser captions",
+    "status labels visually hidden",
+    "all capture tracks ended on close"
+  ],
+  "errors": []
+}

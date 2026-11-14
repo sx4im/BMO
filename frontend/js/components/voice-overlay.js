@@ -146,8 +146,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         isBraveBrowser = true;
         speechRecSupported = false;
         if (state === "listening" && recognition) {
-          stopRecognition();
-          startRecorder();
+          const recording = mediaRecorder?.state === "recording";
+          stopRecognition({ keepCapture: recording });
+          if (!recording) startRecorder();
         }
       }
     }).catch(() => {});
@@ -244,7 +245,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
   function selectLanguage(id) {
     if (currentLangId === id) return;
-    if (activeSpeech || turnInFlight) stopSpeaking();
+    if (activeSpeech || turnInFlight || transcription) {
+      cancelTranscription();
+      stopSpeaking();
+    }
     currentLangId = id;
     try { localStorage.setItem("bimo-voice-lang", id); } catch {}
     const conf = getLangConfig();
@@ -257,6 +261,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       ttsWS = null;
     }
     ensureTTSWS();
+    if (state === "listening" && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined") {
+      discardTake = true;
+      stopRecognition();
+      const pendingRecorder = Boolean(mediaRecorder);
+      stopRecorder();
+      if (!pendingRecorder) startListening();
+      return;
+    }
     if (state === "idle") startListening();
 
     // Update speech recognition language if Web Speech is active
@@ -370,10 +382,13 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     setTranscript("");
     setState("listening", "Listening…");
     micBtn.classList.add("active");
-    if (speechRecSupported && !isBraveBrowser) {
+    if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined") {
+      startRecorder();
+    } else if (speechRecSupported && !isBraveBrowser) {
       startSpeechRecognition();
     } else {
-      startRecorder();
+      setState("idle", "Voice input isn't supported here — type instead");
+      micBtn.classList.remove("active");
     }
   }
 
@@ -455,8 +470,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     return dedupeWordsAndPhrases(parts.join(" "));
   }
 
-  function startSpeechRecognition() {
-    stopRecognition();
+  function startSpeechRecognition(captionsOnly = false) {
+    stopRecognition({ keepCapture: captionsOnly });
     try {
       const currentRecognition = new SpeechRec();
       recognition = currentRecognition;
@@ -476,7 +491,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         // Some browsers expose recognition but its remote service never returns
         // words. Keep the existing recorder available instead of waiting forever.
         speechResultTimer = setTimeout(() => {
-          if (isCurrent() && state === "listening" && !turnInFlight) useRecorderInput();
+          if (isCurrent() && state === "listening" && !turnInFlight) {
+            if (captionsOnly) stopRecognition({ keepCapture: true });
+            else useRecorderInput();
+          }
         }, 6000);
       };
 
@@ -493,6 +511,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
             if (active && !turnInFlight && lastRecognizedText) {
               const textToSend = lastRecognizedText;
               lastRecognizedText = "";
+              if (captionsOnly) {
+                if (mediaRecorder?.state === "recording") stopRecorder();
+                return;
+              }
               stopRecognition();
               endTurn(textToSend);
             }
@@ -505,14 +527,25 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         console.warn("[bimo-voice] Web Speech error:", event?.error);
         if (event?.error !== "no-speech") {
           speechRecSupported = false;
-          stopRecognition();
-          startRecorder();
+          stopRecognition({ keepCapture: captionsOnly });
+          if (!captionsOnly) startRecorder();
         }
       };
 
       let emptyEndCount = 0;
       recognition.onend = () => {
         if (isCurrent() && state === "listening" && !turnInFlight) {
+          if (captionsOnly) {
+            // The owned recording already contains this utterance. Recognition
+            // supplies captions only; a service failure must not discard audio.
+            if (speechSilenceTimer) return;
+            emptyEndCount++;
+            if (emptyEndCount < 3) {
+              try { currentRecognition.start(); return; } catch {}
+            }
+            stopRecognition({ keepCapture: true });
+            return;
+          }
           // If the 2-second silence timer is running, the user just paused to think — do NOT cut them off
           if (speechSilenceTimer) {
             try {
@@ -547,17 +580,21 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       };
 
       speechStartTimer = setTimeout(() => {
-        if (isCurrent() && state === "listening" && !turnInFlight) useRecorderInput();
+        if (isCurrent() && state === "listening" && !turnInFlight) {
+          if (captionsOnly) stopRecognition({ keepCapture: true });
+          else useRecorderInput();
+        }
       }, 3000);
       recognition.start();
-      startMicrophoneMeter();
+      if (!captionsOnly) startMicrophoneMeter();
     } catch (err) {
       console.warn("[bimo-voice] Web Speech init failed, using MediaRecorder fallback:", err);
-      useRecorderInput();
+      if (captionsOnly) stopRecognition({ keepCapture: true });
+      else useRecorderInput();
     }
   }
 
-  function stopRecognition() {
+  function stopRecognition({ keepCapture = false } = {}) {
     clearTimeout(speechStartTimer);
     clearTimeout(speechResultTimer);
     speechStartTimer = null;
@@ -576,7 +613,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       } catch {}
       recognition = null;
     }
-    stopVAD();
+    if (!keepCapture) stopVAD();
   }
 
   function useRecorderInput() {
@@ -652,13 +689,23 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       return;
     }
     audioChunks = [];
-    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
-    mediaRecorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
-    mediaRecorder.addEventListener("dataavailable", (e) => { if (e.data.size) audioChunks.push(e.data); });
-    mediaRecorder.addEventListener("stop", onRecorderStop);
-    mediaRecorder.start();
+    try {
+      const mime = MediaRecorder.isTypeSupported?.("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported?.("audio/webm") ? "audio/webm" : "";
+      mediaRecorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
+      mediaRecorder.addEventListener("dataavailable", (e) => { if (e.data.size) audioChunks.push(e.data); });
+      mediaRecorder.addEventListener("stop", onRecorderStop);
+      mediaRecorder.start();
+    } catch (error) {
+      mediaStream.getTracks().forEach(track => track.stop());
+      mediaStream = null;
+      mediaRecorder = null;
+      micBtn.classList.remove("active");
+      setState("idle", "Tap the mic to try again");
+      toast("Couldn't start microphone recording", { tone: "error" });
+      return;
+    }
     recordStartedAt = performance.now();
     setState("listening", "Listening… speak, then pause to send");
 
@@ -668,6 +715,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       const vadCtx = audioCtx || (audioCtx = new Ctx());
+      if (vadCtx.state === "suspended") vadCtx.resume().catch(() => {});
       vadSource = vadCtx.createMediaStreamSource(mediaStream);
       vadAnalyser = vadCtx.createAnalyser();
       vadAnalyser.fftSize = 512;
@@ -684,6 +732,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       const startedAt = performance.now();
       let noiseFloor = 0;
+      let peakLevel = 0;
       let loudFrames = 0;
       let speaking = false;
       let silenceStart = 0;
@@ -698,6 +747,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         let sum = 0;
         for (let i = loBin; i <= hiBin; i++) sum += bins[i];
         const level = sum / (hiBin - loBin + 1) / 255;
+        peakLevel = Math.max(peakLevel, level);
         const now = performance.now();
         const elapsed = now - startedAt;
 
@@ -718,6 +768,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
         const enterAt = Math.max(noiseFloor * VAD_ENTER_FACTOR, VAD_MIN_LEVEL);
         const exitAt = Math.max(noiseFloor * VAD_EXIT_FACTOR, VAD_MIN_LEVEL * 0.7);
+
+        // Speech can begin during calibration. Its first quiet gap still ends
+        // the take even if that speech was initially learned as the room floor.
+        if (!speaking && peakLevel >= VAD_MIN_LEVEL && level < peakLevel * 0.35) {
+          speaking = true;
+          vadHadSpeech = true;
+          silenceStart = now;
+        }
 
         // Throttled diagnostics
         if (now - lastLogAt > 500) {
@@ -767,6 +825,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       // still be transcribed, so don't let the no-speech skip kick in.
       vadHadSpeech = true;
     }
+    if (speechRecSupported && !isBraveBrowser) startSpeechRecognition(true);
   }
 
   function stopVAD() {
@@ -789,6 +848,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   async function onRecorderStop() {
+    stopRecognition();
     stopVAD();
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
     const recorder = mediaRecorder;
@@ -800,6 +860,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     if (discardTake) {
       discardTake = false;
       audioChunks = [];
+      if (state === "listening" && !turnInFlight) startListening();
       return;
     }
     // The local VAD is ADVISORY, not a hard gate. Transcribe whenever the take
@@ -824,8 +885,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     try {
       const blob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
       audioChunks = [];
-      let wav;
-      try { wav = await blobToWav16kMono(blob); } catch { wav = blob; }
+      const wav = await blobToWav16kMono(blob);
       if (!isCurrent()) return;
       const res = await api.transcribeAudio(token, wav, { language: currentLangId, signal: controller.signal });
       if (!isCurrent()) return;
@@ -903,7 +963,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       await searchDone;
       if (!isCurrent()) { speech?.cancel(); searchSpeech?.cancel(); return; }
-      setTranscript("");
       if (!reply || !audioCtx) {
         speech?.cancel();
         afterSpeaking();
@@ -1084,6 +1143,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         stopRecognition();
         stopRecorder();
         micBtn.classList.remove("active");
+        setTranscript("");
         setState("speaking", "Speaking…");
       }
 
@@ -1324,8 +1384,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     if (typeof onClose === "function") onClose();
   }
 
-  // Begin listening once the open animation has settled.
-  setTimeout(() => { if (active) startListening(); }, 350);
+  // Request capture from the opening gesture; the visual transition must not
+  // delay or discard the beginning of the user's first utterance.
+  startListening();
 
   return { close };
 }
