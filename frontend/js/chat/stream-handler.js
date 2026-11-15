@@ -163,7 +163,8 @@ export class StreamHandler {
           onConversation: (convo) => this.onConversation(convo),
           onVoiceStyle,
           onUserMessage: (msg) => this.onUserMessage(msg),
-          onSearchStatus: ({ label }) => {
+          onSearchStatus: ({ status, label }) => {
+            if (status === "checking") return;
             if (label) {
               this.currentPhrase = label;
               this.onStatusChange({ phrase: label });

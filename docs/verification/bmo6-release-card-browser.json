@@ -1,0 +1,45 @@
+{
+  "cases": [
+    {
+      "width": 390,
+      "theme": "light",
+      "title": "What's new in Bmo 6.0",
+      "features": 4,
+      "surveyFields": 0,
+      "insideViewport": true,
+      "activeButton": true,
+      "doesNotRepeat": true
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "title": "What's new in Bmo 6.0",
+      "features": 4,
+      "surveyFields": 0,
+      "insideViewport": true,
+      "activeButton": true,
+      "doesNotRepeat": true
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "title": "What's new in Bmo 6.0",
+      "features": 4,
+      "surveyFields": 0,
+      "insideViewport": true,
+      "activeButton": true,
+      "doesNotRepeat": true
+    },
+    {
+      "width": 1280,
+      "theme": "dark",
+      "title": "What's new in Bmo 6.0",
+      "features": 4,
+      "surveyFields": 0,
+      "insideViewport": true,
+      "activeButton": true,
+      "doesNotRepeat": true
+    }
+  ],
+  "limitation": "Actual component/shared CSS; Auth identity and acknowledgment transport simulated. Server metadata merging tested separately."
+}

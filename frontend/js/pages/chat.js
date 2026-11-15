@@ -17,8 +17,8 @@ import { openVoiceOverlay } from "../components/voice-overlay.js?v=66";
 import * as api from "../api.js?v=66";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=39";
-import { MessageFeed } from "../chat/message-feed.js?v=45";
-import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=12";
+import { MessageFeed } from "../chat/message-feed.js?v=46";
+import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=13";
 import {
   detectExportIntent,
   buildCanonicalMarkdown,
@@ -572,7 +572,8 @@ export async function renderChat({ id, incognito }) {
         searchCardData = null;
       }
       messages.push(m);
-      enteringId = m.id;
+      // The answer is already visible; a save acknowledgment is not an entrance.
+      enteringId = null;
       composer.isGenerating = false;
       composer.syncSendEnabled();
       renderUI();

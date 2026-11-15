@@ -238,35 +238,40 @@ test("sidebar no longer renders Support", async () => {
   assert.ok(host.querySelector('[href="#/app/projects"]'));
 });
 
-test("onboarding completes without a removed Support step", async () => {
-  const saved = [];
-  const app = moduleLoader({
-    "prefs.js": { resolveTheme: () => "dark", setThemePref() {} },
-    "api.js": { saveOnboarding: async (...args) => saved.push(args) },
-  }, { globals: {
-    setTimeout: (fn, milliseconds) => setTimeout(fn, milliseconds).unref(),
-    requestAnimationFrame: fn => setTimeout(fn, 0).unref(),
-  } });
-  const onboarding = await app.load("js/components/onboarding.js");
-  onboarding.showOnboarding({ token: "test" });
-  const document = app.dom.window.document;
-  const clickPrimary = () => document.querySelector(".ob-actions .btn.primary").click();
-  clickPrimary();
-  assert.match(document.querySelector(".ob-title").textContent, /birthday/i);
-  const birthday = document.querySelector('input[type="date"]');
-  birthday.value = "2000-01-01";
-  birthday.dispatchEvent(new app.dom.window.Event("change"));
-  clickPrimary();
-  assert.equal(document.querySelector(".ob-title").textContent, "What do you do?");
-  [...document.querySelectorAll("button")].find(button => button.textContent === "Developer").click();
-  clickPrimary();
-  assert.equal(document.querySelector(".ob-title").textContent, "Pick your look");
-  assert.equal(document.querySelectorAll(".ob-dot").length, 4);
-  clickPrimary();
-  assert.match(document.querySelector(".ob-title").textContent, /What's new/);
-  clickPrimary();
-  assert.equal(document.querySelector("#onboarding"), null);
-  assert.equal(saved.length, 1);
+test("Bmo 6 release notes show once for old and new accounts without survey fields", async () => {
+  const saved=[];let auth={token:"test",user:{id:"owner"}};
+  const app=moduleLoader({
+    "auth.js":{getAuth:()=>({auth})},
+    "api.js":{saveOnboarding:async(...args)=>{saved.push(args);return {release:"6.0"};}},
+  });
+  const onboarding=await app.load("js/components/onboarding.js");
+  app.dom.window.localStorage.setItem("bimo-onboarded-v6","1");
+  assert.equal(onboarding.hasSeenOnboarding(auth,{onboarding_seen:true}),false);
+  onboarding.showOnboarding(auth);onboarding.showOnboarding(auth);
+  const document=app.dom.window.document;
+  assert.equal(document.querySelectorAll("#onboarding").length,1);
+  assert.match(document.querySelector(".ob-title").textContent,/Bmo 6\.0/);
+  assert.equal(document.querySelectorAll("input,select,.ob-dots").length,0);
+  assert.equal(document.querySelectorAll(".ob-feature").length,4);
+  document.querySelector(".ob-actions button").click();await new Promise(setImmediate);
+  assert.equal(document.querySelector("#onboarding"),null);
+  assert.equal(onboarding.hasSeenOnboarding(auth),true);
+  assert.equal(saved[0][1].release,"6.0");assert.equal(Object.keys(saved[0][1]).length,1);
+  onboarding.showOnboarding(auth);assert.equal(document.querySelector("#onboarding"),null);
+  auth={token:"second",user:{id:"another-user"}};
+  assert.equal(onboarding.hasSeenOnboarding(auth),false);
+  onboarding.showOnboarding(auth);assert.ok(document.querySelector("#onboarding"));
+  document.querySelector("#onboarding").dispatchEvent(new app.dom.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true}));
+  assert.equal(document.querySelector("#onboarding"),null);
+});
+
+test("server release acknowledgment suppresses the card on a fresh browser",async()=>{
+  const app=moduleLoader({"auth.js":{getAuth:()=>({})},"api.js":{saveOnboarding(){}}});
+  const onboarding=await app.load("js/components/onboarding.js");
+  const auth={token:"test",user:{id:"owner"}};
+  assert.equal(onboarding.hasSeenOnboarding(auth,{onboarding_release:"6.0"}),true);
+  onboarding.showOnboarding(auth);
+  assert.equal(app.dom.window.document.querySelector("#onboarding"),null);
 });
 
 test("Settings separates cards and keeps appearance and usage controls", async () => {
@@ -290,4 +295,31 @@ test("Settings separates cards and keeps appearance and usage controls", async (
   assert.deepEqual(themes, ["dark"]);
   assert.equal(doc.querySelector('[title="Dark"]').getAttribute('aria-pressed'), 'true');
   assert.match(doc.querySelector('.usage-list').textContent, /29% used/);
+});
+
+test("release acknowledgment retries after an outage without showing the card again",async()=>{
+  const auth={token:"test",user:{id:"owner"}};let calls=0,serverRelease=null;
+  const app=moduleLoader({"auth.js":{getAuth:()=>({auth})},"api.js":{saveOnboarding:async()=>{
+    if(++calls===1)throw Error("Offline");serverRelease="6.0";return {release:serverRelease};
+  }}});
+  const onboarding=await app.load("js/components/onboarding.js");
+  onboarding.showOnboarding(auth);app.dom.window.document.querySelector(".ob-actions button").click();
+  await new Promise(setImmediate);
+  assert.equal(calls,1);assert.equal(onboarding.hasSeenOnboarding(auth),true);
+  onboarding.showOnboarding(auth);assert.equal(app.dom.window.document.querySelector("#onboarding"),null);
+  await onboarding.syncOnboarding(auth);assert.equal(calls,2);
+  app.dom.window.localStorage.clear();
+  assert.equal(onboarding.hasSeenOnboarding(auth,{onboarding_release:serverRelease}),true);
+});
+
+
+test("an older backend response keeps release acknowledgment pending for rollout retry",async()=>{
+  const auth={token:"test",user:{id:"owner"}};let ready=false,calls=0;
+  const app=moduleLoader({"auth.js":{getAuth:()=>({auth})},"api.js":{saveOnboarding:async()=>{calls++;return ready?{status:"ok",release:"6.0"}:{status:"ok"};}}});
+  const onboarding=await app.load("js/components/onboarding.js");
+  onboarding.showOnboarding(auth);app.dom.window.document.querySelector(".ob-actions button").click();
+  await new Promise(setImmediate);
+  assert.equal(onboarding.hasSeenOnboarding(auth),true);
+  ready=true;await onboarding.syncOnboarding(auth);assert.equal(calls,2);
+  await onboarding.syncOnboarding(auth);assert.equal(calls,2);
 });

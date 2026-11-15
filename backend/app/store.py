@@ -89,7 +89,7 @@ def upsert_profile(user) -> dict:
 
 
 def set_onboarding(user_id: str, *, birthday=None, role=None, seen: bool = True) -> None:
-    """Persist the "What's new in Bimo 5" survey answers + mark it seen so the
+    """Persist legacy onboarding survey answers and mark them seen so the
     modal never re-appears. birthday/role are optional (the user can skip or
     dismiss with "Not now"); only non-empty values are written."""
     payload = {"onboarding_seen": seen, "updated_at": _now_iso()}
@@ -98,6 +98,29 @@ def set_onboarding(user_id: str, *, birthday=None, role=None, seen: bool = True)
     if role:
         payload["role"] = role
     _execute(supabase().table("profiles").update(payload).eq("id", user_id))
+
+
+def get_seen_release(user_id: str) -> Optional[str]:
+    """Read the account marker from Auth, independently of stale JWT metadata."""
+    result = supabase().auth.admin.get_user_by_id(user_id)
+    if result.user is None:
+        return None
+    release = (result.user.user_metadata or {}).get("bmo_release_seen")
+    return release if isinstance(release, str) else None
+
+
+def mark_release_seen(user_id: str, release: str) -> None:
+    """Merge the release marker into fresh account metadata, preserving identity."""
+    if not isinstance(release, str) or release != "6.0":
+        raise ValueError("unsupported release")
+    admin = supabase().auth.admin
+    current = admin.get_user_by_id(user_id)
+    if current.user is None:
+        raise LookupError("account not found")
+    metadata = {**(current.user.user_metadata or {}), "bmo_release_seen": release}
+    result = admin.update_user_by_id(user_id, {"user_metadata": metadata})
+    if result.user is None or (result.user.user_metadata or {}).get("bmo_release_seen") != release:
+        raise RuntimeError("release acknowledgment was not saved")
 
 
 # ---------- conversations ----------

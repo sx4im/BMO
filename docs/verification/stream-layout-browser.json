@@ -1,0 +1,113 @@
+{
+  "method": "Chromium, project StreamingRenderer/shared CSS, pinned marked 13.0.3; no provider dependency",
+  "cases": [
+    {
+      "width": 390,
+      "theme": "light",
+      "leading_blank_variant": false,
+      "max_block_position_difference_px": 0,
+      "live_height": 233.765625,
+      "finished_height": 233.765625,
+      "canonical_height": 233.765625
+    },
+    {
+      "width": 390,
+      "theme": "light",
+      "leading_blank_variant": true,
+      "max_block_position_difference_px": 0,
+      "live_height": 260.59375,
+      "finished_height": 260.59375,
+      "canonical_height": 260.59375
+    },
+    {
+      "width": 390,
+      "theme": "light",
+      "leading_blank_variant": true,
+      "max_block_position_difference_px": 0,
+      "live_height": 296.5625,
+      "finished_height": 296.5625,
+      "canonical_height": 296.5625
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "leading_blank_variant": false,
+      "max_block_position_difference_px": 0,
+      "live_height": 233.765625,
+      "finished_height": 233.765625,
+      "canonical_height": 233.765625
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "leading_blank_variant": true,
+      "max_block_position_difference_px": 0,
+      "live_height": 260.59375,
+      "finished_height": 260.59375,
+      "canonical_height": 260.59375
+    },
+    {
+      "width": 390,
+      "theme": "dark",
+      "leading_blank_variant": true,
+      "max_block_position_difference_px": 0,
+      "live_height": 296.5625,
+      "finished_height": 296.5625,
+      "canonical_height": 296.5625
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "leading_blank_variant": false,
+      "max_block_position_difference_px": 0,
+      "live_height": 231.796875,
+      "finished_height": 231.796875,
+      "canonical_height": 231.796875
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "leading_blank_variant": true,
+      "max_block_position_difference_px": 0,
+      "live_height": 258.296875,
+      "finished_height": 258.296875,
+      "canonical_height": 258.296875
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "leading_blank_variant": true,
+      "max_block_position_difference_px": 0,
+      "live_height": 294.59375,
+      "finished_height": 294.59375,
+      "canonical_height": 294.59375
+    },
+    {
+      "width": 1280,
+      "theme": "dark",
+      "leading_blank_variant": false,
+      "max_block_position_difference_px": 0,
+      "live_height": 231.796875,
+      "finished_height": 231.796875,
+      "canonical_height": 231.796875
+    },
+    {
+      "width": 1280,
+      "theme": "dark",
+      "leading_blank_variant": true,
+      "max_block_position_difference_px": 0,
+      "live_height": 258.296875,
+      "finished_height": 258.296875,
+      "canonical_height": 258.296875
+    },
+    {
+      "width": 1280,
+      "theme": "dark",
+      "leading_blank_variant": true,
+      "max_block_position_difference_px": 0,
+      "live_height": 294.59375,
+      "finished_height": 294.59375,
+      "canonical_height": 294.59375
+    }
+  ]
+}

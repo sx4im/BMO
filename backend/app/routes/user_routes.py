@@ -28,6 +28,12 @@ def me(user):
     except Exception:
         pass
     body = user.to_public()
+    body["onboarding_release"] = None
+    try:
+        body["onboarding_release"] = store.get_seen_release(user.id)
+    except Exception:
+        # Release-card state is optional; identity/profile must remain usable.
+        logger.warning("could not read onboarding release for user=%s", user.id)
     body["onboarding_seen"] = bool(profile and profile.get("onboarding_seen"))
     body["birthday"] = profile.get("birthday") if profile else None
     body["role"] = profile.get("role") if profile else None
@@ -40,6 +46,18 @@ def me(user):
 @require_user
 def onboarding(user):
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return bad_request("onboarding payload must be an object", 422)
+    if "release" in data:
+        release = data["release"]
+        if not isinstance(release, str) or release != "6.0":
+            return bad_request("release must be 6.0", 422)
+        try:
+            store.mark_release_seen(user.id, release)
+        except Exception:
+            logger.warning("could not save onboarding release for user=%s", user.id)
+            return bad_request("Could not save your acknowledgment. Please try again.", 500)
+        return jsonify({"status": "ok", "release": release})
     birthday = (data.get("birthday") or "").strip() or None
     role = (data.get("role") or "").strip() or None
     try:

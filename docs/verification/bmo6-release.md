@@ -1,0 +1,9 @@
+# Bmo 6.0 release verification
+
+The streaming Markdown wrappers now preserve normal block margins and reset only the first/last nonempty boundaries. The cursor does not add an extra line to the reply. A saved assistant acknowledgment no longer replays the message entrance animation. Frozen completed chunks remain stable. Twelve Chromium checks cover desktop/mobile, light/dark, and regular/leading-blank heading/code responses; streamed, finished and canonical block positions and bubble heights match. See [layout evidence](stream-layout-browser.json).
+
+The single release card replaces the old survey, birthday wheel, role and theme steps. It shows current features and one acknowledgment button. New and existing accounts receive it independently of old survey flags. A per-account local dismissal prevents repeat display on the device; fresh Auth metadata stores bmo_release_seen=6.0 across devices without a migration. Pending saves retry during later auth checks, and an old backend response does not count as a confirmed release acknowledgment. Metadata updates preserve existing identity fields and use the authenticated account only. The legacy survey endpoint remains compatible. Four Chromium checks verify the actual card fits desktop/mobile in both themes, has no survey fields, and stays dismissed. See [card evidence](bmo6-release-card-browser.json). Auth identities/transport are simulated in browser checks; server behavior is covered by isolated SDK/endpoint tests.
+
+Product identity prompts identify Bmo 6.0. Internal search-routing checks remain machine events but no longer replace the normal user-facing waiting state. Actual searching and unavailable-result states remain available.
+
+Final checks: 492 backend tests, 150 frontend tests, and independent review; [Ponytail complexity audit](ponytail-audit-2026-11-15.md). Cleanup opportunities are recorded without unrelated refactoring.

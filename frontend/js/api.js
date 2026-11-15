@@ -65,8 +65,7 @@ export async function deleteAccount(token) {
   return request("/me", { method: "DELETE", token });
 }
 
-// Save the "What's new in Bmo 5" survey (birthday/role) and mark it seen.
-// "Not now" sends an empty body — the backend still flips onboarding_seen.
+// Acknowledge a release card; the endpoint also supports older survey clients.
 export async function saveOnboarding(token, payload) {
   return request("/onboarding", { method: "POST", token, body: payload });
 }

@@ -4,6 +4,7 @@ import { moduleLoader } from "./modules.mjs";
 
 async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt, streamChat } = {}) {
   let composer, feed, voice, lastRender;
+  const renderStates = [];
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
   const shareStates = [], shareCallbacks = [];
   let app;
@@ -15,7 +16,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
       this.stream = this.element;
       this.follower = { attach() {} };
     }
-    render(value) { lastRender = { ...value, messages: value.messages.map(m => ({ ...m })) }; }
+    render(value) { lastRender = { ...value, messages: value.messages.map(m => ({ ...m })) }; renderStates.push(lastRender); }
     mountScrollFollower() {} unmountScrollFollower() {} scrollToBottom() {}
     updateStreamingBubble() {} finishStreamingBubble() {} setStatusText() {} setStreamingReasoningTimer() {}
   }
@@ -82,7 +83,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
   await new Promise(resolve => setImmediate(resolve));
   const turn = (text, extras = {}) => composer.onSubmit({ text, attachments: [], model: "thinking", autoSearch: false, ...extras });
   return { app, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, shareStates, shareCallbacks, turn, unmount,
-           voice: () => voice, rendered: () => lastRender };
+           voice: () => voice, rendered: () => lastRender, renderStates };
 }
 
 test("a closed chat's Share modal cannot reactivate the mobile Share button", async () => {
@@ -303,3 +304,11 @@ for (const failure of ["read rejection", "premature stream end"]) {
     assert.equal(page.notices.length,1);
   });
 }
+
+test("a saved streamed reply does not replay the message entrance", async t => {
+  const page=await chatPage();t.after(page.unmount);
+  await page.turn("Explain this briefly");
+  const settled=page.renderStates.filter(s=>s.messages.some(m=>m.role==="assistant"));
+  assert.ok(settled.length);
+  assert.ok(settled.every(s=>s.enteringId==null),"Saved acknowledgments must not fade an already visible answer back in");
+});

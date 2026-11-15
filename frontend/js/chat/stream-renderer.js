@@ -192,6 +192,12 @@ export class StreamingRenderer {
       this.tailEl.innerHTML = renderMarkdown(tailSrc);
       this.tailSrc = tailSrc;
     }
+    this.blocksWrap.querySelector(".stream-first")?.classList.remove("stream-first");
+    const firstBlock = this.blockEls.find(block => block.hasChildNodes()) || this.tailEl;
+    firstBlock?.classList.add("stream-first");
+    this.blocksWrap.querySelector(".stream-last")?.classList.remove("stream-last");
+    const lastBlock = this.tailEl.hasChildNodes() ? this.tailEl : this.blockEls.at(-1);
+    lastBlock?.classList.add("stream-last");
     this.renderedChars = text.length;
 
     // Single-caret policy: the ONE live caret node sits after the tail.

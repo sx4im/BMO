@@ -26,14 +26,14 @@ test('SSE exposes checking immediately and distinguishes unavailable retrieval',
   assert.deepEqual(seen, ['checking', 'searching', 'unavailable']);
 });
 
-test('checking updates status without announcing a search and preserves retrieval failure', async () => {
+test('internal search checking stays hidden and preserves actual search states', async () => {
   const statuses = [], searches = [], completions = [];
   const app = moduleLoader({ 'api.js': {
     cancelChat: async () => {},
     streamChat: async (_token, _payload, callbacks) => {
       callbacks.onSearchStatus({ status: 'checking', label: 'Checking sources…' });
       assert.equal(searches.length, 0);
-      assert.equal(handler.currentPhrase, 'Checking sources…');
+      assert.equal(handler.currentPhrase, 'Preparing response…');
       callbacks.onSearching({ query: 'weather' });
       callbacks.onSearchComplete({ status: 'unavailable', results: [] });
     },
@@ -48,7 +48,8 @@ test('checking updates status without announcing a search and preserves retrieva
     },
   });
   await handler.executeStream({ payload: { message: 'weather' }, streamId: 'test' });
-  assert.ok(statuses.includes('Checking sources…'));
+  assert.ok(!statuses.includes('Checking sources…'));
+  assert.equal(searches.length,1);
   assert.equal(completions[0].status, 'unavailable');
 });
 

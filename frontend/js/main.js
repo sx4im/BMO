@@ -3,7 +3,7 @@ import { bootstrap, getAuth, onAuthChange } from "./auth.js";
 import { initThemeSync } from "./prefs.js";
 import * as api from "./api.js?v=32";
 import { renderLanding } from "./pages/landing.js?v=52";
-import { renderChat } from "./pages/chat.js?v=198";
+import { renderChat } from "./pages/chat.js?v=199";
 import { renderSettings } from "./pages/settings.js?v=78";
 import { renderNotFound } from "./pages/not-found.js?v=54";
 import { renderSharedChat } from "./pages/shared-chat.js?v=5";
@@ -70,23 +70,20 @@ onAuthChange(async (s) => {
     }
     const app = document.getElementById("app");
     app?.classList.add("app-enter");
-    if (s.auth) maybeShowOnboarding(s.auth); // one-time "What's new in Bmo 5"
   }
+  if (!s.bootstrapping && s.auth) maybeShowOnboarding(s.auth);
 });
 
-// Show the onboarding / "What's new" modal once per onboarding version. The
-// key carries a version (bimo-onboarded-vN) so bumping it re-shows the updated
-// flow to EVERYONE — existing and new — with no DB reset. We still call /me so
-// the profile row exists before any survey answers are saved. Lazy-loaded so it
-// never weighs on the critical boot path.
+// Check the release acknowledgment in the background, including after signup.
 async function maybeShowOnboarding(auth) {
   try {
-    if (localStorage.getItem("bimo-onboarded-v6") === "1") return;
-    await api.me(auth.token).catch(() => {});
-    const { showOnboarding } = await import("./components/onboarding.js?v=31");
+    const { hasSeenOnboarding, showOnboarding, syncOnboarding } = await import("./components/onboarding.js?v=32");
+    if (hasSeenOnboarding(auth)) { void syncOnboarding(auth); return; }
+    const profile = await api.me(auth.token).catch(() => null);
+    if (getAuth().auth?.user?.id !== auth.user.id || hasSeenOnboarding(auth, profile)) return;
     showOnboarding(auth);
   } catch {
-    /* never block the app if the check fails */
+    /* Release notes must never block the app. */
   }
 }
 

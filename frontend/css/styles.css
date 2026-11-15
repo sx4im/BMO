@@ -9187,6 +9187,7 @@ em {
 
 /* Streaming bubble caret */
 .streaming-bubble .cursor {
+  position: absolute;
   display: inline-block;
   width: 0.6ch;
   margin-left: 1px;
@@ -9214,19 +9215,22 @@ em {
   margin-bottom: 0;
 }
 
-/* Incremental streaming renderer: the bubble holds one .stream-blocks wrap
-   with a frozen <div> per closed markdown block plus the open tail. The
-   first/last-child resets are re-applied per block so spacing is identical
-   to the single-.stream-text layout, and blocks stack with zero gap. */
+/* Streaming chunks share the canonical Markdown flow. Only the outermost
+   edges lose margins; resetting every chunk compresses paragraphs/headings. */
 .streaming-bubble .stream-blocks {
   display: flow-root;
+  position: relative;
 }
 
-.streaming-bubble .stream-block> :first-child {
+.streaming-bubble .stream-block {
+  display: contents;
+}
+
+.streaming-bubble .stream-first> :first-child {
   margin-top: 0;
 }
 
-.streaming-bubble .stream-block> :last-child {
+.streaming-bubble .stream-last> :last-child {
   margin-bottom: 0;
 }
 
