@@ -16,6 +16,7 @@ def test_voice_prompt_supports_flux_languages_and_contextual_delivery():
         assert language in AEON_SYSTEM_PROMPT
     assert 'pace and volume' in AEON_SYSTEM_PROMPT
     assert 'current spoken language' in AEON_SYSTEM_PROMPT
+    assert 'all 42 languages' in AEON_SYSTEM_PROMPT
 
 
 def test_stream_token_requires_auth(gateway, monkeypatch):

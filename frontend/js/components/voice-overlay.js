@@ -19,7 +19,7 @@ import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
 import * as api from "../api.js?v=67";
-import { LiveTranscriber } from "../chat/live-transcriber.js?v=1";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=2";
 import { VOICE_LANGUAGES } from "./voice-languages.js?v=1";
 export { VOICE_LANGUAGES };
 import { createVoiceOrb } from "./voice-orb.js?v=4";
@@ -50,9 +50,9 @@ const VAD_ENTER_FACTOR = 2.0;    // speech: level > floor * 2.0 (and > MIN)
 const VAD_EXIT_FACTOR  = 1.4;    // silence again below floor * 1.4 (hysteresis)
 const VAD_MIN_LEVEL    = 0.005;  // absolute gate so dead-quiet rooms don't fire on hiss
 const VAD_ENTER_FRAMES = 2;      // ~2 consecutive loud frames (~35 ms) to confirm speech
-const VAD_SILENCE_MS   = 650;    // finish promptly after a real quiet gap
-const VAD_NO_SPEECH_MS = 8000;   // never spoke -> release the mic, don't transcribe noise
-const VAD_MAX_TURN_MS  = 60000;  // hard safety cap per turn
+const VAD_SILENCE_MS   = 4000;    // user-selected four-second pause after speech
+const VAD_IDLE_ROTATE_MS = 60000; // renew silent backup recordings without ending the call
+const VAD_MAX_TURN_MS  = 5 * 60 * 1000;  // hard safety cap per turn
 
 // Expand 4-digit years (e.g. 1986 -> nineteen eighty-six) if present
 function expandYearsForSpeech(text) {
@@ -229,6 +229,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let discardTake = false;    // drop the in-flight recording on stop (typed turn)
   let recordStartedAt = 0;    // performance.now() when the current take began
 
+  let listenRestartTimer = null;
+  let capturePending = 0;
   const TTS_COOLDOWN_MS = 250; // let the last frame clear before reopening the mic
 
   // ---------- DOM ----------
@@ -261,7 +263,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     try { localStorage.setItem("bimo-voice-lang", id); } catch {}
     const conf = getLangConfig();
     langBtn.value = autoLanguage ? "auto" : id;
-    langBtn.setAttribute("aria-label", `Language: ${conf.label}`);
+    langSize.textContent = autoLanguage ? "Auto" : conf.label;
+    langBtn.setAttribute("aria-label", autoLanguage ? "Language: Automatic" : `Language: ${conf.label}`);
 
     // Reconnect TTS WebSocket for new language model
     if (ttsWS) {
@@ -298,12 +301,17 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     "aria-label": autoLanguage ? "Language: Automatic" : `Language: ${getLangConfig().label}`,
     title: "Choose language. Auto supports multilingual detection; select Urdu explicitly.",
     onchange: (event) => selectLanguage(event.target.value),
-  }, [el("option", { value: "auto", text: "Auto language" }), ...VOICE_LANGUAGES.map(language => el("option", {
+  }, [el("option", { value: "auto", text: "Auto" }), ...VOICE_LANGUAGES.map(language => el("option", {
     value: language.id, text: language.label,
   }))]);
   langBtn.value = autoLanguage ? "auto" : currentLangId;
 
-  const langWrap = el("div", { class: "voice-lang-wrap" }, [langBtn]);
+  const langSize = el("span", { class: "voice-lang-size", "aria-hidden": "true",
+    text: autoLanguage ? "Auto" : getLangConfig().label });
+  const langWrap = el("div", { class: "voice-lang-wrap" }, [
+    langSize, langBtn,
+    el("span", { class: "voice-lang-arrow", "aria-hidden": "true", html: icon("chevronDown", { width: 14, height: 14 }) }),
+  ]);
 
   const micBtn = el("button", {
     class: "voice-mic", type: "button", "aria-label": "Microphone", title: "Talk",
@@ -383,6 +391,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
   // ---------- listening ----------
   function startListening() {
+    clearTimeout(listenRestartTimer);
+    listenRestartTimer = null;
+    if (state === "listening" && (mediaRecorder?.state === "recording" || (capturePending && capturePending === recorderSequence))) return;
     if (!active || turnInFlight || state === "speaking" || activeSpeech || ttsSource) return;
     cancelTranscription();
     setTranscript("");
@@ -539,7 +550,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
               stopRecognition();
               endTurn(textToSend);
             }
-          }, event.results[event.results.length - 1]?.isFinal ? 500 : VAD_SILENCE_MS);
+          }, VAD_SILENCE_MS);
         }
       };
 
@@ -694,6 +705,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       return;
     }
     const sequence = ++recorderSequence;
+    capturePending = sequence;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -713,6 +725,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       micBtn.classList.remove("active");
       setState("idle", "Tap the mic to talk");
       return;
+    } finally {
+      if (capturePending === sequence) capturePending = 0;
     }
     audioChunks = [];
     inputDelivery = "neutral";
@@ -723,7 +737,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       mediaRecorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
       mediaRecorder.addEventListener("dataavailable", (e) => { if (e.data.size) audioChunks.push(e.data); });
       mediaRecorder.addEventListener("stop", onRecorderStop);
-      mediaRecorder.start();
+      mediaRecorder.start(1000);
     } catch (error) {
       mediaStream.getTracks().forEach(track => track.stop());
       mediaStream = null;
@@ -827,14 +841,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
             }
           } else {
             loudFrames = 0;
-            if (elapsed >= VAD_NO_SPEECH_MS) {
-              stopRecorder();
-              return;
-            }
           }
         } else if (level <= exitAt) {
           if (!silenceStart) silenceStart = now;
-          else if (now - silenceStart >= VAD_SILENCE_MS) {
+          else if (now - silenceStart >= VAD_SILENCE_MS && (!microphoneMeter || microphoneMeter.sample(now).rawLevel < 0.08)) {
             stopRecorder({ useFinalCaption: true });
             return;
           }
@@ -842,7 +852,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           silenceStart = 0;
         }
 
-        if (elapsed >= VAD_MAX_TURN_MS) {
+        // Silent recordings are renewed without a user turn; the call stays
+        // ready while the user thinks, with bounded backup audio in memory.
+        if (!vadHadSpeech && elapsed >= VAD_IDLE_ROTATE_MS) {
+          discardTake = true;
+          stopRecorder();
+          return;
+        }
+        if (vadHadSpeech && elapsed >= VAD_MAX_TURN_MS) {
           stopRecorder();
           return;
         }
@@ -868,7 +885,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           setTranscript(text);
         },
         onUtteranceEnd: () => {
-          if (active && liveInput === live && state === "listening") stopRecorder();
+          // Nova's endpoint is a four-second gap. Ignore stale endpoints if
+          // microphone activity already shows that the user has continued.
+          if (active && liveInput === live && state === "listening"
+              && (!microphoneMeter || microphoneMeter.sample(performance.now()).rawLevel < 0.08)) stopRecorder();
         },
         onError: error => {
           if (!active || liveInput !== live || error.name === "AbortError") return;
@@ -945,7 +965,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     recordStartedAt = 0;
     if (!recorder?.liveResult && (!audioChunks.length || took < MIN_TRANSCRIBE_MS)) {
       audioChunks = [];
-      setState("idle", vadHadSpeech ? "Tap the mic to talk" : "Didn't hear anything — tap the mic to talk");
+      afterSpeaking();
       return;
     }
     cancelTranscription();
@@ -976,7 +996,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       }
       audioChunks = [];
       if (t) endTurn(t);
-      else setState("idle", "Didn't catch that — tap the mic");
+      else afterSpeaking();
     } catch (err) {
       if (isCurrent()) {
         toast(err.message || "Transcription failed", { tone: "error" });
@@ -1086,10 +1106,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     activeSpeech = null;
     ttsSource = null;
     setState("idle", "");
-    setTimeout(() => {
-      if (active && !turnInFlight && !activeSpeech && state !== "speaking") {
-        startListening();
-      }
+    clearTimeout(listenRestartTimer);
+    const completedTurn = turnSequence;
+    listenRestartTimer = setTimeout(() => {
+      listenRestartTimer = null;
+      if (active && completedTurn === turnSequence && !turnInFlight && !activeSpeech && state === "idle") startListening();
     }, TTS_COOLDOWN_MS);
   }
 
@@ -1392,6 +1413,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   function stopSpeaking() {
+    clearTimeout(listenRestartTimer);
+    listenRestartTimer = null;
     turnSequence++;
     if (turnInFlight) onInterrupt?.();
     if (activeSpeech) {
@@ -1441,7 +1464,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     // If the mic was live, release it and discard that take — otherwise the
     // recorder keeps the mic hot through the whole typed turn and its stale
     // audio collides with the next listening round.
-    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    if (mediaRecorder) {
       discardTake = true;
       stopRecorder();
     }

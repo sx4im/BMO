@@ -390,7 +390,7 @@ test('browser speech results submit the question and play the assistant reply', 
   await until(() => page.recognitions.length);
   const result = Object.assign([{transcript:'Can you hear me?', confidence:1}], {isFinal:true});
   page.recognitions[0].onresult({results:[result], resultIndex:0});
-  await until(() => page.commands.some(command => command.type === 'Speak'), 1500);
+  await until(() => page.commands.some(command => command.type === 'Speak'), 4800);
   assert.deepEqual(sent, ['Can you hear me?']);
   assert.equal(page.commands.filter(command => command.type === 'Speak').map(command => command.text).join('').trim(), reply);
   assert.equal(page.recorders.length, 0);
@@ -413,7 +413,7 @@ test('live captions update immediately and disappear on first assistant audio', 
   assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, 'Can you');
   emit('Can you hear me?', true);
   assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, 'Can you hear me?');
-  await until(() => page.dom.window.document.querySelector('.voice-overlay').dataset.state === 'speaking', 1600);
+  await until(() => page.dom.window.document.querySelector('.voice-overlay').dataset.state === 'speaking', 4800);
   assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, '');
   assert.equal(page.recorders.length, 1);
 });
@@ -511,7 +511,7 @@ test('healthy final browser speech starts the answer without a second transcript
   t.after(() => page.overlay.close());
   await until(() => page.recognitions.length);
   page.recognitions[0].onresult({results:[Object.assign([{transcript:'How are you today?'}],{isFinal:true})]});
-  await until(() => sent.length, 1200);
+  await until(() => sent.length, 4800);
   assert.deepEqual(sent, ['How are you today?']);
   assert.equal(uploads, 0);
 });
@@ -529,7 +529,7 @@ test('continued microphone speech invalidates an earlier final caption', async t
   page.recognitions[0].onresult({results:[Object.assign([{transcript:'What is'}],{isFinal:true})]});
   await new Promise(resolve=>setTimeout(resolve,350));
   level = 0;
-  await until(() => sent.length, 1700);
+  await until(() => sent.length, 4800);
   assert.deepEqual(sent, ['What is the weather in Lahore?']);
   assert.equal(uploads, 1);
 });
@@ -611,7 +611,131 @@ test('a failed live stream cannot submit only the suffix heard by fallback capti
   await until(()=>page.recognitions.length);
   offset=1000;
   page.recognitions.at(-1).onresult({results:[Object.assign([{transcript:'the end of my question'}],{isFinal:true})]});
-  await until(()=>sent.length,1500);
+  await until(()=>sent.length,4800);
   assert.deepEqual(sent,['The beginning and the end of my question']);
   assert.equal(uploads,1);
+});
+
+
+test('Voice Auto option has a short label', async t=>{
+  const page=await voicePage(async()=>'', 'auto');t.after(()=>page.overlay.close());
+  assert.equal(page.dom.window.document.querySelector('.voice-lang-btn option[value="auto"]').textContent,'Auto');
+});
+
+test('Voice automatically listens after a spoken answer and stays open while the user thinks',async t=>{
+  const sessions=[],sent=[];let offset=0;
+  class Live {
+    text='';
+    constructor(options){this.options=options;sessions.push(this);}
+    async start(){}
+    finish(){return Promise.resolve(this.text);}
+    cancel(){}
+  }
+  const page=await voicePage(async(text,handlers)=>{
+    sent.push(text);handlers.onDelta('Here is your answer.');return 'Here is your answer.';
+  },'en',{liveTranscriber:Live,recordingData:true,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>sessions.length===1);
+  sessions[0].text='What is a triangle?';sessions[0].options.onTranscript(sessions[0].text);
+  sessions[0].options.onUtteranceEnd();
+  await until(()=>sessions.length===2,2500);
+  offset=12000;await new Promise(resolve=>setTimeout(resolve,70));
+  assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state,'listening');
+  assert.equal(page.recorders[1].state,'recording');
+  assert.equal(sent.length,1);
+  sessions[1].text='And what is a square?';sessions[1].options.onTranscript(sessions[1].text);
+  sessions[1].options.onUtteranceEnd();
+  await until(()=>sent.length===2,2500);
+  assert.deepEqual(sent,['What is a triangle?','And what is a square?']);
+});
+
+test('a short mid-sentence pause does not submit an unfinished thought',async t=>{
+  let live,level=0.1;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('I would like to');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});
+  t.after(()=>page.overlay.close());await until(()=>live);
+  live.options.onTranscript('I would like to');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await new Promise(resolve=>setTimeout(resolve,750));
+  assert.equal(page.recorders[0].state,'recording');assert.equal(sent.length,0);
+});
+
+
+test('local turn detection waits four seconds of quiet before submitting speech',async t=>{
+  let level=0.1,offset=0,live;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('This is the complete question');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('This is the complete question');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await new Promise(resolve=>setTimeout(resolve,40));offset=3500;
+  await new Promise(resolve=>setTimeout(resolve,40));
+  assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
+  offset=4500;await until(()=>sent.length);
+  assert.deepEqual(sent,['This is the complete question']);
+});
+
+test('closing during the post-reply restart delay cannot reopen the microphone',async()=>{
+  let captures=0;
+  const page=await voicePage(async(_text,handlers)=>{
+    handlers.onDelta('Here is the answer.');return 'Here is the answer.';
+  },'en',{getUserMedia:async()=>{captures++;return {getTracks:()=>[{stop(){}}]};}});
+  page.submit('A typed question');
+  await until(()=>page.commands.some(command=>command.type==='Flush'));
+  await until(()=>page.dom.window.document.querySelector('.voice-overlay').dataset.state==='idle');
+  page.overlay.close();const before=captures;
+  await new Promise(resolve=>setTimeout(resolve,350));assert.equal(captures,before);
+});
+
+test('incidental sound with no recognized words returns to listening automatically',async t=>{
+  let level=0.1,offset=0,captures=0;
+  class Live {
+    constructor(){}
+    async start(){}
+    finish(){return Promise.resolve('');}
+    cancel(){}
+  }
+  const page=await voicePage(async()=>assert.fail('Noise is not a user question'),'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    getUserMedia:async()=>{captures++;return {getTracks:()=>[{stop(){}}]};}});
+  t.after(()=>page.overlay.close());
+  await until(()=>page.recorders.length===1);
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await new Promise(resolve=>setTimeout(resolve,40));offset=4500;
+  await until(()=>captures===2,1000);
+  assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state,'listening');
+  assert.equal(page.recorders[1].state,'recording');
+});
+
+test('a stopped empty recording cannot restart the mic during a newer typed request',async()=>{
+  let resolveReply,captures=0;
+  class Live {
+    constructor(){}
+    async start(){}
+    finish(){return Promise.resolve('');}
+    cancel(){}
+  }
+  const page=await voicePage(()=>new Promise(resolve=>resolveReply=resolve),'en',{
+    liveTranscriber:Live,recordingData:true,
+    getUserMedia:async()=>{captures++;return {getTracks:()=>[{stop(){}}]};}});
+  try {
+    await until(()=>page.recorders[0]?.state==='recording');
+    page.dom.window.document.querySelector('.voice-mic').click();
+    page.submit('Typed question');
+    await new Promise(resolve=>setTimeout(resolve,400));
+    assert.equal(captures,1);
+    assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state,'thinking');
+  } finally {page.overlay.close();resolveReply?.('');}
 });

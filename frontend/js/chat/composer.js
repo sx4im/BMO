@@ -10,7 +10,6 @@ import { FileIcon } from "../components/file-icon.js?v=6";
 import { toast } from "../components/toast.js?v=58";
 import { openImageModal } from "../components/image-modal.js?v=18";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
-import { VOICE_LANGUAGES } from "../components/voice-languages.js?v=1";
 import { getAuth } from "../auth.js";
 import * as api from "../api.js?v=66";
 import { SkillPicker } from "./skill-picker.js?v=6";
@@ -288,14 +287,6 @@ export class Composer {
     });
 
     this.recTimer = el("span", { class: "rec-timer tabular", text: "0:00" });
-    this.recLanguage = el("select", {
-      class: "rec-language", "aria-label": "Dictation language",
-      title: "Auto detects supported multilingual languages. Select Urdu explicitly.",
-      onchange: event => this.changeDictationLanguage(event.target.value),
-    }, [el("option", { value: "auto", text: "Auto" }), ...VOICE_LANGUAGES.map(language =>
-      el("option", { value: language.id, text: language.label }))]);
-    this.recLanguage.value = localStorage.getItem("bimo-voice-auto-lang") === "0"
-      ? localStorage.getItem("bimo-voice-lang") || "auto" : "auto";
     this.recWave = el("div", { class: "rec-wave", "aria-hidden": "true" });
     for (let i = 0; i < 28; i++) {
       this.recWave.append(el("span"));
@@ -324,7 +315,7 @@ export class Composer {
 
     this.recordingBar = el("div", { class: "composer-recording", "aria-hidden": "true" }, [
       this.recCancelBtn,
-      el("div", { class: "rec-body" }, [this.recWave, this.recLanguage, this.recTimer]),
+      el("div", { class: "rec-body" }, [this.recWave, this.recTimer]),
       this.recConfirmBtn,
     ]);
 
@@ -1160,14 +1151,6 @@ export class Composer {
     this.releaseDictation(session);
   }
 
-  changeDictationLanguage(language) {
-    if (language !== "auto" && !VOICE_LANGUAGES.some(item => item.id === language)) return;
-    this.discardRecording();
-    localStorage.setItem("bimo-voice-auto-lang", language === "auto" ? "1" : "0");
-    if (language !== "auto") localStorage.setItem("bimo-voice-lang", language);
-    return this.startVoiceRecording();
-  }
-
   async confirmRecording() {
     const session = this.dictation;
     if (!session?.recorder || session.finishing) return;
@@ -1185,7 +1168,7 @@ export class Composer {
       const wav = await blobToWav16kMono(recorded);
       if (!isCurrent()) return;
       const result = await api.transcribeAudio(this.getAuthToken(), wav, {
-        language: session.language === "auto" ? "multi" : session.language,
+        language: "multi",
         signal: session.controller.signal,
       });
       if (!isCurrent()) return;
@@ -1207,11 +1190,7 @@ export class Composer {
       toast("Voice not supported", { tone: "error" });
       return;
     }
-    const savedLanguage = localStorage.getItem("bimo-voice-lang");
-    const language = localStorage.getItem("bimo-voice-auto-lang") === "0"
-      && VOICE_LANGUAGES.some(item => item.id === savedLanguage) ? savedLanguage : "auto";
-    const session = this.dictation = { draft: this.textarea.value, language, controller: new AbortController() };
-    if (this.recLanguage) this.recLanguage.value = language;
+    const session = this.dictation = { draft: this.textarea.value, controller: new AbortController() };
     this.showRecordingBar(true);
     this.syncSendEnabled();
     try {

@@ -25,7 +25,7 @@ async function fixture({ getUserMedia, transcribe, convert, recorderFails=false 
     showRecordingBar(on){this.isRecording=on;},startRecordTimer(){},stopRecordTimer(){},
     startWaveMeter(){},stopWaveMeter(){},setTranscribingUI(){},autoSize(){},syncSendEnabled(){},syncUrlHighlight(){}});
   composer.textarea.value='Existing draft';
-  return {composer,recorders,uploads,notices,app,stopped:()=>stopped};
+  return {composer,recorders,uploads,notices,app,Composer,stopped:()=>stopped};
 }
 
 test('composer records locally and adds text only after confirmation and transcription',async()=>{
@@ -71,13 +71,13 @@ test('cancel while microphone permission is pending releases a late microphone',
   assert.equal(stopped,1);assert.equal(f.recorders.length,0);
 });
 
-test('explicit Urdu selection restarts capture and reaches completed-recording transcription',async()=>{
-  const f=await fixture();await f.composer.startVoiceRecording();
-  await f.composer.changeDictationLanguage('ur');
-  assert.equal(f.recorders[0].state,'inactive');
-  assert.equal(f.recorders[1].state,'recording');
-  await f.composer.confirmRecording();
-  assert.equal(f.uploads[0].options.language,'ur');
+test('composer automatically detects language and ignores an old Voice preference',async()=>{
+  const f=await fixture();
+  f.app.dom.window.localStorage.setItem('bimo-voice-auto-lang','0');
+  f.app.dom.window.localStorage.setItem('bimo-voice-lang','ur');
+  await f.composer.startVoiceRecording();await f.composer.confirmRecording();
+  assert.equal(f.uploads[0].options.language,'multi');
+  assert.equal(f.composer.changeDictationLanguage,undefined);
 });
 
 test('recorder initialization failure releases the microphone and leaves the draft intact',async()=>{
@@ -92,4 +92,12 @@ test('failed conversion reports an error and never uploads mislabeled audio',asy
   await f.composer.startVoiceRecording();await f.composer.confirmRecording();
   assert.equal(f.uploads.length,0);assert.equal(f.composer.textarea.value,'Existing draft');
   assert.equal(f.composer.isRecording,false);assert.equal(f.notices.length,1);
+});
+
+
+test('composer recording UI has no language selector',async()=>{
+  const f=await fixture();const composer=new f.Composer({getAuthToken:()=> 'test'});
+  assert.equal(composer.element.querySelector('[aria-label="Dictation language"]'),null);
+  assert.equal(composer.element.querySelector('.rec-language'),null);
+  composer.destroy();
 });
