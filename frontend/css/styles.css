@@ -1251,6 +1251,11 @@ body:has(.app-shell),
     align-items: center;
     min-height: calc(100vh - 120px);
   }
+
+  .hero-inner {
+    width: 80%;
+    zoom: 0.8;
+  }
 }
 
 .hero-inner {
@@ -4364,6 +4369,11 @@ button:hover .icon-dislike,
 .msg-act svg {
   width: 15px;
   height: 15px;
+}
+
+@media (pointer: coarse) {
+  .message .actions { flex-wrap: wrap; }
+  .msg-act { min-width: 44px; min-height: 44px; justify-content: center; }
 }
 
 /* =============================================================

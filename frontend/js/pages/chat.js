@@ -17,7 +17,7 @@ import { openVoiceOverlay } from "../components/voice-overlay.js?v=66";
 import * as api from "../api.js?v=66";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=39";
-import { MessageFeed } from "../chat/message-feed.js?v=46";
+import { MessageFeed } from "../chat/message-feed.js?v=47";
 import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=13";
 import {
   detectExportIntent,
@@ -1148,10 +1148,27 @@ export async function renderChat({ id, incognito }) {
   }
 
   async function handleMessageFeedback(message, sentiment) {
-    const payload = sentiment === "up"
-      ? { message_id: message.id, rating: 5, correctness: "correct", length: "ideal" }
-      : { message_id: message.id, rating: 1, correctness: "incorrect", length: "ideal" };
     try {
+      if (message.unsaved) {
+        const conversationId = id;
+        const index = messages.findIndex(m => m.id === message.id);
+        const question = messages.slice(0, index).findLast(m => m.role === "user");
+        const data = conversationId && question ? await api.getMessages(auth.token, conversationId) : null;
+        if (unmounted || id !== conversationId || messages[index]?.id !== message.id) return;
+        const stored = Array.isArray(data?.messages) ? data.messages : [];
+        const questionIndex = stored.findIndex(m => m.id === question?.id);
+        const reply = questionIndex >= 0 ? stored[questionIndex + 1] : null;
+        if (!reply?.id || reply.role !== "assistant" || reply.content?.trim() !== message.content?.trim()) {
+          toast("This reply is still saving. Please try again in a moment.");
+          return;
+        }
+        message = { ...message, ...reply, unsaved: false };
+        messages[index] = message;
+        renderUI();
+      }
+      const payload = sentiment === "up"
+        ? { message_id: message.id, rating: 5, correctness: "correct", length: "ideal" }
+        : { message_id: message.id, rating: 1, correctness: "incorrect", length: "ideal" };
       const feedback = await api.submitFeedback(auth.token, payload);
       const idx = messages.findIndex((m) => m.id === message.id);
       if (idx !== -1) {

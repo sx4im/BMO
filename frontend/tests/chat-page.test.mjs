@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleLoader } from "./modules.mjs";
 
-async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt, streamChat } = {}) {
+async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt, streamChat, fetchMessages } = {}) {
   let composer, feed, voice, lastRender;
   const renderStates = [];
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
-  const shareStates = [], shareCallbacks = [];
+  const shareStates = [], shareCallbacks = [], feedbackCalls = [];
   let app;
   class Feed {
     constructor(callbacks) {
@@ -24,7 +24,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     listSkills: async () => skills,
     listModels: async () => ({ models: [{ id: "thinking", label: "Stanza" }], default: "thinking" }),
     listConversations: async () => [],
-    getMessages: async () => ({ conversation: { id, model: "thinking", title: "Original chat", active_skills: activeSkills, system_prompt: conversationPrompt }, messages }),
+    getMessages: async () => fetchMessages ? fetchMessages() : ({ conversation: { id, model: "thinking", title: "Original chat", active_skills: activeSkills, system_prompt: conversationPrompt }, messages }),
     branchConversation: async (_token, parentId, messageId) => {
       branchCalls.push({ parentId, messageId });
       const prefix = messages.slice(0, messages.findIndex(m => m.id === messageId));
@@ -42,6 +42,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
       callbacks.onComplete();
       callbacks.onAssistantMessage({ id: `assistant-${turn}`, role: "assistant", content: `Answer ${turn}` });
     },
+    submitFeedback: async (_token,payload)=>{feedbackCalls.push(payload);return payload;},
     cancelChat: async () => {},
     scrapeUrl,
     exportDocument: async () => { throw Error("Export service unavailable"); },
@@ -83,7 +84,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
   await new Promise(resolve => setImmediate(resolve));
   const turn = (text, extras = {}) => composer.onSubmit({ text, attachments: [], model: "thinking", autoSearch: false, ...extras });
   return { app, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, shareStates, shareCallbacks, turn, unmount,
-           voice: () => voice, rendered: () => lastRender, renderStates };
+           voice: () => voice, rendered: () => lastRender, renderStates, feedbackCalls };
 }
 
 test("a closed chat's Share modal cannot reactivate the mobile Share button", async () => {
@@ -311,4 +312,37 @@ test("a saved streamed reply does not replay the message entrance", async t => {
   const settled=page.renderStates.filter(s=>s.messages.some(m=>m.role==="assistant"));
   assert.ok(settled.length);
   assert.ok(settled.every(s=>s.enteringId==null),"Saved acknowledgments must not fade an already visible answer back in");
+});
+
+
+test("feedback on an unconfirmed reply recovers its saved ID before submitting",async t=>{
+  const user={id:"saved-user",role:"user",content:"Explain"};
+  const reply={id:"saved-assistant",role:"assistant",content:"A finished answer"};
+  const page=await chatPage({fetchMessages:async()=>({messages:[user,reply]}),streamChat:async(_token,_payload,cb)=>{
+    cb.onConversation({id:"saved-chat",model:"thinking"});cb.onUserMessage(user);
+    cb.onToken({delta:reply.content});cb.onError(new Error("Save confirmation delayed"));
+  }});t.after(page.unmount);await page.turn("Explain");
+  const local=page.rendered().messages.find(m=>m.unsaved);
+  await page.feed.callbacks.onFeedback(local,"up");
+  assert.equal(page.feedbackCalls.length,1);assert.equal(page.feedbackCalls[0].message_id,"saved-assistant");
+  assert.equal(page.rendered().messages.find(m=>m.role==="assistant").unsaved,false);
+});
+
+test("feedback never sends an unconfirmed local ID when saving is still pending",async t=>{
+  const page=await chatPage({fetchMessages:async()=>({messages:[]}),streamChat:async(_token,_payload,cb)=>{
+    cb.onConversation({id:"saved-chat",model:"thinking"});cb.onUserMessage({id:"user",role:"user",content:"Explain"});
+    cb.onToken({delta:"Visible answer"});cb.onError(new Error("Saving delayed"));
+  }});t.after(page.unmount);await page.turn("Explain");
+  await page.feed.callbacks.onFeedback(page.rendered().messages.find(m=>m.unsaved),"down");
+  assert.equal(page.feedbackCalls.length,0);assert.match(page.notices.at(-1),/saving/i);
+});
+
+test("retrying an unconfirmed reply branches at its saved question, never its local ID",async t=>{
+  const page=await chatPage({streamChat:async(_token,_payload,cb)=>{
+    cb.onConversation({id:"saved-chat",model:"thinking"});cb.onUserMessage({id:"saved-user",role:"user",content:"Explain"});
+    cb.onToken({delta:"Visible answer"});cb.onError(new Error("Saving delayed"));
+  }});t.after(page.unmount);await page.turn("Explain");
+  await page.feed.callbacks.onRetryAssistantMessage(page.rendered().messages.find(m=>m.unsaved));
+  await new Promise(setImmediate);
+  assert.equal(page.branchCalls[0].messageId,"saved-user");assert.equal(page.payloads.length,2);
 });
