@@ -1423,7 +1423,7 @@ def test_search_endpoint(client, monkeypatch):
     assert captured_req["url"] == "https://api.search.tinyfish.ai/"
     assert captured_req["headers"]["X-API-Key"] == "tf-test-key"
     assert captured_req["params"]["query"].startswith("python news")
-    assert captured_req["params"]["domain_type"] == "news"
+    assert captured_req["params"]["purpose"] == "python news"
 
     # 4. TinyFish error -> 502
     def mock_get_err(url, **kwargs):
@@ -1495,7 +1495,7 @@ def test_should_search_drops_hey_bimo_from_the_retrieval_query(monkeypatch):
         "Hey Bimo, what are the key takeaways from today's UCL matches?"
     )
     assert needs is True
-    assert query == "what are the key takeaways from today's UCL matches?"
+    assert query == "what are the key takeaways from today's UCL matches"
     assert "bimo" not in query.lower()
 
     needs, query = search_router.should_search("Bimo, bitcoin price today")
@@ -1685,7 +1685,8 @@ def test_run_search_normalizes_tinyfish_results(monkeypatch):
     assert captured["url"] == "https://api.search.tinyfish.ai/"
     assert captured["headers"]["X-API-Key"] == "tf-test-key"
     assert captured["params"]["query"].startswith("bitcoin price today")
-    assert captured["params"]["domain_type"] == "news"
+    assert "domain_type" not in captured["params"]
+    assert captured["params"]["purpose"] == "bitcoin price today"
 
 
 def test_run_search_orders_results_newest_first(monkeypatch):
@@ -1724,7 +1725,7 @@ def test_run_search_orders_results_newest_first(monkeypatch):
     assert [r["title"] for r in results] == ["Fresh story", "Old story"]
 
 
-def test_run_search_falls_back_to_web_when_news_is_empty(monkeypatch):
+def test_run_search_includes_web_when_news_is_empty(monkeypatch):
     import requests
 
     from app import search_router
@@ -1757,8 +1758,9 @@ def test_run_search_falls_back_to_web_when_news_is_empty(monkeypatch):
 
     monkeypatch.setattr(requests, "get", mock_get)
 
-    results = search_router.run_search("Hey Bimo, today's UCL matches?")
-    assert [c.get("domain_type") for c in calls] == ["news", None]
+    results = search_router.run_search("Hey Bimo, today's UCL news?")
+    assert sum(c.get("domain_type") == "news" for c in calls) == 1
+    assert any("domain_type" not in c for c in calls)
     assert results[0]["title"] == "UCL takeaways"
     assert results[0]["url"] == "https://example.com/ucl"
 
@@ -1799,7 +1801,7 @@ def test_build_search_context_wraps_results_in_boundary_tags():
     assert "Bitcoin price" in context
     assert "91,204" in context
     assert "without sources, citations, URLs, or Source links" in context
-    assert "ordered newest-first" in context
+    assert "ordered by query relevance" in context
     assert "Today is" in context
     assert "[Source](" not in context
     assert "https://example.com/btc" in context
@@ -1822,7 +1824,8 @@ def test_build_search_context_wraps_results_in_boundary_tags():
             },
         ],
     )
-    assert mixed.index("Title: New") < mixed.index("Title: Old")
+    # The caller's relevance ranking remains intact in the model context.
+    assert mixed.index("Title: Old") < mixed.index("Title: New")
 
 
 def _search_chat_token():

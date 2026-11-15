@@ -220,7 +220,7 @@ def test_historical_search_does_not_inject_today(monkeypatch):
 
     monkeypatch.setattr(router.requests, 'get', get)
     router.fetch_results('Bitcoin price in 2020')
-    assert calls == [{'query': 'Bitcoin price in 2020'}]
+    assert calls == [{'query': 'Bitcoin price in 2020', 'purpose': 'Bitcoin price in 2020'}]
 
 
 @pytest.mark.parametrize(
