@@ -17,8 +17,8 @@ import { openVoiceOverlay } from "../components/voice-overlay.js?v=66";
 import * as api from "../api.js?v=66";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=39";
-import { MessageFeed } from "../chat/message-feed.js?v=44";
-import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=11";
+import { MessageFeed } from "../chat/message-feed.js?v=45";
+import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=12";
 import {
   detectExportIntent,
   buildCanonicalMarkdown,
@@ -510,7 +510,12 @@ export async function renderChat({ id, incognito }) {
       const mid = m?.id ? String(m.id) : "";
       if (mid.startsWith("msg_pending_")) return;
       messages = messages.filter((x) => !String(x.id).startsWith("tmp_"));
-      messages.push(m);
+      // A saved row can arrive before the reply, then be refreshed after
+      // attachment processing. Reconcile it in place without duplicating or
+      // moving the user's question below the assistant's answer.
+      const existing = messages.findIndex((x) => String(x.id) === mid);
+      if (existing >= 0) messages[existing] = m;
+      else messages.push(m);
       renderUI();
     },
     onToken: ({ delta, streamingText, streamingReasoning }) => {
@@ -573,7 +578,10 @@ export async function renderChat({ id, incognito }) {
       renderUI();
       loadConversations();
     },
-    onError: (err) => {
+    onError: (err, partial) => {
+      if (partial?.content?.trim() || partial?.reasoning?.trim()) {
+        messages.push({ id: `unsaved_${uid()}`, role: "assistant", ...partial, unsaved: true });
+      }
       toast(err.message || "Couldn't connect", { tone: "error" });
       composer.isGenerating = false;
       composer.syncSendEnabled();
@@ -928,7 +936,7 @@ export async function renderChat({ id, incognito }) {
         onVoiceStyle: data => activeVoiceOnStyle?.(data?.tone),
       });
     } catch (err) {
-      if (err?.name !== "AbortError") {
+      if (err?.name !== "AbortError" && !messages.at(-1)?.unsaved) {
         messages = messages.filter((x) => x.id !== optimisticUser.id);
       }
     } finally {

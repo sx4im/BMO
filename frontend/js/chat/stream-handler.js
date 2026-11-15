@@ -144,6 +144,16 @@ export class StreamHandler {
     this.currentPhrase = INITIAL_STATUS;
     this.onStatusChange({ phrase: this.currentPhrase });
 
+    let errorReported = false;
+    let receivedAssistant = false;
+    const reportError = (err) => {
+      if (errorReported) return;
+      errorReported = true;
+      const partial = { content: this.streamingText, reasoning: this.streamingReasoning };
+      this.cleanup();
+      this.onError(err, partial);
+    };
+
     try {
       await api.streamChat(
         token,
@@ -206,6 +216,7 @@ export class StreamHandler {
             this.onComplete();
           },
           onAssistantMessage: (msg) => {
+            receivedAssistant = true;
             if (this.lastReasoningSeconds != null) {
               msg.reasoning_seconds = this.lastReasoningSeconds;
             }
@@ -215,12 +226,15 @@ export class StreamHandler {
             this.cleanup();
             this.onAssistantMessage(msg);
           },
-          onError: (err) => {
-            this.cleanup();
-            this.onError(err);
-          },
+          onError: reportError,
         }
       );
+      if (!receivedAssistant && !errorReported && (this.streamingText.trim() || this.streamingReasoning.trim())) {
+        reportError(new Error("The connection closed before saving was confirmed. Keep this page open and copy the answer if needed."));
+      }
+    } catch (err) {
+      if (err?.name !== "AbortError") reportError(err);
+      throw err;
     } finally {
       this.cleanup();
     }

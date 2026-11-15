@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleLoader } from "./modules.mjs";
 
-async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt } = {}) {
+async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt, streamChat } = {}) {
   let composer, feed, voice, lastRender;
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
   const shareStates = [], shareCallbacks = [];
@@ -33,6 +33,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     streamChat: async (_token, payload, callbacks) => {
       payloads.push(structuredClone(payload));
       const turn = payloads.length;
+      if (streamChat) return streamChat(_token, payload, callbacks);
       callbacks.onConversation({ id: incognito ? "incognito_test" : payload.conversation_id || "saved", model: "thinking" });
       callbacks.onUserMessage({ id: `user-${turn}`, role: "user", content: payload.message, attachments: payload.attachments,
         skills: (payload.skill_ids || []).map(id => ({ id, name: skills.find(skill => skill.id === id)?.name || "Skill" })) });
@@ -247,3 +248,58 @@ test("stop during URL retrieval aborts the fetch and never sends the chat", asyn
   assert.equal(page.payloads.length, 0);
   assert.equal(page.composer.isGenerating, false);
 });
+
+
+test("early and repeated saved-user acknowledgments keep one message in chronological order", async t => {
+  let page;
+  page = await chatPage({streamChat: async (_token, payload, callbacks) => {
+    const user = {id:"durable-user",role:"user",content:payload.message,attachments:[]};
+    callbacks.onConversation({id:"durable-conversation",model:"thinking",title:"Saved early"});
+    callbacks.onUserMessage(user);
+    assert.equal(page.app.dom.window.location.hash,"#/app/chat/durable-conversation","Saved IDs should be usable before reply generation ends");
+    callbacks.onToken({delta:"Working"});
+    callbacks.onUserMessage({...user,attachments:[{filename:"notes.txt"}]});
+    assert.equal(page.rendered().messages.filter(m=>m.role==="user").length,1);
+    callbacks.onComplete();
+    callbacks.onAssistantMessage({id:"durable-assistant",role:"assistant",content:"Finished"});
+    callbacks.onUserMessage({...user,attachments:[{filename:"notes.txt"}]});
+  }});
+  t.after(page.unmount);
+  await page.turn("Save this while replying");
+  assert.equal(page.notices.length,0);
+  assert.deepEqual(Array.from(page.rendered().messages,m=>m.id),["durable-user","durable-assistant"]);
+  assert.equal(page.rendered().messages[0].attachments[0].filename,"notes.txt");
+});
+
+test("a failed final save keeps the streamed answer visible and reports the failure", async t => {
+  const page = await chatPage({streamChat: async (_token, payload, callbacks) => {
+    callbacks.onConversation({id:"saved-conversation",model:"thinking"});
+    callbacks.onUserMessage({id:"saved-user",role:"user",content:payload.message});
+    callbacks.onToken({delta:"Your answer should remain readable."});
+    callbacks.onComplete();
+    callbacks.onError(new Error("Your answer could not be saved. Please try again."));
+  }});
+  t.after(page.unmount);
+  await page.turn("Give me an answer");
+  assert.equal(page.rendered().messages.filter(m=>m.role==="assistant").length,1);
+  const reply=page.rendered().messages.find(m=>m.role==="assistant");
+  assert.equal(reply.content,"Your answer should remain readable.");
+  assert.equal(reply.unsaved,true);
+  assert.match(page.notices[0],/could not be saved/);
+});
+
+for (const failure of ["read rejection", "premature stream end"]) {
+  test(`${failure} keeps the partial answer visible instead of silently clearing it`, async t => {
+    const page=await chatPage({streamChat:async(_token,payload,callbacks)=>{
+      callbacks.onUserMessage({id:"saved-user",role:"user",content:payload.message});
+      callbacks.onReasoningToken({delta:"Some reasoning"});
+      callbacks.onToken({delta:"An answer received before disconnect."});
+      if(failure==="read rejection") throw new TypeError("Network connection lost");
+    }});
+    t.after(page.unmount);await page.turn("Explain this");
+    const replies=page.rendered().messages.filter(m=>m.role==="assistant");
+    assert.equal(replies.length,1);assert.equal(replies[0].content,"An answer received before disconnect.");
+    assert.equal(replies[0].reasoning,"Some reasoning");assert.equal(replies[0].unsaved,true);
+    assert.equal(page.notices.length,1);
+  });
+}

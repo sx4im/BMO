@@ -15,6 +15,7 @@ import uuid
 from flask import Blueprint, Response, request, stream_with_context
 
 from .. import document_processor, nvidia_client, search_router, skill_service, store
+from ..chat_persistence import TurnWriter
 from ..auth import require_user
 from ..cancellation import register as _register_cancel, signal as _signal_cancel, unregister as _unregister_cancel
 from ..config import (
@@ -566,89 +567,65 @@ def chat(user):
     def generate():
         nonlocal convo, user_message
         t_gen_start = time.time()
-        persist_error = []
-
-        def materialize_user_turn():
-            nonlocal convo, user_message
-            try:
-                if convo.get("_new"):
-                    real = store.create_conversation(
-                        user.id,
-                        first_message=message_text or "Image conversation",
-                        model=convo.get("model") or model,
-                        system_prompt=convo.get("system_prompt"),
-                        project_id=convo.get("project_id"),
-                    )
-                    real_msg = store.add_message(
-                        real["id"],
-                        user.id,
-                        role="user",
-                        content=message_text,
-                        attachments=attachments or None,
-                        **({"skills": skill_labels} if skill_labels else {}),
-                    )
-                    convo = real
-                    user_message = real_msg
-                elif defer_user_persist:
-                    user_message = store.add_message(
-                        convo["id"],
-                        user.id,
-                        role="user",
-                        content=message_text,
-                        attachments=attachments or None,
-                        **({"skills": skill_labels} if skill_labels else {}),
-                    )
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("chat: deferred persist failed user=%s: %s", user.id, exc)
-                persist_error.append(exc)
-
-        persist_thread = None
-        if defer_user_persist and not is_incognito:
-            persist_thread = threading.Thread(
-                target=materialize_user_turn, name="bmo-chat-persist", daemon=True
-            )
-            persist_thread.start()
-
+        # Queue the optimistic IDs before the writer can publish real IDs.
         yield sse_event({"type": "conversation", "data": {k: v for k, v in convo.items() if not str(k).startswith("_")}})
         yield sse_event({"type": "user_message", "data": user_message})
 
+        def materialize_user_turn():
+            nonlocal convo, user_message
+            if convo.get("_new"):
+                convo = store.create_conversation(
+                    user.id, first_message=message_text or "Image conversation",
+                    model=convo.get("model") or model,
+                    system_prompt=convo.get("system_prompt"),
+                    project_id=convo.get("project_id"),
+                )
+            if defer_user_persist:
+                user_message = store.add_message(
+                    convo["id"], user.id, role="user", content=message_text,
+                    attachments=attachments or None,
+                    **({"skills": skill_labels} if skill_labels else {}),
+                )
+                sse_queue.put(sse_event({"type": "conversation", "data": convo}))
+                sse_queue.put(sse_event({"type": "user_message", "data": user_message}))
+
+        def write_assistant(previous, content, reasoning):
+            if previous is None:
+                return store.add_message(
+                    convo["id"], user.id, role="assistant", content=nvidia_client.sanitize_reply(content),
+                    reasoning=reasoning or None,
+                )
+            return store.update_assistant_message(
+                convo["id"], user.id, previous["id"], content=nvidia_client.sanitize_reply(content),
+                reasoning=reasoning or None,
+            )
+
+        writer = None if is_incognito else TurnWriter(materialize_user_turn, write_assistant)
         full_reply = ""
         full_reasoning = ""
-        saved = False
+        finalized = False
         metered = False
 
-        def ensure_user_persisted():
-            if persist_thread is not None:
-                persist_thread.join(timeout=60)
-            if persist_error:
-                raise persist_error[0]
-            if convo.get("_new"):
-                raise RuntimeError("Could not save conversation")
+        def checkpoint():
+            if writer:
+                writer.submit(full_reply, full_reasoning)
 
         def persist_reply():
-            nonlocal saved, metered
+            nonlocal finalized, metered
+            if finalized:
+                return None
+            finalized = True
+            # Close the writer even if usage metering fails afterward.
+            assistant_message = writer.finish(
+                nvidia_client.sanitize_reply(full_reply), full_reasoning,
+            ) if writer else None
             if not metered and (full_reply.strip() or full_reasoning.strip()):
                 metered = True
                 store.record_usage(
                     user.id, chosen_friendly,
                     estimate_tokens(message_text, full_reply, full_reasoning),
                 )
-            if saved or is_incognito:
-                return None
-            text = full_reply.strip()
-            if not text:
-                return None
-            try:
-                ensure_user_persisted()
-                msg = store.add_message(
-                    convo["id"], user.id, role="assistant", content=full_reply,
-                    reasoning=full_reasoning or None,
-                )
-                saved = True
-                return msg
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("chat: failed to persist assistant message convo=%s: %s", convo.get("id"), exc)
-                return None
+            return assistant_message
 
         try:
             if search_allowed and not cancel_event.is_set():
@@ -713,6 +690,7 @@ def chat(user):
                 return
             if settings_reply:
                 full_reply = settings_reply
+                checkpoint()
                 yield sse_event({"type": "token", "data": {"delta": settings_reply}})
             for batch_idx, batch_content in enumerate(batches):
                 if settings_reply:
@@ -761,6 +739,7 @@ def chat(user):
                     end_page = prev_imgs + batch_imgs
                     header = f"\n\n--- Analyzing pages {start_page}-{end_page} ---\n\n"
                     full_reply += header
+                    checkpoint()
                     yield sse_event({"type": "token", "data": {"delta": header}})
 
                 batch_reply = ""
@@ -793,11 +772,13 @@ def chat(user):
                                         yield sse_event({"type": "voice_style", "data": {"tone": tone}})
                                 delta = prose_filter.feed(delta)
                                 full_reply += delta
+                                checkpoint()
                                 if delta:
                                     yield sse_event({"type": "token", "data": {"delta": delta}})
                             elif ev["type"] == "reasoning_delta":
                                 streamed = True
                                 full_reasoning += ev["data"]
+                                checkpoint()
                                 yield sse_event({"type": "reasoning_token", "data": {"delta": ev["data"]}})
                             elif ev["type"] == "done":
                                 if not streamed:
@@ -808,20 +789,24 @@ def chat(user):
                                             yield sse_event({"type": "voice_style", "data": {"tone": tone}})
                                     delta = prose_filter.feed(delta)
                                     full_reply += delta
+                                    checkpoint()
                                     if delta:
                                         yield sse_event({"type": "token", "data": {"delta": delta}})
                                 batch_reply += ev["content"] or ""
                                 full_reasoning += ev.get("reasoning") or ""
+                                checkpoint()
                         if voice_filter:
                             tone, delta = voice_filter.feed("", final=True)
                             if tone:
                                 yield sse_event({"type": "voice_style", "data": {"tone": tone}})
                             delta = prose_filter.feed(delta)
                             full_reply += delta
+                            checkpoint()
                             if delta:
                                 yield sse_event({"type": "token", "data": {"delta": delta}})
                         delta = prose_filter.feed("", final=True)
                         full_reply += delta
+                        checkpoint()
                         if delta:
                             yield sse_event({"type": "token", "data": {"delta": delta}})
                         break
@@ -841,6 +826,7 @@ def chat(user):
                         )
                         delta = prose_filter.feed("", final=True)
                         full_reply += delta
+                        checkpoint()
                         if delta:
                             yield sse_event({"type": "token", "data": {"delta": delta}})
                         if len(batches) > 1:
@@ -850,6 +836,7 @@ def chat(user):
                         else:
                             error_note = MODEL_BUSY_REPLY
                         full_reply += error_note
+                        checkpoint()
                         yield sse_event({"type": "token", "data": {"delta": error_note}})
                         break
 
@@ -859,7 +846,7 @@ def chat(user):
             # title snapshot in one place.
             full_reply = nvidia_client.sanitize_reply(full_reply)
 
-            if not full_reply.strip():
+            if not full_reply.strip() and not full_reasoning.strip():
                 full_reply = (
                     "I received your document but wasn't able to generate a response. "
                     "Please try asking again."
@@ -870,7 +857,7 @@ def chat(user):
             assistant_message = persist_reply()
             if is_incognito:
                 yield sse_event({"type": "conversation", "data": convo})
-                if full_reply.strip():
+                if full_reply.strip() or full_reasoning.strip():
                     yield sse_event({
                         "type": "assistant_message",
                         "data": {
@@ -881,12 +868,13 @@ def chat(user):
                         },
                     })
             else:
-                ensure_user_persisted()
-                refreshed = store.get_conversation(convo["id"], user.id) or convo
-                yield sse_event({"type": "conversation", "data": refreshed})
-                yield sse_event({"type": "user_message", "data": user_message})
+                if not assistant_message and (full_reply.strip() or full_reasoning.strip()):
+                    yield sse_event({"type": "error", "detail": "Your response could not be fully saved. Please keep this page open and copy it if needed."})
                 if assistant_message:
                     yield sse_event({"type": "assistant_message", "data": assistant_message})
+                # Background enrichment needs the real persisted user message.
+                if writer.error or not writer.message:
+                    return
 
                 if has_image_attachment:
                     _describe_attachments_in_background(user_message.get("id"), user.id, attachments)

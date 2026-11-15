@@ -317,6 +317,23 @@ def branch_conversation(conversation_id: str, user_id: str, before_message_id: s
 
 # ---------- messages ----------
 
+
+def _missing_reasoning_column(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "reasoning" in text and "column" in text and (
+        "does not exist" in text or "could not find" in text
+    )
+
+
+def _touch_after_message(conversation_id: str, user_id: str) -> None:
+    # The message is already committed. A sidebar timestamp failure must not
+    # turn it into an apparent insert failure and encourage duplicate retries.
+    try:
+        touch_conversation(conversation_id, user_id)
+    except Exception:
+        logger.warning("message saved but conversation timestamp update failed convo=%s", conversation_id, exc_info=True)
+
+
 def get_messages(conversation_id: str, *, limit: Optional[int] = None) -> list[dict]:
     query = (
         supabase()
@@ -360,7 +377,7 @@ def add_message(
         # If the insert failed because the reasoning column doesn't exist
         # (e.g., migration not yet run), retry without it so the message
         # is not lost.
-        if reasoning and "reasoning" in payload:
+        if reasoning and "reasoning" in payload and _missing_reasoning_column(exc):
             logger.warning(
                 "insert with reasoning failed (%s); 'reasoning' column appears to be missing on messages table. "
                 "Run backend/migrations/0002_message_reasoning.sql on Supabase. Falling back to insert without reasoning.",
@@ -373,8 +390,33 @@ def add_message(
     if not res.data:
         raise RuntimeError("Could not insert message")
     msg = res.data[0]
-    touch_conversation(conversation_id, user_id)
+    _touch_after_message(conversation_id, user_id)
     return msg
+
+
+def update_assistant_message(conversation_id: str, user_id: str, message_id: str, *, content: str, reasoning: Optional[str] = None) -> dict:
+    """Checkpoint one assistant row in a conversation owned by this user."""
+    if not get_conversation(conversation_id, user_id):
+        raise PermissionError("conversation not found")
+    payload = {"content": content, "reasoning": reasoning}
+
+    def update():
+        return _execute(
+            supabase().table("messages").update(payload)
+            .eq("id", message_id).eq("conversation_id", conversation_id).eq("role", "assistant")
+        )
+
+    try:
+        result = update()
+    except Exception as exc:
+        if not _missing_reasoning_column(exc):
+            raise
+        payload.pop("reasoning")
+        result = update()
+    if not result.data:
+        raise PermissionError("assistant message not found")
+    _touch_after_message(conversation_id, user_id)
+    return result.data[0]
 
 
 def update_message_attachments(message_id: str, user_id: str, attachments: list) -> None:

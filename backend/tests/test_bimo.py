@@ -1170,6 +1170,7 @@ def test_chat_aeon_model_stream(client, monkeypatch):
         },
     )
     assert resp.status_code == 200
+    resp.get_data()  # Initial SSE metadata can arrive before model generation starts.
     assert captured_kwargs.get("thinking") is False
     assert captured_kwargs.get("max_tokens") == 450
     # Verify AEON_SYSTEM_PROMPT is used
