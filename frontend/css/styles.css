@@ -1251,17 +1251,29 @@ body:has(.app-shell),
     align-items: center;
     min-height: calc(100vh - 120px);
   }
-
-  .hero-inner {
-    width: 80%;
-    zoom: 0.8;
-  }
 }
 
 .hero-inner {
   position: relative;
   max-width: 1200px;
   margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+  .hero-inner {
+    width: 100%;
+    /* Match the navigation's 1200px container minus its side padding. */
+    max-width: 1152px;
+  }
+
+  .hero-copy {
+    zoom: 0.8;
+  }
+
+  .hero-preview {
+    max-width: 412px;
+    justify-self: end;
+  }
 }
 
 .hero-grid {
@@ -1279,13 +1291,6 @@ body:has(.app-shell),
     min-height: calc(100vh - 160px);
     /* Fill screen minus header/footer approximate height */
     padding: 0;
-  }
-
-  .landing .hero-preview,
-  video.hero-preview {
-    width: 110%;
-    margin-left: -10%;
-    justify-self: end;
   }
 }
 
@@ -7941,6 +7946,10 @@ body:has(.chat-page.is-empty) .tools-menu,
   /* Landing nav on tablet — make the bar shrink-friendly */
   .landing-nav-inner {
     padding: 0 16px;
+  }
+
+  .hero {
+    padding-inline: 16px;
   }
 
   .landing-nav-bar {

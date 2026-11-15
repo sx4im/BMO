@@ -84,7 +84,7 @@ export async function renderLanding() {
     el("section", { class: "hero" }, [
       el("div", { class: "hero-inner" }, [
         el("div", { class: "hero-grid" }, [
-          el("div", {}, [
+          el("div", { class: "hero-copy" }, [
             el("h1", { class: "hero-title", html:
               `<span class="line">Your private</span><span class="line"><span class="accent">AI</span> conversation lab.</span>`
             }),

@@ -2,7 +2,7 @@ import { defineRoute, startRouter, navigate, dispatch } from "./router.js";
 import { bootstrap, getAuth, onAuthChange } from "./auth.js";
 import { initThemeSync } from "./prefs.js";
 import * as api from "./api.js?v=32";
-import { renderLanding } from "./pages/landing.js?v=52";
+import { renderLanding } from "./pages/landing.js?v=53";
 import { renderChat } from "./pages/chat.js?v=200";
 import { renderSettings } from "./pages/settings.js?v=78";
 import { renderNotFound } from "./pages/not-found.js?v=54";
