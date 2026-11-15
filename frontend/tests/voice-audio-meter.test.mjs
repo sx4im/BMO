@@ -62,3 +62,10 @@ test('byte waveforms produce audio envelopes without float waveform support', as
   assert.ok(meter.sample(0).level > 0);
   assert.ok(meter.sample(40).level <= 1);
 });
+
+test('meter exposes measured RMS separately from the normalized orb envelope',async()=>{
+  const {meter}=await meterFor(0.03);
+  const sample=meter.sample(0);
+  assert.ok(Math.abs(sample.rms-0.03)<0.00001);
+  assert.ok(sample.rawLevel>0.08);
+});

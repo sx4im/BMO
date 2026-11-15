@@ -35,7 +35,8 @@ async function voicePage(sendTurn, language='en', options = {}) {
         },
         getByteFrequencyData(data){
           const configured = typeof options.micLevel === 'function' ? options.micLevel() : options.micLevel;
-          data.fill(context.playing || configured ? 100 : 0);
+          const band = typeof options.micBandLevel === 'function' ? options.micBandLevel() : options.micBandLevel;
+          data.fill(band == null ? (context.playing || configured ? 100 : 0) : Math.round(band * 255));
         },
       };
       analysers.push(analyser);return analyser;
@@ -76,7 +77,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
     }},
   },{globals:{...(options.liveTranscriber ? {AudioWorkletNode:class {}} : {}), Blob, MediaRecorder: Recorder, ArrayBuffer, Int16Array, WebSocket:Socket,performance:{now:()=>Date.now() + (options.clockOffset?.() || 0)},
     setTimeout:(fn,ms)=>setTimeout(fn,ms).unref(),
-    requestAnimationFrame:fn=>setTimeout(()=>fn(Date.now()),10).unref(),cancelAnimationFrame:clearTimeout,
+    requestAnimationFrame:fn=>setTimeout(()=>fn(Date.now()),options.frameInterval ?? 10).unref(),cancelAnimationFrame:clearTimeout,
   }});
   Object.defineProperty(app.dom.window.document,'hidden',{configurable:true,value:false});
   if(options.getUserMedia) Object.defineProperty(app.dom.window.navigator,'mediaDevices',{
@@ -738,4 +739,119 @@ test('a stopped empty recording cannot restart the mic during a newer typed requ
     assert.equal(captures,1);
     assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state,'thinking');
   } finally {page.overlay.close();resolveReply?.('');}
+});
+
+
+test('room noise above the visual meter threshold cannot block Deepgram end-of-speech',async t=>{
+  let live;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('What is the weather?');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:0.03,micBandLevel:0.05,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('What is the weather?');
+  live.options.onUtteranceEnd();
+  await until(()=>sent.length);
+  assert.deepEqual(sent,['What is the weather?']);
+});
+
+test('local four-second detection submits over steady room noise when no provider endpoint arrives',async t=>{
+  let level=0.03,band=0.05,offset=0,live;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('This is my complete question');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,micBandLevel:()=>band,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
+  level=0.12;band=0.3;live.options.onTranscript('This is my complete question');
+  await new Promise(resolve=>setTimeout(resolve,100));level=0.03;band=0.05;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=3500;
+  await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
+  offset=4500;await until(()=>sent.length);
+  assert.deepEqual(sent,['This is my complete question']);
+});
+
+test('sustained speech does not become the noise floor and trigger a false endpoint',async t=>{
+  let level=0.02,band=0.03,offset=0,live;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('Still speaking');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,micBandLevel:()=>band,
+    clockOffset:()=>offset,frameInterval:1,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
+  level=0.12;band=0.3;live.options.onTranscript('I am still speaking');
+  await new Promise(resolve=>setTimeout(resolve,1000));offset=5000;
+  await new Promise(resolve=>setTimeout(resolve,50));
+  assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
+});
+
+test('speech starting during microphone calibration still auto-sends over audible background noise',async t=>{
+  let level=0.12,band=0.3,offset=0,live;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('A complete question over background noise');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,micBandLevel:()=>band,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('A complete question over background noise');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0.06;band=0.18;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=4500;
+  await until(()=>sent.length);
+  assert.deepEqual(sent,['A complete question over background noise']);
+});
+
+test('softer continued speech after startup calibration cannot submit while new words arrive',async t=>{
+  let level=0.12,offset=0,live;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('A question that is still being spoken');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('I would like');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0.06;
+  live.options.onTranscript('I would like to ask');
+  await new Promise(resolve=>setTimeout(resolve,80));offset=4500;
+  live.options.onTranscript('I would like to ask about this and continue');
+  await new Promise(resolve=>setTimeout(resolve,60));
+  assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
+});
+
+test('microphone startup ramp cannot freeze a low noise floor and block the next question',async t=>{
+  let level=0.012,offset=0,live;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('A complete question after microphone startup');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);await new Promise(resolve=>setTimeout(resolve,50));level=0.03;
+  await new Promise(resolve=>setTimeout(resolve,300));level=0.12;
+  live.options.onTranscript('A complete question after microphone startup');
+  await new Promise(resolve=>setTimeout(resolve,100));level=0.03;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=4500;
+  await until(()=>sent.length);
+  assert.deepEqual(sent,['A complete question after microphone startup']);
 });

@@ -23,16 +23,15 @@ import { LiveTranscriber } from "../chat/live-transcriber.js?v=2";
 import { VOICE_LANGUAGES } from "./voice-languages.js?v=1";
 export { VOICE_LANGUAGES };
 import { createVoiceOrb } from "./voice-orb.js?v=4";
-import { createAudioMeter } from "./voice-audio-meter.js?v=2";
+import { createAudioMeter } from "./voice-audio-meter.js?v=3";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
 
 // ---------- voice-activity detection (VAD) tuning ----------
 // The mic may be at arm's length (laptop) OR close to the mouth (phone), so the
-// signal level varies a lot. The detector continuously tracks the noise floor
-// (dropping fast in quiet gaps, rising only slowly so the user's own voice
-// can't drag it up) and treats the input as speech only when the voice-band
-// level climbs a multiple above that floor. Steady background noise — fan,
-// traffic, café chatter — therefore never holds the mic open, and the turn
+// signal level varies a lot. The detector tracks waveform RMS relative to the
+// room's noise floor, dropping fast in quiet gaps and learning upward only
+// before speech starts. This accounts for steady background noise — fan,
+// traffic, café chatter — without using an absolute silence gate. The turn
 // auto-ends after VAD_SILENCE_MS of quiet once the user HAS actually spoken.
 //
 // IMPORTANT: capture runs with autoGainControl OFF (see startRecorder). AGC
@@ -226,6 +225,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let vadSource = null;
   let vadRaf = null;
   let vadHadSpeech = false;   // did this take ever contain confirmed speech?
+  let lastTranscriptChangeAt = 0;
   let discardTake = false;    // drop the in-flight recording on stop (typed turn)
   let recordStartedAt = 0;    // performance.now() when the current take began
 
@@ -385,6 +385,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     if (label != null) statusText.textContent = label;
   }
   function setTranscript(t) {
+    if (state === "listening" && t?.trim() && t !== transcriptText.textContent) {
+      lastTranscriptChangeAt = performance.now();
+    }
     transcriptText.textContent = t || "";
     transcriptText.scrollTop = transcriptText.scrollHeight;
   }
@@ -752,6 +755,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
     // Adaptive VAD: auto-stop when the user stops speaking (tuning at top).
     vadHadSpeech = false;
+    lastTranscriptChangeAt = 0;
     discardTake = false;
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -764,12 +768,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       vadSource.connect(vadAnalyser);
       microphoneMeter = createAudioMeter(vadAnalyser, vadCtx.sampleRate);
       scheduleMeter();
-      const bins = new Uint8Array(vadAnalyser.frequencyBinCount);
-      // Voice band ≈ 200–3500 Hz: ignores low rumble (handling, wind, mains
-      // hum) and high hiss, so the level tracks the voice, not the room.
-      const hzPerBin = vadCtx.sampleRate / vadAnalyser.fftSize;
-      const loBin = Math.max(1, Math.round(200 / hzPerBin));
-      const hiBin = Math.min(bins.length - 1, Math.round(3500 / hzPerBin));
 
       const startedAt = performance.now();
       let noiseFloor = 0;
@@ -784,28 +782,30 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           stopVAD();
           return;
         }
-        vadAnalyser.getByteFrequencyData(bins);
-        let sum = 0;
-        for (let i = loBin; i <= hiBin; i++) sum += bins[i];
-        const level = sum / (hiBin - loBin + 1) / 255;
-        peakLevel = Math.max(peakLevel, level);
         const now = performance.now();
-        if (finalCaption && now-finalCaptionAt > 180 && microphoneMeter?.sample(now).rawLevel > 0.08) {
+        const sample = microphoneMeter.sample(now);
+        // FFT display bytes are logarithmic; speech/noise ratios need actual
+        // waveform amplitude, not the orb's normalized visual envelope.
+        const level = sample.rms;
+        peakLevel = Math.max(peakLevel, level);
+        if (finalCaption && now-finalCaptionAt > 180 && sample.rawLevel > 0.08) {
           finalCaption = "";
         }
         const elapsed = now - startedAt;
 
-        // Asymmetric noise-floor tracker: drops quickly when the input gets
-        // quieter (gaps between words pull it to the true room level) and
-        // rises only slowly, so sustained speech can't drag the floor up and
-        // mask itself.
+        // Learn the room before speech and lower the estimate in quiet gaps.
+        // Sustained speech must never become its own background estimate.
         if (!noiseFloor) noiseFloor = level;
         else if (level < noiseFloor) noiseFloor = noiseFloor * 0.7 + level * 0.3;
-        else noiseFloor = noiseFloor * 0.995 + level * 0.005;
+        else if (!speaking) noiseFloor = noiseFloor * 0.995 + level * 0.005;
 
         // Let the tracker settle on the room before judging anything (also
         // swallows the mic-activation pop).
         if (elapsed <= VAD_CALIBRATE_MS) {
+          // A newly opened microphone can ramp up from near-zero samples.
+          // Seed the room level from the settled calibration peak instead of
+          // freezing an artificially low first-frame estimate as "speech".
+          noiseFloor = peakLevel;
           vadRaf = requestAnimationFrame(tickVAD);
           return;
         }
@@ -815,7 +815,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
         // Speech can begin during calibration. Its first quiet gap still ends
         // the take even if that speech was initially learned as the room floor.
-        if (!speaking && peakLevel >= VAD_MIN_LEVEL && level < peakLevel * 0.35) {
+        const speechDropRatio = transcriptText.textContent.trim() ? 0.7 : 0.35;
+        if (!speaking && peakLevel >= VAD_MIN_LEVEL && level < peakLevel * speechDropRatio) {
           speaking = true;
           vadHadSpeech = true;
           silenceStart = now;
@@ -844,7 +845,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           }
         } else if (level <= exitAt) {
           if (!silenceStart) silenceStart = now;
-          else if (now - silenceStart >= VAD_SILENCE_MS && (!microphoneMeter || microphoneMeter.sample(now).rawLevel < 0.08)) {
+          else if (now - Math.max(silenceStart, lastTranscriptChangeAt) >= VAD_SILENCE_MS) {
             stopRecorder({ useFinalCaption: true });
             return;
           }
@@ -885,10 +886,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           setTranscript(text);
         },
         onUtteranceEnd: () => {
-          // Nova's endpoint is a four-second gap. Ignore stale endpoints if
-          // microphone activity already shows that the user has continued.
-          if (active && liveInput === live && state === "listening"
-              && (!microphoneMeter || microphoneMeter.sample(performance.now()).rawLevel < 0.08)) stopRecorder();
+          // Nova already detected a four-second speech gap. Room noise on the
+          // orb's volume meter must not veto the recognizer's endpoint.
+          if (active && liveInput === live && state === "listening") stopRecorder();
         },
         onError: error => {
           if (!active || liveInput !== live || error.name === "AbortError") return;

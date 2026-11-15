@@ -1,0 +1,25 @@
+{
+  "layout": {
+    "label": "Auto",
+    "width": 88,
+    "arrowInset": 14,
+    "rightPadding": "38px",
+    "overflow": false
+  },
+  "composerSelectorRemoved": true,
+  "composerUploadsAfterConfirm": true,
+  "pauseMs": 4000,
+  "autoResumeAfterReply": true,
+  "idleThinkingMs": 1200,
+  "backgroundGain": 0.04,
+  "secondQuestionWithoutTap": true,
+  "turns": [
+    "What is a triangle?",
+    "What is a square?"
+  ],
+  "allStreamsReleased": true,
+  "pageErrors": [],
+  "limitation": "Actual browser capture/playback with synthetic microphone and mocked Deepgram/model responses; no physical phone or provider accuracy measurement.",
+  "providerSpeechFinalEmitted": false,
+  "automaticSubmissionPath": "Local four-second detector; no Voice microphone button click"
+}
