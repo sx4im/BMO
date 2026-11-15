@@ -1,0 +1,13 @@
+{
+  "earlySavedAcknowledgment": {
+    "sameStream": true,
+    "userCount": 1,
+    "streamVisible": true,
+    "text": "First part. ▋"
+  },
+  "repeatedSavedAcknowledgmentDoesNotDuplicate": true,
+  "failedSaveRetainsAnswer": true,
+  "unconfirmedMessageHasNoDatabaseActions": true,
+  "pageErrors": [],
+  "limitation": "Actual Chromium frontend/SSE parsing/rendering with simulated delayed server acknowledgments and a save failure. Backend worker/storage tested separately; this is not a live Supabase or model latency benchmark."
+}

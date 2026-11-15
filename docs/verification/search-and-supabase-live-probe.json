@@ -1,0 +1,68 @@
+{
+  "tinyfish": [
+    {
+      "query": "latest AI news in Pakistan excluding cricket",
+      "status": "ok",
+      "elapsed_seconds": 2.205,
+      "result_count": 14,
+      "domains": 9,
+      "leading_results": [
+        {
+          "title": "Pakistan plans $1bn AI investment to boost digital economy",
+          "url": "https://dailytimes.com.pk/1580302/pakistan-plans-1bn-ai-investment-to-boost-digital-economy",
+          "published_date": "2026-11-12T07:13:34Z"
+        },
+        {
+          "title": "\u2018Pakistan determined to turn AI revolution into opportunity\u2019",
+          "url": "https://dawn.com/news/2043907/pakistan-determined-to-turn-ai-revolution-into-opportunity",
+          "published_date": "2026-11-12T01:47:32Z"
+        },
+        {
+          "title": "Minister unveils Pakistan's ambitious AI and digital development plans",
+          "url": "https://en.neonews.pk/11-Nov-2026/minister-unveils-pakistan-s-ambitious-ai-digital-development-plans",
+          "published_date": "2026-11-11T08:24:00Z"
+        },
+        {
+          "title": "Pakistan aims to develop one million AI professionals by 2030: Ahsan Iqbal",
+          "url": "https://dawn.com/news/2042412/pakistan-aims-to-develop-one-million-ai-professionals-by-2030-ahsan-iqbal",
+          "published_date": "2026-11-06T01:59:46Z"
+        }
+      ]
+    },
+    {
+      "query": "Deepgram Nova-3 Urdu language support",
+      "status": "ok",
+      "elapsed_seconds": 1.787,
+      "result_count": 10,
+      "domains": 2,
+      "leading_results": [
+        {
+          "title": "deepgram.com/learn/speech-to-text-for-hebrew-persian-urdu-on-nova-3",
+          "url": "https://deepgram.com/learn/speech-to-text-for-hebrew-persian-urdu-on-nova-3",
+          "published_date": ""
+        },
+        {
+          "title": "Speech-to-text for Hebrew, Persian, and Urdu on Nova-3",
+          "url": "https://deepgram.com/blog/speech-to-text-for-hebrew-persian-urdu-on-nova-3",
+          "published_date": "Feb 12, 2026"
+        },
+        {
+          "title": "Languages support | Deepgram docs",
+          "url": "https://developers.deepgram.com/docs/language",
+          "published_date": ""
+        },
+        {
+          "title": "October 23, 2026",
+          "url": "https://developers.deepgram.com/changelog/2026/10/23",
+          "published_date": "2026-10-23T00:00:00Z"
+        }
+      ]
+    }
+  ],
+  "supabase": {
+    "http_status": 200,
+    "elapsed_seconds": 0.831,
+    "data_rows_returned": 0,
+    "read_only": true
+  }
+}
