@@ -91,7 +91,7 @@ services:
         sync: false
       - key: MISTRAL_MODEL
         value: ministral-8b-2512
-      # Deepgram Flux Streaming TTS
+      # Deepgram Nova-3 streaming STT + Flux streaming TTS
       - key: DEEPGRAM_API_KEY
         sync: false
       - key: DEEPGRAM_TTS_MODEL

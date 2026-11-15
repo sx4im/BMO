@@ -16,7 +16,7 @@ DEFAULT_AEON_MODEL = "qwen/qwen3.8-27b"
 DEFAULT_IMAGE_MODEL = "black-forest-labs/flux-3-image-klein"
 # NVIDIA hosts the undistilled FLUX 3 Klein base; fewer steps garble lettering.
 IMAGE_STEPS = 50
-DEFAULT_DEEPGRAM_TTS_MODEL = "flux-sienna-en"
+DEFAULT_DEEPGRAM_TTS_MODEL = "flux-hannah-en"
 DEFAULT_DEEPGRAM_WS_URL = "wss://api.deepgram.com/v2/speak"
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_IMAGE_BASE_URL = "https://ai.api.nvidia.com/v1/genai"

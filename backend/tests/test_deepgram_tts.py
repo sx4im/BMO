@@ -19,7 +19,7 @@ def test_deepgram_config(monkeypatch):
     monkeypatch.delenv("DEEPGRAM_TTS_MODEL", raising=False)
     assert not config.is_deepgram_configured()
     assert config.get_deepgram_api_key() == ""
-    assert config.get_deepgram_tts_model() == "flux-sienna-en"
+    assert config.get_deepgram_tts_model() == "flux-hannah-en"
 
     monkeypatch.setenv("DEEPGRAM_API_KEY", "test-deepgram-key")
     monkeypatch.setenv("DEEPGRAM_TTS_MODEL", "flux-sienna-en")

@@ -34,6 +34,37 @@ media_bp = Blueprint("media_routes", __name__)
 sock = Sock(media_bp)
 
 
+@media_bp.post("/transcribe/token")
+@limiter.limit("20 per minute")
+@require_user
+def transcription_token(user):  # noqa: ARG001
+    """Grant browser streaming access without exposing the permanent API key."""
+    key = get_deepgram_api_key()
+    if not key:
+        return bad_request("Live transcription is not configured. Set DEEPGRAM_API_KEY on Render.", 503)
+    try:
+        upstream = requests.post(
+            "https://api.deepgram.com/v1/auth/grant",
+            headers={"Authorization": f"Token {key}"},
+            json={"ttl_seconds": 30}, timeout=8,
+        )
+        if upstream.status_code in {401, 403}:
+            return bad_request("Deepgram authorization failed. Use a valid API key with Member permissions on Render.", 503)
+        if not upstream.ok:
+            return bad_request("Deepgram is unavailable. Please try the microphone again.", 502)
+        grant = upstream.json()
+        if not isinstance(grant, dict) or not isinstance(grant.get("access_token"), str) or not grant["access_token"]:
+            return bad_request("Deepgram returned an invalid streaming credential. Please try again.", 502)
+    except (requests.RequestException, ValueError):
+        # Never log provider bodies, credentials, or request exception strings.
+        logger.warning("Deepgram streaming credential request failed")
+        return bad_request("Could not connect to Deepgram. Please try the microphone again.", 502)
+    response = jsonify({"access_token": grant["access_token"], "expires_in": 30,
+                        "model": "nova-3", "language": "multi"})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def _rest_transcription_provider():
     base = os.getenv("TRANSCRIBE_BASE_URL")
     key = os.getenv("TRANSCRIBE_API_KEY")
