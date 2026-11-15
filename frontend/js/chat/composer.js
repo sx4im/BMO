@@ -233,7 +233,7 @@ export class Composer {
     // Attachment menu (+)
     const ATTACH_ITEMS = [
       { ic: "image", label: "Image", desc: "Upload a photo or picture", open: () => this.imageInput.click() },
-      { ic: "fileText", label: "File", desc: "Documents, presentations, text & data", open: () => this.documentInput.click() },
+      { ic: "fileText", label: "File", desc: "PDF, DOCX, ZIP, PPTX & more", open: () => this.documentInput.click() },
       { ic: "camera", label: "Camera", desc: "Take a photo to attach", open: () => this.cameraInput.click() },
     ];
     this.attachmentMenu = el("div", { class: "attachment-menu", role: "menu" },

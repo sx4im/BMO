@@ -16,7 +16,7 @@ import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=3
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=66";
 import * as api from "../api.js?v=66";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=38";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=39";
 import { MessageFeed } from "../chat/message-feed.js?v=44";
 import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=11";
 import {
@@ -346,9 +346,9 @@ export async function renderChat({ id, incognito }) {
     }
 
     if (incognito) {
-      convoTitleText.textContent = "Incognito chat";
+      convoTitleText.textContent = "";
       menuAnchor.style.display = "none";
-      titleWrap.style.display = "inline-flex";
+      titleWrap.style.display = "none";
       return;
     }
     if (conversation?.title) {

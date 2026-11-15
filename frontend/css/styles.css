@@ -10022,7 +10022,9 @@ em {
 
 .composer-voice svg {
   width: 18px;
-  height: 18px;
+  height: 22px;
+  /* Keep the bouncing capsule visible inside the button's spare space. */
+  overflow: visible;
 }
 
 /* =============================================================

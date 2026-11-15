@@ -91,7 +91,6 @@ async function renderProjectsList(host, auth) {
       el("span", { text: "New project" }),
     ]
   );
-  page.append(fab);
 
   const loadingSpinner = el("div", { class: "blade-spinner center" }, [
     el("div", { class: "spinner-blade" }),
@@ -155,6 +154,8 @@ async function renderProjectsList(host, auth) {
     page.append(emptyState);
     return;
   }
+
+  page.append(fab);
 
   const searchWrap = el("div", { class: "projects-search-wrap" }, [
     el("span", { class: "projects-search-icon", html: icon("search", { width: 16, height: 16 }) }),
