@@ -1,15 +1,14 @@
 // Full-screen voice assistant (Bmo Voice).
 //
-// Flow: open -> listen (live transcription) -> on silence, send the turn ->
+// Flow: open -> listen (live transcription) -> completed thought -> send ->
 // voice-themed wait text while the reply streams -> read the reply aloud
 // (Deepgram Flux/Aura streaming) -> listen again. The X closes it. A procedural
 // fog sphere follows the voice state and the microphone/playback audio envelopes.
 //
 // Speech input uses Deepgram Nova-3 streaming, with recorded-audio recovery.
-// Browser recognition is a compatibility fallback for older browsers. Recording auto-stops via an adaptive Web Audio
-// VAD (see the tuning block below): it learns the room's
-// noise floor and only counts input a multiple louder than that as speech,
-// so background noise neither holds the mic open nor triggers a turn.
+// Browser recognition is a compatibility fallback for older browsers. Semantic
+// checks decide completion; adaptive Web Audio VAD prevents submission during
+// active speech and supplies conservative recovery if checks are unavailable.
 //
 // Text-to-speech audio is decoded and played through the Web Audio API rather
 // than an <audio> element: that keeps it inside the site CSP (the fetch is a
@@ -18,8 +17,9 @@
 import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
-import * as api from "../api.js?v=67";
+import * as api from "../api.js?v=68";
 import { LiveTranscriber } from "../chat/live-transcriber.js?v=2";
+import { SemanticTurnDetector } from "../chat/turn-detector.js?v=1";
 import { VOICE_LANGUAGES } from "./voice-languages.js?v=1";
 export { VOICE_LANGUAGES };
 import { createVoiceOrb } from "./voice-orb.js?v=4";
@@ -32,7 +32,7 @@ import { blobToWav16kMono } from "../audio-wav.js?v=30";
 // room's noise floor, dropping fast in quiet gaps and learning upward only
 // before speech starts. This accounts for steady background noise — fan,
 // traffic, café chatter — without using an absolute silence gate. The turn
-// auto-ends after VAD_SILENCE_MS of quiet once the user HAS actually spoken.
+// uses a longer quiet window only when semantic completion is unavailable.
 //
 // IMPORTANT: capture runs with autoGainControl OFF (see startRecorder). AGC
 // inflates the silent-gap noise floor toward the speech level, which shrinks
@@ -49,7 +49,7 @@ const VAD_ENTER_FACTOR = 2.0;    // speech: level > floor * 2.0 (and > MIN)
 const VAD_EXIT_FACTOR  = 1.4;    // silence again below floor * 1.4 (hysteresis)
 const VAD_MIN_LEVEL    = 0.005;  // absolute gate so dead-quiet rooms don't fire on hiss
 const VAD_ENTER_FRAMES = 2;      // ~2 consecutive loud frames (~35 ms) to confirm speech
-const VAD_SILENCE_MS   = 4000;    // user-selected four-second pause after speech
+const VAD_RECOVERY_MS  = 4000;    // recovery only, never overrides an incomplete semantic verdict
 const VAD_IDLE_ROTATE_MS = 60000; // renew silent backup recordings without ending the call
 const VAD_MAX_TURN_MS  = 5 * 60 * 1000;  // hard safety cap per turn
 
@@ -124,6 +124,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let audioChunks = [];
   let transcription = null;
   let liveInput = null;
+  let semanticTurn = null;
+  let previousAssistant = "";
+  let completionWarningShown = false;
   let inputDelivery = "neutral";
   let finalCaption = "";
   let finalCaptionAt = 0;
@@ -144,6 +147,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         speechRecSupported = false;
         if (state === "listening" && recognition) {
           const recording = mediaRecorder?.state === "recording";
+          if (recording && !liveInput) {
+            semanticTurn?.cancel();
+            semanticTurn = null;
+          }
           stopRecognition({ keepCapture: recording });
           if (!recording) startRecorder();
         }
@@ -385,8 +392,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     if (label != null) statusText.textContent = label;
   }
   function setTranscript(t) {
-    if (state === "listening" && t?.trim() && t !== transcriptText.textContent) {
-      lastTranscriptChangeAt = performance.now();
+    if (state === "listening" && t !== transcriptText.textContent) {
+      if (t?.trim()) lastTranscriptChangeAt = performance.now();
+      semanticTurn?.update(t);
     }
     transcriptText.textContent = t || "";
     transcriptText.scrollTop = transcriptText.scrollHeight;
@@ -491,6 +499,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   function startSpeechRecognition(captionsOnly = false) {
+    const stopCaptionSource = () => {
+      semanticTurn?.cancel();
+      semanticTurn = null;
+      stopRecognition({ keepCapture: true });
+    };
     stopRecognition({ keepCapture: captionsOnly });
     try {
       const currentRecognition = new SpeechRec();
@@ -512,7 +525,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         // words. Keep the existing recorder available instead of waiting forever.
         speechResultTimer = setTimeout(() => {
           if (isCurrent() && state === "listening" && !turnInFlight) {
-            if (captionsOnly) stopRecognition({ keepCapture: true });
+            if (captionsOnly) stopCaptionSource();
             else useRecorderInput();
           }
         }, 6000);
@@ -535,6 +548,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           setTranscript(currentText);
           if (speechSilenceTimer) clearTimeout(speechSilenceTimer);
           speechSilenceTimer = setTimeout(() => {
+            if (semanticTurn && !semanticTurn.unavailable) return;
             if (active && !turnInFlight && lastRecognizedText) {
               const textToSend = lastRecognizedText;
               lastRecognizedText = "";
@@ -553,7 +567,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
               stopRecognition();
               endTurn(textToSend);
             }
-          }, VAD_SILENCE_MS);
+          }, VAD_RECOVERY_MS);
         }
       };
 
@@ -564,7 +578,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         console.warn("[bimo-voice] Web Speech error:", event?.error);
         if (event?.error !== "no-speech") {
           speechRecSupported = false;
-          stopRecognition({ keepCapture: captionsOnly });
+          if (captionsOnly) stopCaptionSource();
+          else stopRecognition();
           if (!captionsOnly) startRecorder();
         }
       };
@@ -575,16 +590,20 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           if (captionsOnly) {
             // The owned recording already contains this utterance. Recognition
             // supplies captions only; a service failure must not discard audio.
+            if (semanticTurn && !liveInput) {
+              stopCaptionSource();
+              return;
+            }
             if (speechSilenceTimer) return;
             finalCaption = "";
             emptyEndCount++;
             if (emptyEndCount < 3) {
               try { currentRecognition.start(); return; } catch {}
             }
-            stopRecognition({ keepCapture: true });
+            stopCaptionSource();
             return;
           }
-          // If the 2-second silence timer is running, the user just paused to think — do NOT cut them off
+          // A pending silence timer owns this compatibility take's submission.
           if (speechSilenceTimer) {
             try {
               recognition.start();
@@ -619,7 +638,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       speechStartTimer = setTimeout(() => {
         if (isCurrent() && state === "listening" && !turnInFlight) {
-          if (captionsOnly) stopRecognition({ keepCapture: true });
+          if (captionsOnly) stopCaptionSource();
           else useRecorderInput();
         }
       }, 3000);
@@ -627,7 +646,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       if (!captionsOnly) startMicrophoneMeter();
     } catch (err) {
       console.warn("[bimo-voice] Web Speech init failed, using MediaRecorder fallback:", err);
-      if (captionsOnly) stopRecognition({ keepCapture: true });
+      if (captionsOnly) stopCaptionSource();
       else useRecorderInput();
     }
   }
@@ -751,9 +770,26 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       return;
     }
     recordStartedAt = performance.now();
-    setState("listening", "Listening… speak, then pause to send");
+    setState("listening", "Listening…");
+    if (typeof api.checkVoiceTurn === "function" && (typeof AudioWorkletNode !== "undefined" || (speechRecSupported && !isBraveBrowser))) {
+      const detector = new SemanticTurnDetector({
+        check: (text, { signal }) => api.checkVoiceTurn(token, text.slice(-6000), previousAssistant.slice(-1200), { signal }),
+        onComplete: () => {
+          if (active && semanticTurn === detector && sequence === recorderSequence && state === "listening") {
+            // Flush Nova's finalized words rather than send its interim caption.
+            stopRecorder({ useFinalCaption: true });
+          }
+        },
+        onUnavailable: () => {
+          if (!active || semanticTurn !== detector || completionWarningShown) return;
+          completionWarningShown = true;
+          toast("Smart turn detection is unavailable; Voice will wait for a longer pause.");
+        },
+      });
+      semanticTurn = detector;
+    }
 
-    // Adaptive VAD: auto-stop when the user stops speaking (tuning at top).
+    // Audio gates semantic checks; it does not decide normal turn completion.
     vadHadSpeech = false;
     lastTranscriptChangeAt = 0;
     discardTake = false;
@@ -845,13 +881,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           }
         } else if (level <= exitAt) {
           if (!silenceStart) silenceStart = now;
-          else if (now - Math.max(silenceStart, lastTranscriptChangeAt) >= VAD_SILENCE_MS) {
+          else if ((!semanticTurn || semanticTurn.unavailable) && now - Math.max(silenceStart, lastTranscriptChangeAt) >= VAD_RECOVERY_MS) {
             stopRecorder({ useFinalCaption: true });
             return;
           }
         } else {
           silenceStart = 0;
         }
+        if (speaking) semanticTurn?.setSpeaking(level > exitAt);
 
         // Silent recordings are renewed without a user turn; the call stays
         // ready while the user thinks, with bounded backup audio in memory.
@@ -869,6 +906,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       vadRaf = requestAnimationFrame(tickVAD);
     } catch (err) {
       console.warn("[bimo-voice] VAD init failed:", err);
+      semanticTurn?.cancel();
+      semanticTurn = null;
       // No detector → the user stops manually with a mic tap; that take must
       // still be transcribed, so don't let the no-speech skip kick in.
       vadHadSpeech = true;
@@ -886,12 +925,16 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           setTranscript(text);
         },
         onUtteranceEnd: () => {
-          // Nova already detected a four-second speech gap. Room noise on the
-          // orb's volume meter must not veto the recognizer's endpoint.
-          if (active && liveInput === live && state === "listening") stopRecorder();
+          // Nova's pause endpoint is recovery only. An unfinished semantic turn
+          // stays open regardless of transcript segmentation or elapsed silence.
+          if (active && liveInput === live && state === "listening" && (!semanticTurn || semanticTurn.unavailable)) stopRecorder();
         },
         onError: error => {
           if (!active || liveInput !== live || error.name === "AbortError") return;
+          // With no live transcript, a semantic check cannot see the rest of
+          // this take. Recover the complete recording using the audio endpoint.
+          semanticTurn?.cancel();
+          semanticTurn = null;
           // Preserve this take's recorded audio for recovery; never submit an
           // incomplete streaming hypothesis as the user's whole question.
           if (state === "listening" && speechRecSupported && !isBraveBrowser) startSpeechRecognition(true);
@@ -910,6 +953,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   function stopRecorder({ useFinalCaption = false } = {}) {
+    semanticTurn?.cancel();
+    semanticTurn = null;
     recorderSequence++;
     // A recognizer started after a streaming failure only heard the suffix.
     // That take must recover from its complete recording, not those captions.
@@ -930,6 +975,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }
 
   async function onRecorderStop() {
+    semanticTurn?.cancel();
+    semanticTurn = null;
     const readyCaption = stoppedCaption;
     stoppedCaption = "";
     stopRecognition();
@@ -1074,6 +1121,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       await searchDone;
       if (!isCurrent()) { speech?.cancel(); searchSpeech?.cancel(); return; }
+      previousAssistant = reply;
       if (!reply || !audioCtx) {
         speech?.cancel();
         afterSpeaking();

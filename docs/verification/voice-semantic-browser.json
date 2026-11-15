@@ -1,0 +1,30 @@
+{
+  "layout": {
+    "label": "Auto",
+    "width": 88,
+    "arrowInset": 14,
+    "rightPadding": "38px",
+    "overflow": false
+  },
+  "composerSelectorRemoved": true,
+  "composerUploadsAfterConfirm": true,
+  "semanticChecks": [
+    "I wanted to ask you about",
+    "What is a triangle?",
+    "What is a square?"
+  ],
+  "incompleteStayedOpenAfterMs": 4600,
+  "completedTurnMs": 370.09999999962747,
+  "autoResumeAfterReply": true,
+  "idleThinkingMs": 1200,
+  "backgroundGain": 0.04,
+  "providerEndpointWasMocked": false,
+  "secondQuestionWithoutTap": true,
+  "turns": [
+    "What is a triangle?",
+    "What is a square?"
+  ],
+  "allStreamsReleased": true,
+  "pageErrors": [],
+  "limitation": "Actual Chromium AudioContext/AudioWorklet/MediaRecorder capture and PCM playback with synthetic microphone; Deepgram transcript and semantic model responses are mocked. Timing measures client path only, not live model/network latency or physical phone accuracy."
+}

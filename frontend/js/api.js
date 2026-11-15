@@ -507,6 +507,11 @@ export async function listModels(token) {
 
 // ---------- voice transcription ----------
 
+export async function checkVoiceTurn(token, transcript, previousAssistant, { signal } = {}) {
+  return request("/voice/turn", { method: "POST", token, signal,
+    body: { transcript, previous_assistant: previousAssistant } });
+}
+
 export async function createTranscriptionToken(token, { signal } = {}) {
   return request("/transcribe/token", { method: "POST", token, signal });
 }

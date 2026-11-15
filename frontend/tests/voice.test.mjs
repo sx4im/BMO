@@ -67,7 +67,8 @@ async function voicePage(sendTurn, language='en', options = {}) {
   const app=moduleLoader({
     ...(options.liveTranscriber ? {'live-transcriber.js':{LiveTranscriber:options.liveTranscriber}} : {}),
     'api.js':{health:async()=>({tts:'configured'}),ttsStreamUrl:(_token,options)=>'wss://voice.invalid/?'+new URLSearchParams(options),
-      transcribeAudio: options.transcribeAudio},
+      transcribeAudio: options.transcribeAudio,
+      ...(options.checkVoiceTurn ? {checkVoiceTurn: options.checkVoiceTurn} : {})},
     'audio-wav.js':{blobToWav16kMono: options.convertRecording || (async blob => blob)},
     'toast.js':{toast:message=>notices.push(message)},
     'voice-orb.js':{createVoiceOrb:canvas=>{
@@ -854,4 +855,139 @@ test('microphone startup ramp cannot freeze a low noise floor and block the next
   await new Promise(resolve=>setTimeout(resolve,60));offset=4500;
   await until(()=>sent.length);
   assert.deepEqual(sent,['A complete question after microphone startup']);
+});
+
+
+test('semantic Voice submits a complete question promptly without a provider silence endpoint',async t=>{
+  let live,level=0.1;const sent=[],checks=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('What is photosynthesis?');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,
+    checkVoiceTurn:async(_token,text)=>{checks.push(text);return {available:true,complete:true};},
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('What is photosynthesis?');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await until(()=>sent.length,1000);
+  assert.deepEqual(sent,['What is photosynthesis?']);assert.equal(checks.length,1);
+});
+
+test('semantic Voice keeps an unfinished thought open beyond the old pause and provider endpoints',async t=>{
+  let live,level=0.1,offset=0;const sent=[],checks=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('Compare Python and JavaScript');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    checkVoiceTurn:async(_token,text)=>{checks.push(text);return {available:true,complete:text.endsWith('JavaScript')};},
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('Compare Python and');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await until(()=>checks.length);offset=5000;live.options.onUtteranceEnd();
+  await new Promise(resolve=>setTimeout(resolve,60));
+  assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');assert.equal(checks.length,1);
+  live.options.onTranscript('Compare Python and JavaScript');
+  await until(()=>sent.length,1000);
+  assert.deepEqual(sent,['Compare Python and JavaScript']);
+});
+
+test('closing Voice aborts a semantic request and ignores its late positive verdict',async t=>{
+  let live,level=0.1,resolveCheck,signal;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('Can you help me?');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,
+    checkVoiceTurn:(_token,_text,_previous,options)=>{signal=options.signal;return new Promise(resolve=>resolveCheck=resolve);},
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('Can you help me?');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await until(()=>resolveCheck);page.overlay.close();
+  assert.equal(signal.aborted,true);resolveCheck({available:true,complete:true});await tick();
+  assert.equal(sent.length,0);
+});
+
+test('recorded-only browsers use recovery rather than wait for a nonexistent semantic transcript',async t=>{
+  let level=0.1,offset=0;const sent=[];
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    recorder:true,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    checkVoiceTurn:async()=>assert.fail('No caption source should request semantic checks'),
+    transcribeAudio:async()=>({text:'A recorded question'}),
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>page.recorders.length);await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=4500;await until(()=>sent.length);
+  assert.deepEqual(sent,['A recorded question']);
+});
+
+test('loss of live captions cancels an incomplete semantic turn and recovers its full recording',async t=>{
+  let live,level=0.1,offset=0,checked=false;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.reject(new Error('Lost connection'));}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    recorder:true,liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    checkVoiceTurn:async()=>{checked=true;return {available:true,complete:false};},
+    transcribeAudio:async()=>({text:'A whole question recovered from audio'}),
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('An unfinished partial');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;await until(()=>checked);
+  live.options.onError(new Error('Lost connection'));offset=4500;await until(()=>sent.length);
+  assert.deepEqual(sent,['A whole question recovered from audio']);
+});
+
+test('native captions ending without a result restore recorded-audio recovery',async t=>{
+  let level=0.1,offset=0;const sent=[];
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    checkVoiceTurn:async()=>assert.fail('No words should request semantic checks'),
+    transcribeAudio:async()=>({text:'A complete recorded question'}),
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>page.recognitions.length);page.recognitions[0].onend();
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=4500;await until(()=>sent.length);
+  assert.deepEqual(sent,['A complete recorded question']);
+});
+
+test('semantic service failure falls back to a longer pause without dropping the question',async t=>{
+  let live,level=0.1,offset=0;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('A question during a model outage');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    recorder:true,liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    checkVoiceTurn:async()=>({available:false,complete:false}),
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('A question during a model outage');
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;await until(()=>page.notices.length);
+  assert.equal(sent.length,0);offset=4500;await until(()=>sent.length);
+  assert.deepEqual(sent,['A question during a model outage']);assert.equal(page.notices.length,1);
+});
+
+test('semantic API sends bounded speech context with authentication and cancellation',async()=>{
+  let captured;const controller=new AbortController();
+  const app=moduleLoader({
+    'config.js':{config:{apiUrl:'https://api.invalid'}},
+    'auth.js':{getAuth:()=>({auth:{token:'session'}}),refreshSession:async()=>null},
+    'supabaseClient.js':{isSupabaseConfigured:()=>false,supabaseClient(){}},
+  },{globals:{fetch:async(url,options)=>{captured={url,...options};return new Response('{"available":true,"complete":true}');}}});
+  const {checkVoiceTurn}=await app.load('js/api.js');
+  await checkVoiceTurn('test','What is this?','Ask me anything',{signal:controller.signal});
+  assert.equal(captured.url,'https://api.invalid/voice/turn');assert.equal(captured.headers.Authorization,'Bearer session');
+  assert.equal(captured.signal,controller.signal);assert.deepEqual(JSON.parse(captured.body),{transcript:'What is this?',previous_assistant:'Ask me anything'});
 });
