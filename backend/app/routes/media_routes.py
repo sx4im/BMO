@@ -12,7 +12,7 @@ import requests
 from flask import Blueprint, Response, jsonify, request
 from flask_sock import Sock
 
-from .. import deepgram_tts, image_safety, nvidia_client, riva_transcribe, search_router, store
+from .. import deepgram_tts, image_safety, nvidia_client, riva_transcribe, search_router, store, voice_turns
 from ..auth import require_user, user_from_token
 from ..config import (
     IMAGE_MODEL_ID,
@@ -32,6 +32,24 @@ logger = logging.getLogger("bmo.routes.media")
 
 media_bp = Blueprint("media_routes", __name__)
 sock = Sock(media_bp)
+
+
+@media_bp.post("/voice/turn")
+@limiter.limit("120 per minute")
+@require_user
+def voice_turn(user):  # noqa: ARG001
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return bad_request("transcript is required", 422)
+    transcript = payload.get("transcript")
+    previous = payload.get("previous_assistant", "")
+    if not isinstance(transcript, str) or not transcript.strip() or len(transcript) > 6000:
+        return bad_request("transcript must contain 1–6000 characters", 422)
+    if not isinstance(previous, str) or len(previous) > 1200:
+        return bad_request("previous_assistant must contain at most 1200 characters", 422)
+    response = jsonify(voice_turns.check_turn(transcript.strip(), previous))
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @media_bp.post("/transcribe/token")
