@@ -1,0 +1,53 @@
+# BMO project context
+
+Updated 2026-11-15. Use this as an entry point; confirm implementation details
+through Graft and the current source before editing.
+
+## Architecture and deployment
+
+- Flask backend in `backend/`, vanilla JavaScript frontend in `frontend/`,
+  Supabase for authentication and persistence.
+- Frontend: Vercel, `https://bimo.qzz.io`. Backend: Render,
+  `https://bimo-backend-4a4g.onrender.com`; see `render.yaml`.
+- Frontend modules and styles use query-string cache versions. Bump affected
+  imports and entry-point versions when shipping frontend changes.
+- Never commit environment variables, API keys, or generated Graft caches.
+
+## Recent behavior and decisions
+
+- The product release is Bmo 6.0. Existing and new users receive a features-only
+  release card once per account. Its durable marker is Supabase Auth user
+  metadata `bmo_release_seen`; retain other user metadata when updating it.
+- Chat persistence acknowledges durable IDs during streaming. Saving must not
+  remount the active answer, duplicate messages, or block initial response output.
+  Streaming and saved answers should retain the same formatting.
+- Mobile assistant actions include Copy, thumbs up/down, and Retry. Pending saves
+  must retain controls; feedback resolves the durable message ID before posting.
+- The landing hero keeps compact desktop text/buttons/video. Its heading's left
+  edge aligns with the navbar logo, and the video's right edge aligns with
+  Try Bmo. Preserve the existing mobile layout.
+- Voice, search relevance, and persistence work have verification records under
+  `docs/verification/`. Read the relevant record and inspect current code before
+  changing these flows; do not assume live provider credentials or hardware were
+  exercised by a simulated browser test.
+
+## Research and deferred work
+
+- Claude-style artifact/file creation is research only. Do not implement the
+  proposed parser, version storage, document renderers, or side panel without a
+  new implementation request.
+- Chat skill recommendations are research only; see
+  `docs/bimo-chat-skills-research-2026-11-15.md`.
+- The Ponytail audit records cleanup candidates, not approval to refactor them:
+  `docs/verification/ponytail-audit-2026-11-15.md`.
+
+## Context maintenance and verification
+
+- Graft MCP is registered locally in Codex as `graft`, running `graft mcp` against
+  this repository. A new Codex session loads the registered server. The CLI is
+  the fallback in the current session.
+- At task completion, run `graft build` then `graft check`. Update this note for
+  material changes. A fresh checkout rebuilds its own ignored `graft/` directory.
+- Frontend regression suite: `npm run test:run` from `frontend/`.
+- Existing release, persistence, streaming-layout, search, and voice evidence lives
+  in `docs/verification/`; record the scope and limits of new checks there when useful.
