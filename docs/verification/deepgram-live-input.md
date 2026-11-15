@@ -1,8 +1,10 @@
 # Deepgram live input — 2026-11-15
 
-The composer mic and Voice assistant use Nova-3 with interim results. Mono PCM is captured by an AudioWorklet and sent every 80 ms at the actual browser sample rate. The gateway authenticates the user and rate-limits token grants to 20/minute; a 30-second Deepgram JWT permits direct browser streaming without exposing the permanent API key. Existing REST transcription remains Voice's recovery path.
+The Voice assistant uses Nova-3 with interim results. Mono PCM is captured by an AudioWorklet and sent every 80 ms at the actual browser sample rate. The gateway authenticates the user and rate-limits token grants to 20/minute; a 30-second Deepgram JWT permits direct browser streaming without exposing the permanent API key. REST transcription remains Voice's recovery path.
 
-The composer keeps its draft visible, replaces interim hypotheses, waits for the final audio flush on confirm, and restores the original draft on cancel. Its recording bar offers a recognition-language dropdown. Voice uses the same client on its existing microphone stream. Its selector provides Auto plus all 42 Flux TTS languages, including Urdu. All selected voices are explicit documented Flux model IDs. The default English voice is Hannah. The original orb and surrounding Voice layout remain unchanged.
+At the user's request, the composer restores the record-first flow: its recording bar replaces the input while it records locally, then confirmation converts the complete clip to WAV and calls `/transcribe`. Text is appended only after transcription finishes. Cancel discards the recording or aborts an in-progress upload and preserves the exact draft. The recording bar retains its recognition-language dropdown. Composer does not request a streaming token. `/transcribe` uses server-side Nova-3 when Deepgram is configured; the original Riva/REST providers remain available when no Deepgram key is set.
+
+Voice keeps streaming on its existing microphone stream. Its selector provides Auto plus all 42 Flux TTS languages, including Urdu. All selected voices are explicit documented Flux model IDs. The default English voice is Hannah. The original orb and surrounding Voice layout remain unchanged.
 
 Auto uses Nova-3 multilingual language metadata to choose the reply language and matching Flux voice. **Nova-3 multilingual does not include Urdu; select Urdu explicitly in either language dropdown.** Nova-3 supports `language=ur`. The explicit selection is shared between composer and Voice. Multilingual detection can recognize languages outside Flux's catalog; unsupported detected languages do not select an invented TTS voice.
 
@@ -10,15 +12,15 @@ Final STT word timing and measured microphone volume provide weak gentle/neutral
 
 ## Render
 
-Keep/set `DEEPGRAM_API_KEY` to a valid Deepgram API key with **Member permissions** (required by `/v1/auth/grant`). Set `DEEPGRAM_TTS_MODEL=flux-hannah-en` for the server's English fallback. Nova-3 is selected in code, so no STT model env variable is required. Save and deploy the latest commit. No database migration or new dependency is required. Do not place the permanent key in Vercel or browser configuration.
+Keep/set `DEEPGRAM_API_KEY` to a valid Deepgram API key with **Member permissions** (required by Voice's `/v1/auth/grant`; recorded composer requests only need transcription access). Create a key in Deepgram Console → API Keys → Create Key → Advanced → Member, then replace the Render variable and save/deploy the latest commit. Set `DEEPGRAM_TTS_MODEL=flux-hannah-en` for the server's English fallback. Nova-3 is selected in code, so no STT model env variable is required. No database migration or new dependency is required. Do not place the permanent key in Vercel or browser configuration.
 
 ## Verification
 
 Automated tests cover auth and sanitized provider failures, credential lifetime/no-store response, interim/final merging, audio flush ordering, cancellation, draft preservation, language changes, Urdu, automatic voice selection, and recovery from streaming failure without truncating a question.
 
-Final suite results: **106 frontend tests passed; 421 backend tests passed**. Backend emits 105 existing dependency deprecation warnings. [Browser evidence](deepgram-live-input-browser.json) records real 48 kHz PCM packets sent before stop, explicit Urdu captions/model selection, and microphone cleanup.
+Current suite results: **108 frontend tests passed; 426 backend tests passed**. Backend emits 105 existing dependency deprecation warnings. [Original streaming browser evidence](deepgram-live-input-browser.json) records the initial release; [record-first correction evidence](composer-record-first-browser.json) verifies that the composer sends no audio or token requests before confirmation, then uploads a nonempty 16 kHz mono WAV and appends text afterward. Voice still streams with explicit Urdu captions/model selection, and both paths release microphone tracks.
 
-Chromium smoke testing uses real AudioContext/AudioWorklet PCM capture and real MediaRecorder recovery capture with a synthetic microphone. Deepgram credential and transcript responses are mocked. It verifies nonzero PCM packets sent while recording, live composer text, final flush, an explicit Urdu STT request with Flux Urdu voice, and released microphone tracks. A local Deepgram API key is unavailable, so live-provider recognition accuracy, pronunciation across all languages, and physical-phone behavior remain unverified.
+Chromium smoke testing uses real AudioContext/AudioWorklet PCM capture and real MediaRecorder capture/conversion with a synthetic microphone. Deepgram credential and transcript responses are mocked. A local Deepgram API key is unavailable, so live-provider recognition accuracy, pronunciation across all languages, and physical-phone behavior remain unverified.
 
 ## Authoritative references
 

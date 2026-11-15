@@ -222,7 +222,7 @@ def upload_attachment(user):
     return jsonify(attachment)
 
 
-# ---------- Voice Transcription (Whisper / Riva) ----------
+# ---------- Recorded Voice Transcription (Nova-3 / Whisper / Riva) ----------
 
 @media_bp.post("/transcribe")
 @limiter.limit("20 per minute")
@@ -247,11 +247,34 @@ def transcribe(user):  # noqa: ARG001
     if not _audio_ok:
         return bad_request("unsupported audio format", 422)
 
-    language = (request.form.get("language") or "en").strip() or "en"
+    language = (request.form.get("language") or "multi").strip() or "multi"
+    if not re.fullmatch(r"[A-Za-z]{2,5}(?:-[A-Za-z0-9]{2,8}){0,2}", language):
+        return bad_request("invalid transcription language", 422)
+
+    # Completed recordings use the server's key directly. They do not require
+    # /auth/grant or Member permissions, which are specific to live token grants.
+    deepgram_key = get_deepgram_api_key()
+    if deepgram_key:
+        try:
+            resp = requests.post(
+                "https://api.deepgram.com/v1/listen",
+                headers={"Authorization": f"Token {deepgram_key}", "Content-Type": "application/octet-stream"},
+                params={"model": "nova-3", "language": language, "smart_format": "true", "punctuate": "true"},
+                data=audio_bytes, timeout=30,
+            )
+            if not resp.ok:
+                return bad_request("Deepgram transcription failed. Check that the API key is valid and has speech-to-text access.", 502)
+            text = resp.json()["results"]["channels"][0]["alternatives"][0]["transcript"]
+            if not isinstance(text, str):
+                raise ValueError("Invalid transcript")
+            return jsonify({"text": text.strip()})
+        except (requests.RequestException, ValueError, KeyError, IndexError, TypeError):
+            logger.warning("Deepgram recorded transcription failed")
+            return bad_request("Could not transcribe the recording with Deepgram. Please try again.", 502)
 
     if riva_transcribe.riva_available():
         try:
-            text = riva_transcribe.transcribe_wav(audio_bytes, language)
+            text = riva_transcribe.transcribe_wav(audio_bytes, "en" if language == "multi" else language)
             return jsonify({"text": text})
         except Exception as exc:  # noqa: BLE001
             logger.warning("Riva transcription failed, trying REST fallback: %s", exc)

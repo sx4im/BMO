@@ -9,7 +9,7 @@ import { icon } from "../icons.js?v=73";
 import { FileIcon } from "../components/file-icon.js?v=6";
 import { toast } from "../components/toast.js?v=58";
 import { openImageModal } from "../components/image-modal.js?v=18";
-import { LiveTranscriber } from "./live-transcriber.js?v=1";
+import { blobToWav16kMono } from "../audio-wav.js?v=30";
 import { VOICE_LANGUAGES } from "../components/voice-languages.js?v=1";
 import { getAuth } from "../auth.js";
 import * as api from "../api.js?v=66";
@@ -314,8 +314,8 @@ export class Composer {
     this.recConfirmBtn = el("button", {
       type: "button",
       class: "rec-confirm",
-      "aria-label": "Finish dictation",
-      title: "Done",
+      "aria-label": "Confirm and transcribe",
+      title: "Transcribe",
       onclick: () => this.confirmRecording(),
       html: icon("check", { width: 18, height: 18 }),
     });
@@ -1037,7 +1037,7 @@ export class Composer {
   // Voice recording methods
   showRecordingBar(on) {
     this.isRecording = on;
-    this.composerBox.style.display = "";
+    this.composerBox.style.display = on ? "none" : "";
     this.textarea.readOnly = on;
     this.recordingBar.classList.toggle("active", on);
     this.recordingBar.setAttribute("aria-hidden", on ? "false" : "true");
@@ -1113,7 +1113,7 @@ export class Composer {
     this.recordingBar.classList.toggle("transcribing", on);
     if (on) {
       this.recConfirmBtn.replaceWith(this.recSpinner);
-      this.recCancelBtn.disabled = true;
+      this.recCancelBtn.disabled = false;
       this.recTimer.textContent = "Transcribing…";
     } else {
       this.recSpinner.replaceWith(this.recConfirmBtn);
@@ -1141,6 +1141,8 @@ export class Composer {
 
   releaseDictation(session) {
     clearTimeout(session.limitTimer);
+    session.controller.abort();
+    if (session.recorder?.state === "recording") session.recorder.stop();
     session.stream?.getTracks().forEach(track => track.stop());
     if (this.dictation !== session) return;
     this.dictation = null;
@@ -1156,7 +1158,6 @@ export class Composer {
     if (!session) return;
     this.updateDictationText(session, "");
     this.releaseDictation(session);
-    session.client?.cancel();
   }
 
   changeDictationLanguage(language) {
@@ -1169,18 +1170,29 @@ export class Composer {
 
   async confirmRecording() {
     const session = this.dictation;
-    if (!session?.client || session.finishing) return;
+    if (!session?.recorder || session.finishing) return;
     session.finishing = true;
+    clearTimeout(session.limitTimer);
     this.stopRecordTimer();
     this.stopWaveMeter();
     this.setTranscribingUI(true);
-    const result = session.client.finish();
-    session.stream?.getTracks().forEach(track => track.stop());
+    const isCurrent = () => this.dictation === session && !session.controller.signal.aborted;
     try {
-      const text = await result;
-      this.updateDictationText(session, text);
+      if (session.recorder.state === "recording") session.recorder.stop();
+      const recorded = await session.recorded;
+      if (!isCurrent()) return;
+      if (!recorded.size) throw Error("No audio recorded. Please try again.");
+      const wav = await blobToWav16kMono(recorded);
+      if (!isCurrent()) return;
+      const result = await api.transcribeAudio(this.getAuthToken(), wav, {
+        language: session.language === "auto" ? "multi" : session.language,
+        signal: session.controller.signal,
+      });
+      if (!isCurrent()) return;
+      if (result.text?.trim()) this.updateDictationText(session, result.text.trim());
+      else toast("No speech detected. Please try again.", { tone: "neutral" });
     } catch (error) {
-      if (this.dictation === session && error.name !== "AbortError") toast(error.message, { tone: "error" });
+      if (isCurrent() && error.name !== "AbortError") toast(error.message || "Transcription failed", { tone: "error" });
     } finally {
       if (this.dictation === session) {
         this.releaseDictation(session);
@@ -1191,14 +1203,14 @@ export class Composer {
 
   async startVoiceRecording() {
     if (this.dictation || this.isGenerating || this.isImageGenerating) return;
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       toast("Voice not supported", { tone: "error" });
       return;
     }
     const savedLanguage = localStorage.getItem("bimo-voice-lang");
     const language = localStorage.getItem("bimo-voice-auto-lang") === "0"
       && VOICE_LANGUAGES.some(item => item.id === savedLanguage) ? savedLanguage : "auto";
-    const session = this.dictation = { draft: this.textarea.value, language };
+    const session = this.dictation = { draft: this.textarea.value, language, controller: new AbortController() };
     if (this.recLanguage) this.recLanguage.value = language;
     this.showRecordingBar(true);
     this.syncSendEnabled();
@@ -1211,20 +1223,32 @@ export class Composer {
         stream.getTracks().forEach(track => track.stop());
         return;
       }
-      session.client = new LiveTranscriber({
-        token: this.getAuthToken(),
-        language: session.language === "auto" ? undefined : session.language,
-        onTranscript: text => this.updateDictationText(session, text),
-        onError: error => {
-          if (this.dictation !== session || session.finishing || error.name === "AbortError") return;
-          this.releaseDictation(session);
-          toast(error.message || "Live transcription failed", { tone: "error" });
-        },
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+        .find(type => MediaRecorder.isTypeSupported?.(type));
+      const recorder = session.recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const chunks = [];
+      session.recorded = new Promise((resolve, reject) => {
+        recorder.addEventListener("dataavailable", event => {
+          if (this.dictation === session && event.data.size) chunks.push(event.data);
+        });
+        recorder.addEventListener("stop", () => {
+          stream.getTracks().forEach(track => track.stop());
+          resolve(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
+        });
+        recorder.addEventListener("error", () => {
+          const error = Error("Microphone recording failed. Please try again.");
+          reject(error);
+          if (this.dictation === session && !session.finishing) {
+            this.releaseDictation(session);
+            toast(error.message, { tone: "error" });
+          }
+        });
       });
+      session.recorded.catch(() => {});
+      recorder.start(250);
       this.startRecordTimer();
       this.startWaveMeter(stream);
       session.limitTimer = setTimeout(() => this.confirmRecording(), 10 * 60 * 1000);
-      await session.client.start(stream);
     } catch (error) {
       if (this.dictation === session) {
         this.releaseDictation(session);

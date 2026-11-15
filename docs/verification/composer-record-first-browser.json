@@ -1,0 +1,22 @@
+{
+  "composer": {
+    "uploadAfterConfirmation": true,
+    "noTemporaryTokenRequest": true,
+    "recordedAudio": {
+      "format": "WAV",
+      "sampleRate": 16000,
+      "channels": 1,
+      "bytes": 26924
+    }
+  },
+  "voice": {
+    "language": "ur",
+    "ttsModels": [
+      "flux-ambreen-ur"
+    ],
+    "caption": "آپ کیسے ہیں؟"
+  },
+  "allStreamsReleased": true,
+  "pageErrors": [],
+  "limitation": "Synthetic microphone; mocked Deepgram responses. Does not measure provider accuracy or physical phone behavior."
+}
