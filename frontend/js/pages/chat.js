@@ -13,10 +13,10 @@ import { openConfirmModal, openPromptModal } from "../components/confirm-modal.j
 import { openShareModal } from "../components/share-modal.js?v=3";
 import { openMoveChatModal } from "./projects.js";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=34";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=62";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=63";
 import * as api from "../api.js?v=66";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=35";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=36";
 import { MessageFeed } from "../chat/message-feed.js?v=44";
 import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=11";
 import {
@@ -1179,9 +1179,12 @@ export async function renderChat({ id, incognito }) {
         activeVoiceOnDelta = opts?.onDelta || null;
         activeVoiceOnSearch = opts?.onSearching || null;
         activeVoiceOnStyle = opts?.onVoiceStyle || null;
-        const langInstruction = opts?.language && opts.language !== "en"
-          ? `Selected conversation language: ${opts.languageName}. Respond fluently and naturally in ${opts.languageName}.`
-          : undefined;
+        const languageName = opts?.languageName;
+        const delivery = ["gentle", "lively"].includes(opts?.delivery) ? opts.delivery : "neutral";
+        const langInstruction = [
+          languageName ? `Current conversation language: ${languageName}. Respond fluently and naturally in ${languageName}.` : "",
+          `Microphone delivery cue: ${delivery}. Adapt your spoken pace and register subtly, with the conversation's meaning taking priority. This is a weak pace/volume cue, not an emotion classification.`,
+        ].filter(Boolean).join("\n");
         try {
           await handleComposerSubmit({
             text,

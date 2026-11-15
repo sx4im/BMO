@@ -64,6 +64,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
     }
   }
   const app=moduleLoader({
+    ...(options.liveTranscriber ? {'live-transcriber.js':{LiveTranscriber:options.liveTranscriber}} : {}),
     'api.js':{health:async()=>({tts:'configured'}),ttsStreamUrl:(_token,options)=>'wss://voice.invalid/?'+new URLSearchParams(options),
       transcribeAudio: options.transcribeAudio},
     'audio-wav.js':{blobToWav16kMono: options.convertRecording || (async blob => blob)},
@@ -73,7 +74,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
       return {setState:state=>orbEvents.push({state}),setLevels:levels=>orbEvents.push({levels}),
         destroy:()=>orbEvents.push({destroy:true}),resize(){}};
     }},
-  },{globals:{Blob, MediaRecorder: Recorder, ArrayBuffer, Int16Array, WebSocket:Socket,performance:{now:()=>Date.now() + (options.clockOffset?.() || 0)},
+  },{globals:{...(options.liveTranscriber ? {AudioWorkletNode:class {}} : {}), Blob, MediaRecorder: Recorder, ArrayBuffer, Int16Array, WebSocket:Socket,performance:{now:()=>Date.now() + (options.clockOffset?.() || 0)},
     setTimeout:(fn,ms)=>setTimeout(fn,ms).unref(),
     requestAnimationFrame:fn=>setTimeout(()=>fn(Date.now()),10).unref(),cancelAnimationFrame:clearTimeout,
   }});
@@ -82,6 +83,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
     configurable:true,value:{getUserMedia:options.getUserMedia},
   });
   app.dom.window.localStorage.setItem('bimo-voice-lang',language);
+  app.dom.window.localStorage.setItem('bimo-voice-auto-lang', language === 'auto' ? '1' : '0');
   app.dom.window.AudioContext=Audio;
   app.dom.window.SpeechRecognition=options.recorder ? undefined : class {
     constructor(){recognitions.push(this);} start(){if (!options.recognitionStalls) this.onstart?.();} stop(){};
@@ -127,7 +129,7 @@ test('Aura finishes from Flushed without a fixed stall and simple turns do not a
   await until(()=>page.commands.some(c=>c.type==='Flush'));
   await until(()=>page.dom.window.document.querySelector('.voice-overlay').dataset.state==='idle');
   assert.ok(page.commands.filter(c=>c.type==='Speak').every(c=>!c.text.includes('searching')));
-  assert.ok(page.sockets.every(s=>!new URL(s.url).searchParams.has('expressivity')));
+  assert.ok(page.sockets.every(s=>!new URL(s.url).searchParams.has('speed')));
   assert.equal(page.notices.length,0);
 });
 
@@ -207,10 +209,11 @@ test('a microphone acquired after close is immediately released', async () => {
   assert.equal(stopped, 1);
 });
 
-test('language control is operable with a normal button click', async t => {
+test('language control selects a language directly', async t => {
   const page = await voicePage(async () => '');
   t.after(() => page.overlay.close());
-  page.dom.window.document.querySelector('.voice-lang-btn').click();
+  const select=page.dom.window.document.querySelector('.voice-lang-btn');
+  select.value='nl';select.dispatchEvent(new page.dom.window.Event('change'));
   assert.match(page.dom.window.document.querySelector('.voice-lang-btn').getAttribute('aria-label'), /Dutch/);
 });
 
@@ -425,7 +428,8 @@ test('all language selections restart captions and capture with the selected loc
   const locales = ['nl-NL','fr-FR','de-DE','it-IT','es-ES','ja-JP','en-US'];
   for (const locale of locales) {
     const previous = page.recognitions.length;
-    page.dom.window.document.querySelector('.voice-lang-btn').click();
+    const select=page.dom.window.document.querySelector('.voice-lang-btn');
+    select.value=locale.slice(0,2);select.dispatchEvent(new page.dom.window.Event('change'));
     await until(() => page.recognitions.length > previous);
     assert.equal(page.recognitions.at(-1).lang, locale);
     assert.equal(page.dom.window.localStorage.getItem('bimo-voice-lang'), locale.slice(0,2));
@@ -489,7 +493,8 @@ test('rapid language changes create one replacement recording with the final lan
   t.after(() => page.overlay.close());
   await until(() => page.recorders.length === 1);
   const button = page.dom.window.document.querySelector('.voice-lang-btn');
-  button.click();button.click();
+  button.value='nl';button.dispatchEvent(new page.dom.window.Event('change'));
+  button.value='fr';button.dispatchEvent(new page.dom.window.Event('change'));
   await tick();
   assert.equal(captures, 2);
   assert.equal(page.recognitions.at(-1).lang, 'fr-FR');
@@ -527,4 +532,86 @@ test('continued microphone speech invalidates an earlier final caption', async t
   await until(() => sent.length, 1700);
   assert.deepEqual(sent, ['What is the weather in Lahore?']);
   assert.equal(uploads, 1);
+});
+
+
+test('Deepgram streams Urdu captions, finalizes the complete take, and uses Flux Urdu TTS',async t=>{
+  const sessions=[],sent=[];
+  class Live {
+    constructor(options){this.options=options;sessions.push(this);}
+    async start(stream){this.stream=stream;}
+    finish(){return Promise.resolve('آپ کیسے ہیں؟');}
+    cancel(){this.cancelled=true;}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'ur',{
+    liveTranscriber:Live,recordingData:true,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
+    transcribeAudio:()=>assert.fail('A healthy live stream must not upload a second recording'),
+  });
+  t.after(()=>page.overlay.close());
+  await until(()=>sessions.length);
+  assert.equal(sessions[0].options.language,'ur');
+  sessions[0].options.onTranscript('آپ کیسے');
+  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent,'آپ کیسے');
+  sessions[0].options.onUtteranceEnd();
+  await until(()=>sent.length);
+  assert.deepEqual(sent,['آپ کیسے ہیں؟']);
+  assert.ok(page.sockets.some(socket=>socket.url.includes('model=flux-ambreen-ur')));
+});
+
+test('language selector offers all 42 Flux languages with explicit Nova-3 locales',async t=>{
+  const page=await voicePage(async()=> '');t.after(()=>page.overlay.close());
+  const select=page.dom.window.document.querySelector('.voice-lang-btn');
+  assert.equal(select.tagName,'SELECT');
+  assert.equal(select.options.length,43);
+  for(const id of ['ur','hi','bn','ar','ja']) {
+    // Arabic is not in the current Flux TTS catalog; do not offer unsupported voices.
+    assert.equal([...select.options].some(option=>option.value===id),id!=='ar');
+  }
+});
+
+test('automatic language changes the Flux voice without restarting the microphone',async t=>{
+  const sessions=[];let captures=0,submitted;
+  class Live {
+    delivery='gentle';
+    constructor(options){this.options=options;sessions.push(this);}
+    async start(){}
+    finish(){return Promise.resolve('Bonjour comment allez vous?');}
+    cancel(){}
+  }
+  const page=await voicePage(async(_text,opts)=>{submitted=opts;return '';},'auto',{
+    liveTranscriber:Live,recordingData:true,
+    getUserMedia:async()=>{captures++;return {getTracks:()=>[{stop(){}}]};},
+  });t.after(()=>page.overlay.close());
+  await until(()=>sessions.length);
+  assert.equal(sessions[0].options.language,'multi');
+  sessions[0].options.onLanguage('fr');
+  sessions[0].options.onUtteranceEnd();
+  await until(()=>submitted);
+  assert.equal(submitted.language,'fr');
+  assert.equal(submitted.delivery,'gentle');
+  assert.equal(captures,1);
+  assert.ok(page.sockets.some(socket=>socket.url.includes('model=flux-arnaud-fr')));
+});
+
+test('a failed live stream cannot submit only the suffix heard by fallback captions',async t=>{
+  let live,offset=0,uploads=0;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.reject(Error('Provider disconnected'));}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
+    transcribeAudio:async()=>{uploads++;return {text:'The beginning and the end of my question'};},
+  });t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onError(Error('Disconnected'));
+  await until(()=>page.recognitions.length);
+  offset=1000;
+  page.recognitions.at(-1).onresult({results:[Object.assign([{transcript:'the end of my question'}],{isFinal:true})]});
+  await until(()=>sent.length,1500);
+  assert.deepEqual(sent,['The beginning and the end of my question']);
+  assert.equal(uploads,1);
 });

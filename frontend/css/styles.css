@@ -10108,6 +10108,17 @@ em {
   text-align: right;
 }
 
+.composer-recording .rec-language {
+  max-width: 120px;
+  min-width: 0;
+  color: var(--body);
+  background: var(--surface-card);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  padding: 6px;
+  font: inherit;
+}
+
 /* Live waveform — a row of thin bars whose heights are set in JS from the
    real microphone level (startWaveMeter). They rest near-flat and rise only
    when the user actually speaks. */
@@ -10470,6 +10481,7 @@ body.voice-open { overflow: hidden; }
 }
 
 .voice-lang-btn {
+  max-width: 150px;
   height: 48px;
   padding: 0 16px;
   border-radius: 999px;

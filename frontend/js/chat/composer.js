@@ -9,7 +9,8 @@ import { icon } from "../icons.js?v=73";
 import { FileIcon } from "../components/file-icon.js?v=6";
 import { toast } from "../components/toast.js?v=58";
 import { openImageModal } from "../components/image-modal.js?v=18";
-import { blobToWav16kMono } from "../audio-wav.js?v=30";
+import { LiveTranscriber } from "./live-transcriber.js?v=1";
+import { VOICE_LANGUAGES } from "../components/voice-languages.js?v=1";
 import { getAuth } from "../auth.js";
 import * as api from "../api.js?v=66";
 import { SkillPicker } from "./skill-picker.js?v=6";
@@ -140,14 +141,12 @@ export class Composer {
     this.effortDropdownOpen = false;
 
     // Voice recording state
-    this.cancelRecording = false;
+    this.dictation = null;
     this.recordTimerId = null;
     this.recordStartedAt = 0;
     this.waveAudioCtx = null;
     this.waveAnalyser = null;
     this.waveRafId = null;
-    this.mediaRecorder = null;
-    this.audioChunks = [];
 
     this._buildDOM();
     this._attachGlobalListeners();
@@ -289,6 +288,14 @@ export class Composer {
     });
 
     this.recTimer = el("span", { class: "rec-timer tabular", text: "0:00" });
+    this.recLanguage = el("select", {
+      class: "rec-language", "aria-label": "Dictation language",
+      title: "Auto detects supported multilingual languages. Select Urdu explicitly.",
+      onchange: event => this.changeDictationLanguage(event.target.value),
+    }, [el("option", { value: "auto", text: "Auto" }), ...VOICE_LANGUAGES.map(language =>
+      el("option", { value: language.id, text: language.label }))]);
+    this.recLanguage.value = localStorage.getItem("bimo-voice-auto-lang") === "0"
+      ? localStorage.getItem("bimo-voice-lang") || "auto" : "auto";
     this.recWave = el("div", { class: "rec-wave", "aria-hidden": "true" });
     for (let i = 0; i < 28; i++) {
       this.recWave.append(el("span"));
@@ -307,8 +314,8 @@ export class Composer {
     this.recConfirmBtn = el("button", {
       type: "button",
       class: "rec-confirm",
-      "aria-label": "Confirm and transcribe",
-      title: "Transcribe",
+      "aria-label": "Finish dictation",
+      title: "Done",
       onclick: () => this.confirmRecording(),
       html: icon("check", { width: 18, height: 18 }),
     });
@@ -317,7 +324,7 @@ export class Composer {
 
     this.recordingBar = el("div", { class: "composer-recording", "aria-hidden": "true" }, [
       this.recCancelBtn,
-      el("div", { class: "rec-body" }, [this.recWave, this.recTimer]),
+      el("div", { class: "rec-body" }, [this.recWave, this.recLanguage, this.recTimer]),
       this.recConfirmBtn,
     ]);
 
@@ -969,6 +976,12 @@ export class Composer {
   }
 
   syncSendEnabled() {
+    if (this.isRecording) {
+      this.sendBtn.disabled = true;
+      this.sendBtn.style.display = "none";
+      this.voiceAssistantBtn.style.display = "none";
+      return;
+    }
     if (this.isImageGenerating) {
       this.voiceAssistantBtn.style.display = "none";
       this.sendBtn.style.display = "";
@@ -1024,7 +1037,8 @@ export class Composer {
   // Voice recording methods
   showRecordingBar(on) {
     this.isRecording = on;
-    this.composerBox.style.display = on ? "none" : "";
+    this.composerBox.style.display = "";
+    this.textarea.readOnly = on;
     this.recordingBar.classList.toggle("active", on);
     this.recordingBar.setAttribute("aria-hidden", on ? "false" : "true");
     this.voiceBtn.classList.toggle("recording", on);
@@ -1116,93 +1130,107 @@ export class Composer {
     }
   }
 
-  discardRecording() {
-    this.cancelRecording = true;
-    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      this.mediaRecorder.stop();
-    } else {
-      this.stopRecordTimer();
-      this.showRecordingBar(false);
-      this.syncSendEnabled();
-    }
+  updateDictationText(session, text) {
+    if (this.dictation !== session) return;
+    const separator = session.draft && !/\s$/.test(session.draft) && text ? " " : "";
+    this.textarea.value = session.draft + separator + text;
+    this.autoSize(this.textarea);
+    this.syncSendEnabled();
+    this.syncUrlHighlight();
   }
 
-  confirmRecording() {
-    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      this.cancelRecording = false;
-      this.mediaRecorder.stop();
+  releaseDictation(session) {
+    clearTimeout(session.limitTimer);
+    session.stream?.getTracks().forEach(track => track.stop());
+    if (this.dictation !== session) return;
+    this.dictation = null;
+    this.stopRecordTimer();
+    this.stopWaveMeter();
+    this.setTranscribingUI(false);
+    this.showRecordingBar(false);
+    this.syncSendEnabled();
+  }
+
+  discardRecording() {
+    const session = this.dictation;
+    if (!session) return;
+    this.updateDictationText(session, "");
+    this.releaseDictation(session);
+    session.client?.cancel();
+  }
+
+  changeDictationLanguage(language) {
+    if (language !== "auto" && !VOICE_LANGUAGES.some(item => item.id === language)) return;
+    this.discardRecording();
+    localStorage.setItem("bimo-voice-auto-lang", language === "auto" ? "1" : "0");
+    if (language !== "auto") localStorage.setItem("bimo-voice-lang", language);
+    return this.startVoiceRecording();
+  }
+
+  async confirmRecording() {
+    const session = this.dictation;
+    if (!session?.client || session.finishing) return;
+    session.finishing = true;
+    this.stopRecordTimer();
+    this.stopWaveMeter();
+    this.setTranscribingUI(true);
+    const result = session.client.finish();
+    session.stream?.getTracks().forEach(track => track.stop());
+    try {
+      const text = await result;
+      this.updateDictationText(session, text);
+    } catch (error) {
+      if (this.dictation === session && error.name !== "AbortError") toast(error.message, { tone: "error" });
+    } finally {
+      if (this.dictation === session) {
+        this.releaseDictation(session);
+        this.textarea.focus();
+      }
     }
   }
 
   async startVoiceRecording() {
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    if (this.dictation || this.isGenerating || this.isImageGenerating) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
       toast("Voice not supported", { tone: "error" });
       return;
     }
-    let stream;
+    const savedLanguage = localStorage.getItem("bimo-voice-lang");
+    const language = localStorage.getItem("bimo-voice-auto-lang") === "0"
+      && VOICE_LANGUAGES.some(item => item.id === savedLanguage) ? savedLanguage : "auto";
+    const session = this.dictation = { draft: this.textarea.value, language };
+    if (this.recLanguage) this.recLanguage.value = language;
+    this.showRecordingBar(true);
+    this.syncSendEnabled();
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
-    } catch {
-      toast("Mic denied", { tone: "error" });
-      return;
-    }
-    this.cancelRecording = false;
-    this.audioChunks = [];
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : MediaRecorder.isTypeSupported("audio/webm")
-      ? "audio/webm"
-      : "";
-    this.mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-    this.mediaRecorder.addEventListener("dataavailable", (e) => {
-      if (e.data.size > 0) this.audioChunks.push(e.data);
-    });
-    this.mediaRecorder.addEventListener("stop", async () => {
-      stream.getTracks().forEach((t) => t.stop());
-      const recorder = this.mediaRecorder;
-      this.mediaRecorder = null;
-      this.stopRecordTimer();
-      this.stopWaveMeter();
-
-      if (this.cancelRecording || !this.audioChunks.length) {
-        this.showRecordingBar(false);
-        this.syncSendEnabled();
+      session.stream = stream;
+      if (this.dictation !== session) {
+        stream.getTracks().forEach(track => track.stop());
         return;
       }
-
-      const recorded = new Blob(this.audioChunks, { type: recorder.mimeType || "audio/webm" });
-      this.setTranscribingUI(true);
-      const token = this.getAuthToken();
-      try {
-        let wav;
-        try {
-          wav = await blobToWav16kMono(recorded);
-        } catch {
-          wav = recorded;
-        }
-        const result = await api.transcribeAudio(token, wav);
-        if (result.text) {
-          const cur = this.textarea.value.trim();
-          this.textarea.value = cur ? `${cur} ${result.text}` : result.text;
-          this.autoSize(this.textarea);
-          this.syncSendEnabled();
-          this.syncUrlHighlight();
-        }
-      } catch (err) {
-        toast(err.message || "Transcription failed", { tone: "error" });
-      } finally {
-        this.setTranscribingUI(false);
-        this.showRecordingBar(false);
-        this.syncSendEnabled();
-        this.textarea.focus();
+      session.client = new LiveTranscriber({
+        token: this.getAuthToken(),
+        language: session.language === "auto" ? undefined : session.language,
+        onTranscript: text => this.updateDictationText(session, text),
+        onError: error => {
+          if (this.dictation !== session || session.finishing || error.name === "AbortError") return;
+          this.releaseDictation(session);
+          toast(error.message || "Live transcription failed", { tone: "error" });
+        },
+      });
+      this.startRecordTimer();
+      this.startWaveMeter(stream);
+      session.limitTimer = setTimeout(() => this.confirmRecording(), 10 * 60 * 1000);
+      await session.client.start(stream);
+    } catch (error) {
+      if (this.dictation === session) {
+        this.releaseDictation(session);
+        toast(error.name === "NotAllowedError" ? "Microphone permission denied" : "Could not start microphone", { tone: "error" });
       }
-    });
-    this.mediaRecorder.start();
-    this.showRecordingBar(true);
-    this.startRecordTimer();
-    this.startWaveMeter(stream);
+    }
   }
 
   _attachGlobalListeners() {
@@ -1248,9 +1276,7 @@ export class Composer {
     this.skillPicker.destroy();
     this.stopRecordTimer();
     this.stopWaveMeter();
-    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      try { this.mediaRecorder.stop(); } catch {}
-    }
+    this.discardRecording();
     document.removeEventListener("click", this._onDocClick);
     document.removeEventListener("paste", this._onGlobalPaste);
     document.removeEventListener("pointerdown", this._onPointerDown, true);

@@ -5,8 +5,8 @@
 // (Deepgram Flux/Aura streaming) -> listen again. The X closes it. A procedural
 // fog sphere follows the voice state and the microphone/playback audio envelopes.
 //
-// Speech input uses browser recognition when available, with a MediaRecorder
-// and /transcribe fallback. Recording auto-stops via an adaptive Web Audio
+// Speech input uses Deepgram Nova-3 streaming, with recorded-audio recovery.
+// Browser recognition is a compatibility fallback for older browsers. Recording auto-stops via an adaptive Web Audio
 // VAD (see the tuning block below): it learns the room's
 // noise floor and only counts input a multiple louder than that as speech,
 // so background noise neither holds the mic open nor triggers a turn.
@@ -18,7 +18,10 @@
 import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
-import * as api from "../api.js?v=66";
+import * as api from "../api.js?v=67";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=1";
+import { VOICE_LANGUAGES } from "./voice-languages.js?v=1";
+export { VOICE_LANGUAGES };
 import { createVoiceOrb } from "./voice-orb.js?v=4";
 import { createAudioMeter } from "./voice-audio-meter.js?v=2";
 import { blobToWav16kMono } from "../audio-wav.js?v=30";
@@ -79,7 +82,7 @@ function expandYearsForSpeech(text) {
 // images, and markdown punctuation so the model doesn't read backticks/pipes.
 // Ellipses ('...') are only allowed at the very start of a turn (e.g. 'Hmm...', 'Ahh...').
 // In the middle or end of speech, ellipses are converted to natural comma pauses so TTS doesn't delay.
-function stripForSpeech(md = "", isStartOfTurn = false) {
+function stripForSpeech(md = "", isStartOfTurn = false, language = "en") {
   const cleaned = String(md)
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`]*`/g, " ")
@@ -92,18 +95,8 @@ function stripForSpeech(md = "", isStartOfTurn = false) {
       return (isStartOfTurn && offset <= 8) ? match : ", ";
     })
     .replace(/[ \t\r\n]+/g, " ");
-  return expandYearsForSpeech(cleaned);
+  return language === "en" ? expandYearsForSpeech(cleaned) : cleaned;
 }
-
-export const VOICE_LANGUAGES = [
-  { id: "en", code: "EN", label: "English", voiceName: "Sienna", model: "flux-sienna-en", recLang: "en-US" },
-  { id: "nl", code: "NL", label: "Dutch", voiceName: "Rhea", model: "aura-2-rhea-nl", recLang: "nl-NL" },
-  { id: "fr", code: "FR", label: "French", voiceName: "Agathe", model: "aura-2-agathe-fr", recLang: "fr-FR" },
-  { id: "de", code: "DE", label: "German", voiceName: "Aurelia", model: "aura-2-aurelia-de", recLang: "de-DE" },
-  { id: "it", code: "IT", label: "Italian", voiceName: "Livia", model: "aura-2-livia-it", recLang: "it-IT" },
-  { id: "es", code: "ES", label: "Spanish", voiceName: "Celeste", model: "aura-2-celeste-es", recLang: "es-ES" },
-  { id: "ja", code: "JA", label: "Japanese", voiceName: "Izanami", model: "aura-2-izanami-ja", recLang: "ja-JP" },
-];
 
 export function voiceDelivery(tone = "neutral") {
   // Flux expression is a per-connection beta; keep register shifts restrained.
@@ -131,6 +124,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let mediaStream = null;
   let audioChunks = [];
   let transcription = null;
+  let liveInput = null;
+  let inputDelivery = "neutral";
   let finalCaption = "";
   let finalCaptionAt = 0;
   let stoppedCaption = "";
@@ -170,15 +165,27 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
   let activeSpeech = null;   // current speech playback handle
 
-  // Language selection (7 supported languages)
+  // Language selection (42 Flux TTS languages)
   let currentLangId = "en";
+  let autoLanguage = true;
   try {
+    autoLanguage = localStorage.getItem("bimo-voice-auto-lang") !== "0";
     const saved = localStorage.getItem("bimo-voice-lang");
     if (saved && VOICE_LANGUAGES.some((l) => l.id === saved)) currentLangId = saved;
   } catch {}
 
   function getLangConfig() {
-    return VOICE_LANGUAGES.find((l) => l.id === currentLangId) || VOICE_LANGUAGES[0];
+    return VOICE_LANGUAGES.find((l) => l.id === currentLangId) || VOICE_LANGUAGES.find(language => language.id === "en");
+  }
+
+  function applyDetectedLanguage(language) {
+    if (!autoLanguage || !language) return;
+    const code = language.split("-")[0];
+    if (!VOICE_LANGUAGES.some(item => item.id === code)) return;
+    currentLangId = code;
+    try { localStorage.setItem("bimo-voice-lang", code); } catch {}
+    langBtn.setAttribute("aria-label", `Language: Automatic (${getLangConfig().label})`);
+    ensureTTSWS();
   }
 
   // Persistent Deepgram TTS WebSocket across turns
@@ -188,7 +195,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   function ensureTTSWS() {
     if (!active) return null;
     const activeLang = getLangConfig();
-    const controls = activeLang.model.startsWith("flux-") ? voiceDelivery(currentTone) : {};
+    const delivery = voiceDelivery(currentTone);
+    const controls = activeLang.id === "en" ? delivery : { expressivity: delivery.expressivity };
     const signature = JSON.stringify([activeLang.model, controls]);
     if (ttsWS && signature === ttsSignature && (ttsWS.readyState === WebSocket.OPEN || ttsWS.readyState === WebSocket.CONNECTING)) {
       return ttsWS;
@@ -237,17 +245,14 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     onkeydown: (e) => { if (e.key === "Enter") submitTyped(); },
   });
 
-  // Language selector button along the text bar (cycles sequentially on click)
-  const langLabelEl = el("span", { class: "voice-lang-code", text: getLangConfig().label });
-
-  function cycleLanguage() {
-    const idx = VOICE_LANGUAGES.findIndex((l) => l.id === currentLangId);
-    const next = VOICE_LANGUAGES[(idx + 1) % VOICE_LANGUAGES.length];
-    selectLanguage(next.id);
-  }
-
+  // Native dropdown supports direct selection, keyboard use, and mobile pickers.
   function selectLanguage(id) {
-    if (currentLangId === id) return;
+    const nextAuto = id === "auto";
+    if (!nextAuto && !VOICE_LANGUAGES.some(language => language.id === id)) return;
+    if (autoLanguage === nextAuto && (nextAuto || currentLangId === id)) return;
+    autoLanguage = nextAuto;
+    try { localStorage.setItem("bimo-voice-auto-lang", nextAuto ? "1" : "0"); } catch {}
+    if (nextAuto) id = currentLangId;
     if (activeSpeech || turnInFlight || transcription) {
       cancelTranscription();
       stopSpeaking();
@@ -255,8 +260,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     currentLangId = id;
     try { localStorage.setItem("bimo-voice-lang", id); } catch {}
     const conf = getLangConfig();
-    langLabelEl.textContent = conf.label;
-    langBtn.setAttribute("aria-label", `Language: ${conf.label} (click to change)`);
+    langBtn.value = autoLanguage ? "auto" : id;
+    langBtn.setAttribute("aria-label", `Language: ${conf.label}`);
 
     // Reconnect TTS WebSocket for new language model
     if (ttsWS) {
@@ -288,17 +293,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
   }
 
-  const langBtn = el("button", {
+  const langBtn = el("select", {
     class: "voice-lang-btn",
-    type: "button",
-    "aria-label": `Language: ${getLangConfig().label} (click to change)`,
-    title: "Click to change language",
-    onclick: (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      cycleLanguage();
-    },
-  }, [langLabelEl]);
+    "aria-label": autoLanguage ? "Language: Automatic" : `Language: ${getLangConfig().label}`,
+    title: "Choose language. Auto supports multilingual detection; select Urdu explicitly.",
+    onchange: (event) => selectLanguage(event.target.value),
+  }, [el("option", { value: "auto", text: "Auto language" }), ...VOICE_LANGUAGES.map(language => el("option", {
+    value: language.id, text: language.label,
+  }))]);
+  langBtn.value = autoLanguage ? "auto" : currentLangId;
 
   const langWrap = el("div", { class: "voice-lang-wrap" }, [langBtn]);
 
@@ -712,6 +715,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       return;
     }
     audioChunks = [];
+    inputDelivery = "neutral";
     try {
       const mime = MediaRecorder.isTypeSupported?.("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
@@ -851,7 +855,31 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       // still be transcribed, so don't let the no-speech skip kick in.
       vadHadSpeech = true;
     }
-    if (speechRecSupported && !isBraveBrowser) startSpeechRecognition(true);
+    if (typeof AudioWorkletNode !== "undefined") {
+      const live = new LiveTranscriber({
+        token, language: autoLanguage ? "multi" : currentLangId,
+        onLanguage: language => {
+          if (!active || liveInput !== live || !autoLanguage) return;
+          applyDetectedLanguage(language);
+        },
+        onTranscript: text => {
+          if (!active || liveInput !== live || state !== "listening") return;
+          if (text) vadHadSpeech = true;
+          setTranscript(text);
+        },
+        onUtteranceEnd: () => {
+          if (active && liveInput === live && state === "listening") stopRecorder();
+        },
+        onError: error => {
+          if (!active || liveInput !== live || error.name === "AbortError") return;
+          // Preserve this take's recorded audio for recovery; never submit an
+          // incomplete streaming hypothesis as the user's whole question.
+          if (state === "listening" && speechRecSupported && !isBraveBrowser) startSpeechRecognition(true);
+        },
+      });
+      liveInput = live;
+      live.start(mediaStream);
+    } else if (speechRecSupported && !isBraveBrowser) startSpeechRecognition(true);
   }
 
   function stopVAD() {
@@ -863,8 +891,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
   function stopRecorder({ useFinalCaption = false } = {}) {
     recorderSequence++;
-    stoppedCaption = useFinalCaption ? finalCaption : "";
+    // A recognizer started after a streaming failure only heard the suffix.
+    // That take must recover from its complete recording, not those captions.
+    stoppedCaption = useFinalCaption && !liveInput && !mediaRecorder?.liveInput ? finalCaption : "";
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      if (liveInput) {
+        mediaRecorder.liveInput = liveInput;
+        mediaRecorder.liveResult = liveInput.finish();
+        liveInput = null;
+      }
       try { mediaRecorder.stop(); } catch { /* ignore */ }
     }
   }
@@ -882,17 +917,19 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
     const recorder = mediaRecorder;
     mediaRecorder = null;
-    if (!active) return;
+    if (!active) { recorder?.liveInput?.cancel(); return; }
     micBtn.classList.remove("active");
     // A typed turn superseded this take — drop the audio without touching the
     // UI state (endTurn owns it now).
     if (discardTake) {
+      recorder?.liveInput?.cancel();
       discardTake = false;
       audioChunks = [];
       if (state === "listening" && !turnInFlight) startListening();
       return;
     }
     if (readyCaption) {
+      recorder?.liveInput?.cancel();
       audioChunks = [];
       endTurn(readyCaption);
       return;
@@ -906,7 +943,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     const MIN_TRANSCRIBE_MS = 600;
     const took = recordStartedAt ? performance.now() - recordStartedAt : 0;
     recordStartedAt = 0;
-    if (!audioChunks.length || took < MIN_TRANSCRIBE_MS) {
+    if (!recorder?.liveResult && (!audioChunks.length || took < MIN_TRANSCRIBE_MS)) {
       audioChunks = [];
       setState("idle", vadHadSpeech ? "Tap the mic to talk" : "Didn't hear anything — tap the mic to talk");
       return;
@@ -916,14 +953,28 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     transcription = controller;
     const isCurrent = () => active && transcription === controller && !controller.signal.aborted;
     setState("thinking", "Transcribing…");
+    controller.signal.addEventListener("abort", () => recorder?.liveInput?.cancel(), { once: true });
     try {
-      const blob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
+      let t;
+      if (recorder?.liveResult) {
+        try {
+          t = (await recorder.liveResult).trim();
+          if (!isCurrent()) return;
+          inputDelivery = recorder.liveInput.delivery || "neutral";
+          applyDetectedLanguage(recorder.liveInput.detectedLanguage);
+        }
+        catch { if (!isCurrent()) return; }
+      }
+      if (!isCurrent()) return;
+      if (t === undefined) {
+        const blob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
+        const wav = await blobToWav16kMono(blob);
+        if (!isCurrent()) return;
+        const res = await api.transcribeAudio(token, wav, { language: currentLangId, signal: controller.signal });
+        if (!isCurrent()) return;
+        t = (res?.text || "").trim();
+      }
       audioChunks = [];
-      const wav = await blobToWav16kMono(blob);
-      if (!isCurrent()) return;
-      const res = await api.transcribeAudio(token, wav, { language: currentLangId, signal: controller.signal });
-      if (!isCurrent()) return;
-      const t = (res?.text || "").trim();
       if (t) endTurn(t);
       else setState("idle", "Didn't catch that — tap the mic");
     } catch (err) {
@@ -949,6 +1000,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     setTranscript(text);
     setState("thinking", "Preparing response…");
 
+    currentTone = inputDelivery;
     let speech = null;
     let searchSpeech = null;
     let searchActive = false;
@@ -970,20 +1022,25 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       const reply = (await sendTurn(text, {
         language: activeLang.id,
         languageName: activeLang.label,
+        delivery: inputDelivery,
         onVoiceStyle: tone => { if (isCurrent()) currentTone = ["gentle", "lively"].includes(tone) ? tone : "neutral"; },
         onSearching: () => {
           if (!isCurrent() || !audioCtx || searchAnnounced) return;
           searchAnnounced = true;
           searchActive = true;
           setState("thinking", "Searching…");
-          searchSpeech = createDeepgramTTSStream(startedAt);
-          activeSpeech = searchSpeech;
           const announcements = {
             en: "I'm searching for that now.", es: "Estoy buscando esa información.",
             fr: "Je cherche cette information.", de: "Ich suche gerade danach.",
             it: "Sto cercando questa informazione.", ja: "今、調べています。", nl: "Ik zoek dat even op.",
           };
-          searchSpeech.finish(announcements[activeLang.id] || announcements.en);
+          if (!announcements[activeLang.id]) {
+            searchActive = false;
+            return;
+          }
+          searchSpeech = createDeepgramTTSStream(startedAt);
+          activeSpeech = searchSpeech;
+          searchSpeech.finish(announcements[activeLang.id]);
           searchDone = searchSpeech.done().then(() => {
             searchActive = false;
             if (!isCurrent()) return;
@@ -1217,7 +1274,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
     function sendChunk(rawText) {
       const isStart = !hasSentFirstChunk;
-      const clean = stripForSpeech(rawText, isStart).trim();
+      const clean = stripForSpeech(rawText, isStart, activeLang.id).trim();
       // Skip chunks with no actual spoken words (prevents sending orphan dots or bare punctuation)
       if (!clean || !clean.replace(/[\s.,;:!?…-]/g, "")) return;
       hasSentFirstChunk = true;

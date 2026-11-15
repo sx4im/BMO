@@ -1,0 +1,20 @@
+{
+  "composer": {
+    "chunks": 2,
+    "bytes": 15360,
+    "nonzero": true,
+    "sampleRate": "48000",
+    "stillRecording": true,
+    "authentication": "short-lived bearer JWT"
+  },
+  "voice": {
+    "language": "ur",
+    "ttsModels": [
+      "flux-ambreen-ur"
+    ],
+    "caption": "آپ کیسے ہیں؟"
+  },
+  "allStreamsReleased": true,
+  "pageErrors": [],
+  "limitation": "Synthetic microphone; mocked Deepgram responses. Does not measure provider accuracy or physical phone behavior."
+}

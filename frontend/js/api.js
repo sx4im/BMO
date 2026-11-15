@@ -507,6 +507,10 @@ export async function listModels(token) {
 
 // ---------- voice transcription ----------
 
+export async function createTranscriptionToken(token, { signal } = {}) {
+  return request("/transcribe/token", { method: "POST", token, signal });
+}
+
 export async function transcribeAudio(token, audioBlob, { language, signal } = {}) {
   const execute = async (t) => {
     const fd = new FormData();
@@ -590,7 +594,7 @@ export async function synthesizeSpeech(token, text, { voice, language } = {}) {
   }
 }
 
-export function ttsStreamUrl(token, { model = "flux-sienna-en", sampleRate = 24000, speed, expressivity } = {}) {
+export function ttsStreamUrl(token, { model = "flux-hannah-en", sampleRate = 24000, speed, expressivity } = {}) {
   const t = getAuth().auth?.token || token || "";
   let base = (config.apiUrl || "").replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
   if (!base.startsWith("ws://") && !base.startsWith("wss://")) {
