@@ -7,8 +7,8 @@
 //
 // Speech input uses Deepgram Nova-3 streaming, with recorded-audio recovery.
 // Browser recognition is a compatibility fallback for older browsers. Semantic
-// checks decide completion; adaptive Web Audio VAD prevents submission during
-// active speech and supplies conservative recovery if checks are unavailable.
+// checks can finish a turn early; adaptive Web Audio VAD also sends after two
+// seconds of quiet, even when a completion verdict is missing or incorrect.
 //
 // Text-to-speech audio is decoded and played through the Web Audio API rather
 // than an <audio> element: that keeps it inside the site CSP (the fetch is a
@@ -18,7 +18,8 @@ import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
 import * as api from "../api.js?v=68";
-import { LiveTranscriber } from "../chat/live-transcriber.js?v=2";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=3";
+import { getRandomPhrase } from "../chat/waiting-phrases.js?v=1";
 import { SemanticTurnDetector } from "../chat/turn-detector.js?v=1";
 import { VOICE_LANGUAGES } from "./voice-languages.js?v=1";
 export { VOICE_LANGUAGES };
@@ -32,7 +33,7 @@ import { blobToWav16kMono } from "../audio-wav.js?v=30";
 // room's noise floor, dropping fast in quiet gaps and learning upward only
 // before speech starts. This accounts for steady background noise — fan,
 // traffic, café chatter — without using an absolute silence gate. The turn
-// uses a longer quiet window only when semantic completion is unavailable.
+// auto-ends after two seconds of quiet once the user has spoken.
 //
 // IMPORTANT: capture runs with autoGainControl OFF (see startRecorder). AGC
 // inflates the silent-gap noise floor toward the speech level, which shrinks
@@ -49,7 +50,7 @@ const VAD_ENTER_FACTOR = 2.0;    // speech: level > floor * 2.0 (and > MIN)
 const VAD_EXIT_FACTOR  = 1.4;    // silence again below floor * 1.4 (hysteresis)
 const VAD_MIN_LEVEL    = 0.005;  // absolute gate so dead-quiet rooms don't fire on hiss
 const VAD_ENTER_FRAMES = 2;      // ~2 consecutive loud frames (~35 ms) to confirm speech
-const VAD_RECOVERY_MS  = 4000;    // recovery only, never overrides an incomplete semantic verdict
+const VAD_SILENCE_MS   = 2000;    // quiet speech endpoint, independent of semantic verdicts
 const VAD_IDLE_ROTATE_MS = 60000; // renew silent backup recordings without ending the call
 const VAD_MAX_TURN_MS  = 5 * 60 * 1000;  // hard safety cap per turn
 
@@ -127,6 +128,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let semanticTurn = null;
   let previousAssistant = "";
   let completionWarningShown = false;
+  let waitPhraseTimer = null;
   let inputDelivery = "neutral";
   let finalCaption = "";
   let finalCaptionAt = 0;
@@ -390,6 +392,18 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     overlay.dataset.state = next;
     globe.className = `voice-globe ${next}`;
     if (label != null) statusText.textContent = label;
+    clearTimeout(waitPhraseTimer);
+    waitPhraseTimer = null;
+    // Real search/transcription labels own their states. Only generic reply
+    // waiting rotates, and every state change cancels the previous timer.
+    if (next === "thinking" && label == null) {
+      const rotate = () => {
+        if (!active || state !== "thinking") return;
+        statusText.textContent = getRandomPhrase();
+        waitPhraseTimer = setTimeout(rotate, 3000);
+      };
+      rotate();
+    }
   }
   function setTranscript(t) {
     if (state === "listening" && t !== transcriptText.textContent) {
@@ -548,26 +562,19 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           setTranscript(currentText);
           if (speechSilenceTimer) clearTimeout(speechSilenceTimer);
           speechSilenceTimer = setTimeout(() => {
-            if (semanticTurn && !semanticTurn.unavailable) return;
             if (active && !turnInFlight && lastRecognizedText) {
               const textToSend = lastRecognizedText;
               lastRecognizedText = "";
               if (captionsOnly) {
-                // Only healthy final words followed by actual microphone quiet
-                // may skip offline ASR. Interim/error/manual takes keep the WAV.
-                if (!finalCaption && microphoneMeter) return;
-                const micLevel = microphoneMeter?.sample(performance.now()).rawLevel || 0;
-                if (mediaRecorder?.state === "recording") {
-                  if (!microphoneMeter) stopRecorder();
-                  else if (micLevel < 0.08) stopRecorder({ useFinalCaption: true });
-                  else finalCaption = "";
-                }
+                // The adaptive VAD owns recorded takes. A one-shot caption
+                // timer cannot distinguish room noise from continued speech.
+                if (mediaRecorder?.state === "recording" && !microphoneMeter) stopRecorder();
                 return;
               }
               stopRecognition();
               endTurn(textToSend);
             }
-          }, VAD_RECOVERY_MS);
+          }, VAD_SILENCE_MS);
         }
       };
 
@@ -783,13 +790,13 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         onUnavailable: () => {
           if (!active || semanticTurn !== detector || completionWarningShown) return;
           completionWarningShown = true;
-          toast("Smart turn detection is unavailable; Voice will wait for a longer pause.");
+          toast("Smart turn detection is unavailable; Voice will send after a two-second pause.");
         },
       });
       semanticTurn = detector;
     }
 
-    // Audio gates semantic checks; it does not decide normal turn completion.
+    // Audio gates semantic checks and guarantees submission after a quiet pause.
     vadHadSpeech = false;
     lastTranscriptChangeAt = 0;
     discardTake = false;
@@ -851,8 +858,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
         // Speech can begin during calibration. Its first quiet gap still ends
         // the take even if that speech was initially learned as the room floor.
-        const speechDropRatio = transcriptText.textContent.trim() ? 0.7 : 0.35;
-        if (!speaking && peakLevel >= VAD_MIN_LEVEL && level < peakLevel * speechDropRatio) {
+        const hasTranscript = Boolean(transcriptText.textContent.trim());
+        const speechDropRatio = hasTranscript ? 0.7 : 0.35;
+        // Recognized words also prove speech when the local gate missed a very
+        // soft voice. A near-silent microphone can still end that utterance.
+        const quietTranscript = hasTranscript && level < VAD_MIN_LEVEL * 0.7;
+        if (!speaking && (quietTranscript || (peakLevel >= VAD_MIN_LEVEL && level < peakLevel * speechDropRatio))) {
           speaking = true;
           vadHadSpeech = true;
           silenceStart = now;
@@ -881,7 +892,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           }
         } else if (level <= exitAt) {
           if (!silenceStart) silenceStart = now;
-          else if ((!semanticTurn || semanticTurn.unavailable) && now - Math.max(silenceStart, lastTranscriptChangeAt) >= VAD_RECOVERY_MS) {
+          else if (now - Math.max(silenceStart, lastTranscriptChangeAt) >= VAD_SILENCE_MS) {
             stopRecorder({ useFinalCaption: true });
             return;
           }
@@ -925,9 +936,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           setTranscript(text);
         },
         onUtteranceEnd: () => {
-          // Nova's pause endpoint is recovery only. An unfinished semantic turn
-          // stays open regardless of transcript segmentation or elapsed silence.
-          if (active && liveInput === live && state === "listening" && (!semanticTurn || semanticTurn.unavailable)) stopRecorder();
+          // Provider speech endpoints also recover turns when the local VAD
+          // cannot separate speech from room noise. Semantic checks cannot veto.
+          if (active && liveInput === live && state === "listening") stopRecorder();
         },
         onError: error => {
           if (!active || liveInput !== live || error.name === "AbortError") return;
@@ -1065,7 +1076,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     stopRecognition();
     stopRecorder();
     setTranscript(text);
-    setState("thinking", "Preparing response…");
+    setState("thinking");
 
     currentTone = inputDelivery;
     let speech = null;
@@ -1112,7 +1123,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
             searchActive = false;
             if (!isCurrent()) return;
             if (activeSpeech === searchSpeech) activeSpeech = null;
-            setState("thinking", "Preparing your answer…");
+            setState("thinking");
             if (pendingText) pushReply();
           });
         },

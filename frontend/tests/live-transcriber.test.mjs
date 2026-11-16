@@ -53,7 +53,7 @@ test('streams buffered first audio and live revisions without duplicating final 
   assert.deepEqual([...f.sockets[0].protocols], ['bearer','short-lived']);
   assert.match(f.sockets[0].url, /model=nova-3/);
   assert.match(f.sockets[0].url, /sample_rate=48000/);
-  assert.match(f.sockets[0].url, /endpointing=4000/);
+  assert.match(f.sockets[0].url, /endpointing=2000/);
   f.sockets[0].result('What');
   f.sockets[0].result('What is this?');
   f.sockets[0].result('What is this?',true);

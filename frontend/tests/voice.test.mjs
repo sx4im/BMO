@@ -669,7 +669,7 @@ test('a short mid-sentence pause does not submit an unfinished thought',async t=
 });
 
 
-test('local turn detection waits four seconds of quiet before submitting speech',async t=>{
+test('local turn detection submits after two seconds of quiet',async t=>{
   let level=0.1,offset=0,live;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -682,10 +682,10 @@ test('local turn detection waits four seconds of quiet before submitting speech'
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('This is the complete question');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await new Promise(resolve=>setTimeout(resolve,40));offset=3500;
+  await new Promise(resolve=>setTimeout(resolve,40));offset=1500;
   await new Promise(resolve=>setTimeout(resolve,40));
   assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
-  offset=4500;await until(()=>sent.length);
+  offset=2100;await until(()=>sent.length);
   assert.deepEqual(sent,['This is the complete question']);
 });
 
@@ -760,7 +760,7 @@ test('room noise above the visual meter threshold cannot block Deepgram end-of-s
   assert.deepEqual(sent,['What is the weather?']);
 });
 
-test('local four-second detection submits over steady room noise when no provider endpoint arrives',async t=>{
+test('local two-second detection submits over steady room noise when no provider endpoint arrives',async t=>{
   let level=0.03,band=0.05,offset=0,live;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -774,9 +774,9 @@ test('local four-second detection submits over steady room noise when no provide
   await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
   level=0.12;band=0.3;live.options.onTranscript('This is my complete question');
   await new Promise(resolve=>setTimeout(resolve,100));level=0.03;band=0.05;
-  await new Promise(resolve=>setTimeout(resolve,60));offset=3500;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=1500;
   await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
-  offset=4500;await until(()=>sent.length);
+  offset=2100;await until(()=>sent.length);
   assert.deepEqual(sent,['This is my complete question']);
 });
 
@@ -812,7 +812,7 @@ test('speech starting during microphone calibration still auto-sends over audibl
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('A complete question over background noise');
   await new Promise(resolve=>setTimeout(resolve,250));level=0.06;band=0.18;
-  await new Promise(resolve=>setTimeout(resolve,60));offset=4500;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=2100;
   await until(()=>sent.length);
   assert.deepEqual(sent,['A complete question over background noise']);
 });
@@ -852,7 +852,7 @@ test('microphone startup ramp cannot freeze a low noise floor and block the next
   await new Promise(resolve=>setTimeout(resolve,300));level=0.12;
   live.options.onTranscript('A complete question after microphone startup');
   await new Promise(resolve=>setTimeout(resolve,100));level=0.03;
-  await new Promise(resolve=>setTimeout(resolve,60));offset=4500;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=2100;
   await until(()=>sent.length);
   assert.deepEqual(sent,['A complete question after microphone startup']);
 });
@@ -876,26 +876,76 @@ test('semantic Voice submits a complete question promptly without a provider sil
   assert.deepEqual(sent,['What is photosynthesis?']);assert.equal(checks.length,1);
 });
 
-test('semantic Voice keeps an unfinished thought open beyond the old pause and provider endpoints',async t=>{
-  let live,level=0.1,offset=0;const sent=[],checks=[];
+for (const stalled of [false, true]) {
+  test(`two seconds of quiet submits even when the semantic check ${stalled ? 'stalls' : 'rejects completion'}`,async t=>{
+    let live,level=0.03,offset=0,signal;const sent=[],checks=[];
+    class Live {
+      constructor(options){this.options=options;live=this;}
+      async start(){}
+      finish(){return Promise.resolve('Compare Python and JavaScript');}
+      cancel(){}
+    }
+    const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+      liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+      checkVoiceTurn:async(_token,text,_previous,options)=>{
+        checks.push(text);signal=options.signal;
+        return stalled ? new Promise(()=>{}) : {available:true,complete:false};
+      },
+      getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+    await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
+    level=0.12;live.options.onTranscript('Compare Python and JavaScript');
+    await new Promise(resolve=>setTimeout(resolve,100));level=0.03;
+    await until(()=>checks.length);
+    offset=1000;await new Promise(resolve=>setTimeout(resolve,40));
+    assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
+    offset=2100;await until(()=>sent.length);
+    assert.deepEqual(sent,['Compare Python and JavaScript']);
+    assert.equal(page.recorders[0].state,'inactive');
+    if(stalled) assert.equal(signal.aborted,true);
+  });
+}
+
+test('a provider endpoint can recover a turn rejected by semantic completion',async t=>{
+  let live;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
     async start(){}
-    finish(){return Promise.resolve('Compare Python and JavaScript');}
+    finish(){return Promise.resolve('A complete question');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,recordingData:true,micLevel:0.03,
+    checkVoiceTurn:async()=>({available:true,complete:false}),
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+  await until(()=>live);live.options.onTranscript('A complete question');
+  live.options.onUtteranceEnd();await until(()=>sent.length);
+  assert.deepEqual(sent,['A complete question']);
+});
+
+test('resuming speech resets the two-second quiet window',async t=>{
+  let live,level=0.03,offset=0;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('The rest of my question');}
     cancel(){}
   }
   const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
     liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
-    checkVoiceTurn:async(_token,text)=>{checks.push(text);return {available:true,complete:text.endsWith('JavaScript')};},
+    checkVoiceTurn:async()=>({available:true,complete:false}),
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
-  await until(()=>live);live.options.onTranscript('Compare Python and');
-  await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await until(()=>checks.length);offset=5000;live.options.onUtteranceEnd();
-  await new Promise(resolve=>setTimeout(resolve,60));
-  assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');assert.equal(checks.length,1);
-  live.options.onTranscript('Compare Python and JavaScript');
-  await until(()=>sent.length,1000);
-  assert.deepEqual(sent,['Compare Python and JavaScript']);
+  await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
+  level=0.12;live.options.onTranscript('The beginning');
+  await new Promise(resolve=>setTimeout(resolve,80));level=0.03;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=1000;
+  await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
+  level=0.12;live.options.onTranscript('The rest of my question');
+  await new Promise(resolve=>setTimeout(resolve,60));offset=3100;
+  await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
+  level=0.03;await new Promise(resolve=>setTimeout(resolve,60));offset=4600;
+  await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
+  offset=5300;await until(()=>sent.length);
+  assert.deepEqual(sent,['The rest of my question']);
 });
 
 test('closing Voice aborts a semantic request and ignores its late positive verdict',async t=>{
@@ -925,7 +975,7 @@ test('recorded-only browsers use recovery rather than wait for a nonexistent sem
     transcribeAudio:async()=>({text:'A recorded question'}),
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>page.recorders.length);await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await new Promise(resolve=>setTimeout(resolve,60));offset=4500;await until(()=>sent.length);
+  await new Promise(resolve=>setTimeout(resolve,60));offset=2100;await until(()=>sent.length);
   assert.deepEqual(sent,['A recorded question']);
 });
 
@@ -944,7 +994,7 @@ test('loss of live captions cancels an incomplete semantic turn and recovers its
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('An unfinished partial');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;await until(()=>checked);
-  live.options.onError(new Error('Lost connection'));offset=4500;await until(()=>sent.length);
+  live.options.onError(new Error('Lost connection'));offset=2100;await until(()=>sent.length);
   assert.deepEqual(sent,['A whole question recovered from audio']);
 });
 
@@ -957,11 +1007,11 @@ test('native captions ending without a result restore recorded-audio recovery',a
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>page.recognitions.length);page.recognitions[0].onend();
   await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await new Promise(resolve=>setTimeout(resolve,60));offset=4500;await until(()=>sent.length);
+  await new Promise(resolve=>setTimeout(resolve,60));offset=2100;await until(()=>sent.length);
   assert.deepEqual(sent,['A complete recorded question']);
 });
 
-test('semantic service failure falls back to a longer pause without dropping the question',async t=>{
+test('semantic service failure falls back to a two-second pause without dropping the question',async t=>{
   let live,level=0.1,offset=0;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -975,7 +1025,7 @@ test('semantic service failure falls back to a longer pause without dropping the
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('A question during a model outage');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;await until(()=>page.notices.length);
-  assert.equal(sent.length,0);offset=4500;await until(()=>sent.length);
+  assert.equal(sent.length,0);offset=2100;await until(()=>sent.length);
   assert.deepEqual(sent,['A question during a model outage']);assert.equal(page.notices.length,1);
 });
 
@@ -990,4 +1040,24 @@ test('semantic API sends bounded speech context with authentication and cancella
   await checkVoiceTurn('test','What is this?','Ask me anything',{signal:controller.signal});
   assert.equal(captured.url,'https://api.invalid/voice/turn');assert.equal(captured.headers.Authorization,'Bearer session');
   assert.equal(captured.signal,controller.signal);assert.deepEqual(JSON.parse(captured.body),{transcript:'What is this?',previous_assistant:'Ask me anything'});
+});
+
+test('voice waiting phrases rotate until audio starts and stop after closing',async t=>{
+  let finish,handlers;
+  const page=await voicePage((_text,callbacks)=>{
+    handlers=callbacks;return new Promise(resolve=>finish=resolve);
+  });t.after(()=>{page.overlay.close();finish?.('');});
+  page.submit('A question');
+  const status=page.dom.window.document.querySelector('.voice-status');
+  const first=status.textContent;
+  assert.notEqual(first,'Preparing response…');
+  await until(()=>status.textContent!==first,3500);
+  handlers.onDelta('Here is your answer.');
+  await until(()=>page.dom.window.document.querySelector('.voice-overlay').dataset.state==='speaking');
+  const speaking=status.textContent;
+  await new Promise(resolve=>setTimeout(resolve,3100));
+  assert.equal(status.textContent,speaking);
+  page.overlay.close();const closed=status.textContent;
+  await new Promise(resolve=>setTimeout(resolve,3100));
+  assert.equal(status.textContent,closed);
 });

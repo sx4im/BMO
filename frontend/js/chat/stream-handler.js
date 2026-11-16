@@ -4,8 +4,8 @@
  */
 
 import * as api from "../api.js?v=65";
-
-export const INITIAL_STATUS = "Preparing response…";
+import { getRandomPhrase } from "./waiting-phrases.js?v=1";
+export { ROTATING_PHRASES, getRandomPhrase } from "./waiting-phrases.js?v=1";
 
 // Shown for the moment between "Bmo decided to search" and the results
 // landing. Transient chrome, never persisted into the reply.
@@ -62,6 +62,7 @@ export class StreamHandler {
 
     this.controller = null;
     this.currentStreamId = null;
+    this.rotateInterval = null;
     this.reasoningInterval = null;
     this.reasoningStartTime = null;
     this.lastReasoningSeconds = null;
@@ -104,6 +105,21 @@ export class StreamHandler {
     this.reasoningStartTime = null;
   }
 
+  startStatusRotation() {
+    this.stopStatusRotation();
+    const rotate = () => {
+      this.currentPhrase = getRandomPhrase();
+      this.onStatusChange({ phrase: this.currentPhrase });
+    };
+    rotate();
+    this.rotateInterval = setInterval(rotate, 3000);
+  }
+
+  stopStatusRotation() {
+    if (this.rotateInterval !== null) clearInterval(this.rotateInterval);
+    this.rotateInterval = null;
+  }
+
   cancel() {
     const token = this.getAuthToken();
     if (this.currentStreamId && token) {
@@ -116,6 +132,7 @@ export class StreamHandler {
   }
 
   cleanup() {
+    this.stopStatusRotation();
     this.stopReasoningTimer();
     this.endSearch();
     this.controller = null;
@@ -141,8 +158,7 @@ export class StreamHandler {
     const token = this.getAuthToken();
     if (!token) throw new Error("Not authenticated");
 
-    this.currentPhrase = INITIAL_STATUS;
-    this.onStatusChange({ phrase: this.currentPhrase });
+    this.startStatusRotation();
 
     let errorReported = false;
     let receivedAssistant = false;
@@ -166,20 +182,22 @@ export class StreamHandler {
           onSearchStatus: ({ status, label }) => {
             if (status === "checking") return;
             if (label) {
+              this.stopStatusRotation();
               this.currentPhrase = label;
               this.onStatusChange({ phrase: label });
             }
           },
           onSearching: ({ query }) => {
+            this.stopStatusRotation();
             this.isSearching = true;
             this.onSearching({ query, preamble: getSearchPreamble() });
           },
           onSearchComplete: (done) => {
-            this.currentPhrase = "Preparing response…";
-            this.onStatusChange({ phrase: this.currentPhrase });
+            if (!this.streamingText) this.startStatusRotation();
             this.endSearch(done);
           },
           onReasoningToken: ({ delta }) => {
+            if (this.isSearching) this.startStatusRotation();
             this.endSearch();
             this.streamingReasoning += delta;
             this.startReasoningTimer((elapsed) => {
@@ -195,6 +213,7 @@ export class StreamHandler {
             });
           },
           onToken: ({ delta }) => {
+            this.stopStatusRotation();
             this.endSearch();
             this.streamingText += delta;
             if (onDeltaVoice) {
@@ -214,6 +233,7 @@ export class StreamHandler {
             });
           },
           onComplete: () => {
+            this.stopStatusRotation();
             this.onComplete();
           },
           onAssistantMessage: (msg) => {

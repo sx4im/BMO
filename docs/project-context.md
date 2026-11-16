@@ -1,6 +1,6 @@
 # BMO project context
 
-Updated 2026-11-15. Use this as an entry point; confirm implementation details
+Updated 2026-11-16. Use this as an entry point; confirm implementation details
 through Graft and the current source before editing.
 
 ## Architecture and deployment
@@ -26,6 +26,16 @@ through Graft and the current source before editing.
 - The landing hero keeps compact desktop text/buttons/video. Its heading's left
   edge aligns with the navbar logo, and the video's right edge aligns with
   Try Bmo. Preserve the existing mobile layout.
+- Voice automatically ends a turn after two seconds of microphone quiet, even
+  when semantic completion says incomplete or is pending. Positive semantic
+  verdicts can still finish sooner; resumed speech resets the quiet window.
+  Nova's speech endpoint also uses two seconds. Final streaming text is flushed
+  before sending, with recorded-audio recovery preserved.
+- Chat and Voice again show the original randomized waiting vocabulary, rotating
+  every three seconds. Search/transcription status labels take priority. Rotation
+  stops on answer output, completion, cancellation, error, or closing Voice.
+  Verification: 160 frontend tests pass; see
+  `docs/verification/voice-auto-send-2026-11-16.md` for scope and hardware limits.
 - Voice, search relevance, and persistence work have verification records under
   `docs/verification/`. Read the relevant record and inspect current code before
   changing these flows; do not assume live provider credentials or hardware were

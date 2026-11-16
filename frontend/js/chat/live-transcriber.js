@@ -61,7 +61,7 @@ export class LiveTranscriber {
       if (this.done) return;
       const query = new URLSearchParams({ model: grant.model || 'nova-3', language: this.language || grant.language || 'multi',
         encoding: 'linear16', sample_rate: String(this.sampleRate), channels: '1',
-        interim_results: 'true', smart_format: 'true', punctuate: 'true', endpointing: '4000' });
+        interim_results: 'true', smart_format: 'true', punctuate: 'true', endpointing: '2000' });
       const socket = this.socket = new WebSocket(`wss://api.deepgram.com/v1/listen?${query}`, ['bearer', grant.access_token]);
       socket.onopen = () => {
         if (this.done) return;

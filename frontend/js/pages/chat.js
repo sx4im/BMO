@@ -13,12 +13,12 @@ import { openConfirmModal, openPromptModal } from "../components/confirm-modal.j
 import { openShareModal } from "../components/share-modal.js?v=3";
 import { openMoveChatModal } from "./projects.js";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=34";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=66";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=67";
 import * as api from "../api.js?v=66";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=39";
 import { MessageFeed } from "../chat/message-feed.js?v=47";
-import { StreamHandler, INITIAL_STATUS } from "../chat/stream-handler.js?v=13";
+import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=14";
 import {
   detectExportIntent,
   buildCanonicalMarkdown,
@@ -855,7 +855,7 @@ export async function renderChat({ id, incognito }) {
     searchPreamble = "";
     streamHandler.streamingText = "";
     streamHandler.streamingReasoning = "";
-    streamHandler.currentPhrase = INITIAL_STATUS;
+    streamHandler.currentPhrase = getRandomPhrase();
 
     composer.isGenerating = true;
     composer.syncSendEnabled();
