@@ -101,3 +101,19 @@ test('composer recording UI has no language selector',async()=>{
   assert.equal(composer.element.querySelector('.rec-language'),null);
   composer.destroy();
 });
+
+test('extended thinking is available only for Nexos during the Stanza Groq experiment',async()=>{
+  const f=await fixture();const composer=new f.Composer({getAuthToken:()=> 'test'});
+  composer.extendedThinking=true;
+  composer.currentModel='thinking';composer.renderModelDropdown();
+  assert.equal(composer.modelDropdown.querySelector('.extended-thinking-item'),null);
+  assert.equal(composer.getReasoningEffort('thinking'),null);
+  composer.currentModel='deep';composer.renderModelDropdown();
+  const option=composer.modelDropdown.querySelector('.extended-thinking-item');
+  assert.ok(option);assert.equal(option.getAttribute('aria-checked'),'true');
+  assert.equal(composer.getReasoningEffort('deep'),'high');
+  composer.toggleExtendedThinking();
+  assert.equal(composer.getReasoningEffort('deep'),'low');
+  assert.equal(composer.getReasoningEffort('thinking'),null);
+  composer.destroy();
+});

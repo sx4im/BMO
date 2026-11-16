@@ -292,7 +292,8 @@ def test_groq_error_after_tokens_never_appends_fallback(monkeypatch):
         yield {"type": "delta", "data": "Partial Groq answer"}
         raise RuntimeError("provider disconnected")
     monkeypatch.setattr(nvidia_client.groq_client, "iter_response", stream)
-    monkeypatch.setattr(nvidia_client.mistral_client, "iter_response", lambda *a, **k: fallback_calls.append(True) or iter([]))
+    from app import mistral_client
+    monkeypatch.setattr(mistral_client, "iter_response", lambda *a, **k: fallback_calls.append(True) or iter([]))
     response = nvidia_client.iter_response([], model="aeon")
     assert next(response)["data"] == "Partial Groq answer"
     with pytest.raises(RuntimeError, match="disconnected"): next(response)

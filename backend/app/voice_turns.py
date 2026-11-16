@@ -6,8 +6,7 @@ import json
 import logging
 import os
 
-from . import groq_client, mistral_client
-from .config import get_mistral_model
+from . import groq_client
 
 logger = logging.getLogger("bmo.voice_turns")
 TIMEOUT_SECONDS = 1.0
@@ -51,10 +50,6 @@ def check_turn(transcript: str, previous_assistant: str = "") -> dict:
                 options["reasoning_effort"] = "none"
             elif model.startswith("openai/gpt-oss"):
                 options["reasoning_effort"] = "low"
-        elif mistral_client.is_configured():
-            make_client = mistral_client._client
-            model = get_mistral_model()
-            options = {}
         else:
             return unavailable
         client = make_client().with_options(max_retries=0)

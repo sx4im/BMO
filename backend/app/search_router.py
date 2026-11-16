@@ -31,8 +31,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
-from . import groq_client, mistral_client
-from .config import get_aeon_model, get_mistral_model
+from . import groq_client
+from .config import get_aeon_model
 from .prompts import wrap_search_results
 from .routes.helpers import is_trivial_prompt
 
@@ -264,7 +264,7 @@ def _classifier_timeout() -> float:
 
 
 def _classifier_backends() -> list[tuple[str, object, str]]:
-    """Groq first for latency, Mistral as the fallback, nothing if neither is keyed."""
+    """Use Groq when configured; otherwise leave the decision to rules."""
     backends: list[tuple[str, object, str]] = []
     if groq_client.is_configured():
         backends.append((
@@ -272,8 +272,6 @@ def _classifier_backends() -> list[tuple[str, object, str]]:
             groq_client._client,
             os.getenv("SEARCH_CLASSIFIER_MODEL", "").strip() or get_aeon_model(),
         ))
-    if mistral_client.is_configured():
-        backends.append(("mistral", mistral_client._client, get_mistral_model()))
     return backends
 
 

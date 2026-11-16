@@ -268,14 +268,15 @@ def test_health_reports_the_live_image_model(client):
 
 def test_real_model_ids_follow_env(monkeypatch):
     """Each friendly lane reads its model id from the environment."""
-    monkeypatch.setenv("NVIDIA_STANZA_MODEL", "vendor/stanza-custom")
+    monkeypatch.setenv("NVIDIA_STANZA_MODEL", "vendor/stale-stanza")
+    monkeypatch.setenv("GROQ_AEON_MODEL", "qwen-2.5-32b")
     monkeypatch.setenv("NVIDIA_NEXOS_MODEL", "vendor/nexos-custom")
     monkeypatch.setenv("NVIDIA_VISION_MODEL", "vendor/vision-custom")
     from app import main, nvidia_client
     importlib.reload(main)
     importlib.reload(nvidia_client)
 
-    assert main.REAL_ID_MAP["thinking"] == "vendor/stanza-custom"
+    assert main.REAL_ID_MAP["thinking"] == main.REAL_ID_MAP["aeon"] == "qwen-2.5-32b"
     assert main.REAL_ID_MAP["deep"]     == "vendor/nexos-custom"
     assert main.VISION_MODEL            == "vendor/vision-custom"
 
@@ -1542,7 +1543,6 @@ def test_search_classifier_defaults_to_aeon_qwen(monkeypatch):
 
     monkeypatch.delenv("SEARCH_CLASSIFIER_MODEL", raising=False)
     monkeypatch.setattr(groq_client, "is_configured", lambda: True)
-    monkeypatch.setattr(search_router.mistral_client, "is_configured", lambda: False)
 
     backends = search_router._classifier_backends()
     assert backends[0][0] == "groq"
@@ -1594,7 +1594,7 @@ def test_should_search_defers_ambiguous_prompts_to_the_classifier(monkeypatch):
 
 
 def test_should_search_fails_open_when_the_classifier_is_unavailable(monkeypatch):
-    """No Groq key, no Mistral key, or a timeout must never block the answer."""
+    """No Groq key or a timeout must never block the answer."""
     from app import search_router
 
     monkeypatch.setattr(search_router, "_classify", lambda *a, **k: None)
@@ -2118,8 +2118,7 @@ def test_generate_title_normalizes_pascal_case_and_strips_prefixes(monkeypatch):
                 def create(**kwargs):
                     return _FakeCompletion()
 
-    monkeypatch.setattr(nvidia_client, "_client", lambda *a, **k: _FakeClient())
-    monkeypatch.setattr("app.mistral_client.is_mistral_model", lambda m: False)
+    monkeypatch.setattr(nvidia_client.groq_client, "_client", lambda: _FakeClient())
 
     title = nvidia_client.generate_title("solve puzzle", "box arrangement")
     assert title == "Initial Box Placement Rules"

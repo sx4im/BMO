@@ -48,7 +48,7 @@ from openai import (
     RateLimitError,
 )
 
-from . import groq_client, mistral_client
+from . import groq_client
 from .config import (
     DEFAULT_BASE_URL,
     DEFAULT_IMAGE_BASE_URL,
@@ -74,8 +74,6 @@ def base_url(model: Optional[str] = None) -> str:
     if model:
         if groq_client.is_groq_model(model):
             return groq_client.base_url()
-        if mistral_client.is_mistral_model(model):
-            return mistral_client.base_url()
         m = model.lower()
         if "inkling" in m or "nexos" in m or "nemotron" in m:
             nexos_url = os.environ.get("NVIDIA_NEXOS_BASE_URL") or os.environ.get("TINKER_BASE_URL")
@@ -104,13 +102,11 @@ def _clean_key(raw: str) -> str:
 
 def _read_api_key(model: Optional[str] = None) -> str:
     """Read API_KEY from the environment defensively.
-    Supports model-specific overrides like NVIDIA_NEXOS_KEY, TINKER_API_KEY, GROQ_API_KEY, or MISTRAL_API_KEY.
+    Supports model-specific overrides like NVIDIA_NEXOS_KEY, TINKER_API_KEY, or GROQ_API_KEY.
     """
     if model:
         if groq_client.is_groq_model(model):
             return groq_client._read_api_key()
-        if mistral_client.is_mistral_model(model):
-            return mistral_client._read_api_key()
         m = model.lower()
         if "inkling" in m or "nexos" in m or "nemotron" in m:
             nexos_key = os.environ.get("NVIDIA_NEXOS_KEY") or os.environ.get("TINKER_API_KEY")
@@ -149,7 +145,7 @@ def api_key_fingerprint() -> dict:
 
 
 def is_configured() -> bool:
-    return bool(os.environ.get("NVIDIA_API_KEY")) or mistral_client.is_configured() or groq_client.is_configured()
+    return bool(os.environ.get("NVIDIA_API_KEY")) or groq_client.is_configured()
 
 
 # ---------------------------------------------------------------------------
@@ -606,54 +602,23 @@ def iter_response(
         {"type": "usage", "data": dict} at the end if provided
     """
     chosen_model = (model or default_model()).strip()
-    if mistral_client.is_mistral_model(chosen_model):
-        yield from mistral_client.iter_response(
+    if chosen_model.lower().startswith(("mistral", "ministral", "codestral", "pixtral")):
+        raise RuntimeError("Mistral models are temporarily disabled.")
+
+    if groq_client.is_groq_model(chosen_model):
+        # Stanza and Aeon share Groq; a provider error must not retry itself or
+        # splice another provider's answer onto a partially emitted response.
+        yield from groq_client.iter_response(
             messages,
             model=chosen_model,
             temperature=temperature,
             max_tokens=max_tokens,
-            reasoning_effort=reasoning_effort,
         )
         return
 
-    if groq_client.is_groq_model(chosen_model):
-        if groq_client.is_configured():
-            emitted = False
-            try:
-                for event in groq_client.iter_response(
-                    messages,
-                    model=chosen_model,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                ):
-                    if event.get("type") in {"delta", "reasoning_delta"} and event.get("data"):
-                        emitted = True
-                    yield event
-                return
-            except Exception as exc:
-                if emitted:
-                    raise
-                logger.warning("Groq inference failed for %s, falling back to Stanza: %s", chosen_model, exc)
-                yield from mistral_client.iter_response(
-                    messages,
-                    model=get_stanza_model(),
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                return
-        else:
-            logger.info("GROQ_API_KEY not configured for %s, falling back to Stanza", chosen_model)
-            yield from mistral_client.iter_response(
-                messages,
-                model=get_stanza_model(),
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return
-
     kwargs = {}
 
-    if any(k in chosen_model.lower() for k in ("deepseek", "inkling", "thinking", "mistral", "gpt-oss", "oss", "nexos", "gemma", "diffusiongemma", "google")):
+    if any(k in chosen_model.lower() for k in ("deepseek", "inkling", "thinking", "gpt-oss", "oss", "nexos", "gemma", "diffusiongemma", "google")):
         if max_tokens is None:
             max_tokens = 16384
         if thinking:
@@ -933,7 +898,7 @@ def iter_response_with_fallback(
     current_lower = chosen_model.lower()
     
     # Auto-switch timeout for first token: Nexos 50s
-    if current_lower == nexos_id or "inkling" in current_lower or "deepseek" in current_lower or "mistral-medium" in current_lower:
+    if current_lower == nexos_id or "inkling" in current_lower or "deepseek" in current_lower:
         first_token_timeout = 50.0
     else:
         first_token_timeout = None
@@ -1045,8 +1010,13 @@ def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:
         return None
     try:
         model_to_use = get_stanza_model() or default_model()
-        if mistral_client.is_mistral_model(model_to_use):
-            client = mistral_client._client()
+        options = {}
+        if groq_client.is_groq_model(model_to_use):
+            client = groq_client._client()
+            if model_to_use.startswith("qwen/qwen3"):
+                options["reasoning_effort"] = "none"
+            elif model_to_use.startswith("openai/gpt-oss"):
+                options["reasoning_effort"] = "low"
         else:
             client = _client(model_to_use)
         completion = client.with_options(timeout=8.0, max_retries=0).chat.completions.create(
@@ -1064,6 +1034,7 @@ def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:
             ],
             max_tokens=24,
             temperature=0.3,
+            **options,
         )
         raw = (completion.choices[0].message.content or "").strip()
     except Exception as exc:

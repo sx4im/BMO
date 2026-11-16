@@ -1,5 +1,8 @@
 """Generated conversation titles respect user edits and bounded provider calls."""
 from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
 
 from app import nvidia_client, store
 from tests.test_regressions import conversation, db
@@ -17,7 +20,8 @@ def test_generated_title_only_updates_the_owned_unchanged_seed(db):
     assert db.rows["conversations"][1]["title"] == "Explain sorting"
 
 
-def test_title_request_has_a_short_independent_budget(monkeypatch):
+@pytest.mark.parametrize("legacy_override", [False, True])
+def test_title_request_has_a_short_independent_budget(monkeypatch, legacy_override):
     options, requests = [], []
     class Client:
         def with_options(self, **kwargs):
@@ -29,8 +33,14 @@ def test_title_request_has_a_short_independent_budget(monkeypatch):
         def create(self, **kwargs):
             requests.append(kwargs)
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='Title: SortingAlgorithms'))])
-    monkeypatch.setattr(nvidia_client, "_client", lambda *a, **k: Client())
-    monkeypatch.setattr(nvidia_client.mistral_client, "is_mistral_model", lambda _: False)
+    monkeypatch.delenv("GROQ_AEON_MODEL", raising=False)
+    monkeypatch.delenv("GROQ_MODEL", raising=False)
+    model = "qwen/qwen3-32b" if legacy_override else "qwen/qwen3.8-27b"
+    monkeypatch.setenv("NVIDIA_AEON_MODEL" if legacy_override else "GROQ_AEON_MODEL", model)
+    monkeypatch.setattr(nvidia_client.groq_client, "_client", lambda: Client())
+    monkeypatch.setattr(nvidia_client, "_client", Mock(side_effect=AssertionError("wrong provider")))
     assert nvidia_client.generate_title("Explain sorting", "An explanation") == "Sorting Algorithms"
     assert options == [{"timeout": 8.0, "max_retries": 0}]
     assert requests[0]["messages"][-1]["content"].startswith("User message:\nExplain sorting")
+    assert requests[0]["model"] == model
+    assert requests[0]["reasoning_effort"] == "none"

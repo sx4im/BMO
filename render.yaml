@@ -25,12 +25,8 @@ services:
         value: https://integrate.api.nvidia.com/v1
       - key: NVIDIA_MODEL
         value: meta/llama-3.3-70b-instruct
-      # Friendly-mode model IDs — change these on Render to swap Aeon / Stanza /
-      # Nexos / vision / Iris without touching code. Redeploy after editing.
-      - key: NVIDIA_AEON_MODEL
-        value: mistralai/mistral-small-4-119b-2603
-      - key: NVIDIA_STANZA_MODEL
-        value: qwen/qwen3-next-80b-a3b-instruct
+      # NVIDIA model IDs for Nexos and vision. Stanza shares Groq Aeon below.
+      # Redeploy after editing.
       - key: NVIDIA_NEXOS_MODEL
         sync: false
       - key: NVIDIA_VISION_MODEL
@@ -73,7 +69,7 @@ services:
         value: bimo_whatsapp_verify_token_2026
       - key: WHATSAPP_APP_SECRET
         sync: false
-      # Groq AI for WhatsApp Aeon model
+      # Groq AI shared by Stanza 2.5 and WhatsApp Aeon
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_AEON_MODEL
@@ -81,16 +77,11 @@ services:
       # Web Search & Scraping (TinyFish)
       - key: TINYFISH_API_KEY
         sync: false
-      # Autonomous search routing (Groq first, Mistral fallback, rules if neither)
+      # Autonomous search routing (Groq, rules when unavailable)
       - key: SEARCH_CLASSIFIER_MODEL
         value: qwen/qwen3.8-27b
       - key: SEARCH_CLASSIFIER_TIMEOUT_S
         value: "1.5"
-      # Mistral AI (Stanza 2.5)
-      - key: MISTRAL_API_KEY
-        sync: false
-      - key: MISTRAL_MODEL
-        value: ministral-8b-2512
       # Deepgram Nova-3 streaming STT + Flux streaming TTS
       - key: DEEPGRAM_API_KEY
         sync: false

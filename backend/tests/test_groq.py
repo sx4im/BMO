@@ -120,20 +120,77 @@ def test_nvidia_dispatcher_routes_groq_when_configured(monkeypatch):
     assert any(ev.get("data") == "routed to groq" for ev in events)
 
 
-def test_nvidia_dispatcher_fallback_to_stanza_when_groq_unconfigured(monkeypatch):
-    """If GROQ_API_KEY is not set, nvidia_client falls back to Stanza (Mistral) instead of failing on NVIDIA."""
+def test_nvidia_dispatcher_requires_groq_key_without_mistral_fallback(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("MISTRAL_API_KEY", "unused-test-key")
+    fallback = MagicMock(return_value=iter([]))
+    monkeypatch.setattr(mistral_client, "iter_response", fallback)
+    with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
+        list(nvidia_client.iter_response([], model="qwen/qwen3.8-27b"))
+    fallback.assert_not_called()
 
-    called = []
-    def mock_mistral_iter(messages, **kwargs):
-        called.append(kwargs.get("model"))
-        yield {"type": "delta", "data": "fallback to stanza"}
-        yield {"type": "done", "content": "fallback to stanza"}
 
-    monkeypatch.setattr(mistral_client, "iter_response", mock_mistral_iter)
+@pytest.mark.parametrize("overrides", [
+    {}, {"GROQ_MODEL": "qwen-2.5-32b"},
+    {"NVIDIA_AEON_MODEL": "qwen/qwen3-32b"},
+    {"GROQ_AEON_MODEL": "qwen/qwen3.8-27b", "GROQ_MODEL": "qwen-2.5-32b"},
+])
+def test_stanza_uses_exact_aeon_model_despite_stale_provider_overrides(monkeypatch, overrides):
+    for key in ("GROQ_AEON_MODEL", "GROQ_MODEL", "NVIDIA_AEON_MODEL"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("MISTRAL_MODEL", "ministral-8b-2512")
+    monkeypatch.setenv("NVIDIA_STANZA_MODEL", "nvidia/stale-stanza")
+    for key, value in overrides.items():
+        monkeypatch.setenv(key, value)
+    expected = config.get_aeon_model()
+    assert config.get_stanza_model() == expected
+    catalog = config.get_real_id_map()
+    assert catalog["thinking"] == catalog["aeon"] == expected
 
-    messages = [{"role": "user", "content": "hello"}]
-    events = list(nvidia_client.iter_response(messages, model="qwen/qwen3.8-27b"))
 
-    assert called == [config.get_stanza_model()]
-    assert any(ev.get("data") == "fallback to stanza" for ev in events)
+def test_mistral_key_alone_does_not_configure_active_inference(monkeypatch):
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("MISTRAL_API_KEY", "unused-test-key")
+    assert nvidia_client.is_configured() is False
+
+
+def test_groq_pre_token_error_propagates_without_retry_or_mistral(monkeypatch):
+    primary = MagicMock(side_effect=RuntimeError("Groq unavailable"))
+    fallback = MagicMock(return_value=iter([]))
+    monkeypatch.setattr(groq_client, "is_configured", lambda: True)
+    monkeypatch.setattr(groq_client, "iter_response", primary)
+    monkeypatch.setattr(mistral_client, "iter_response", fallback)
+    with pytest.raises(RuntimeError, match="Groq unavailable"):
+        list(nvidia_client.iter_response_with_fallback([], model="qwen/qwen3.8-27b"))
+    primary.assert_called_once()
+    fallback.assert_not_called()
+
+
+def test_search_classifier_ignores_mistral_when_groq_unavailable(monkeypatch):
+    from app import search_router
+    monkeypatch.setattr(groq_client, "is_configured", lambda: False)
+    monkeypatch.setenv("MISTRAL_API_KEY", "unused-test-key")
+    assert search_router._classifier_backends() == []
+
+
+def test_search_classifier_uses_only_groq_when_both_keys_exist(monkeypatch):
+    from app import search_router
+    monkeypatch.setattr(groq_client, "is_configured", lambda: True)
+    monkeypatch.setenv("MISTRAL_API_KEY", "unused-test-key")
+    assert [name for name, _, _ in search_router._classifier_backends()] == ["groq"]
+
+
+def test_groq_legacy_aeon_override_drives_default_and_dispatch(monkeypatch):
+    monkeypatch.delenv("GROQ_AEON_MODEL", raising=False)
+    monkeypatch.delenv("GROQ_MODEL", raising=False)
+    monkeypatch.setenv("NVIDIA_AEON_MODEL", "qwen/qwen3-32b")
+    stream = MagicMock(return_value=iter([{"type": "done", "content": "Groq answer"}]))
+    wrong_provider = MagicMock(side_effect=AssertionError("must not call NVIDIA"))
+    monkeypatch.setattr(groq_client, "iter_response", stream)
+    monkeypatch.setattr(nvidia_client, "_client", wrong_provider)
+    events = list(nvidia_client.iter_response([], model=config.get_stanza_model()))
+    assert events == [{"type": "done", "content": "Groq answer"}]
+    assert groq_client.default_model() == config.get_aeon_model() == "qwen/qwen3-32b"
+    stream.assert_called_once_with([], model="qwen/qwen3-32b", temperature=0.7, max_tokens=None)
+    wrong_provider.assert_not_called()

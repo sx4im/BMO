@@ -23,14 +23,14 @@ def test_mistral_config_defaults(monkeypatch):
 
     assert mistral_client.default_model() == "ministral-8b-2512"
     assert mistral_client.base_url() == "https://api.mistral.ai/v1"
-    assert config.get_stanza_model() == "ministral-8b-2512"
+    assert config.get_stanza_model() == config.get_aeon_model()
 
 
 def test_mistral_model_env_override(monkeypatch):
     """MISTRAL_MODEL env var overrides default model."""
     monkeypatch.setenv("MISTRAL_MODEL", "mistral-large-latest")
     assert mistral_client.default_model() == "mistral-large-latest"
-    assert config.get_stanza_model() == "mistral-large-latest"
+    assert config.get_stanza_model() == config.get_aeon_model()
 
 
 def test_is_mistral_model():
@@ -193,25 +193,14 @@ def test_mistral_error_handling(monkeypatch):
         list(mistral_client.iter_response(messages))
 
 
-def test_nvidia_dispatcher_routes_mistral(monkeypatch):
-    """nvidia_client.iter_response delegates mistral models to mistral_client with reasoning_effort."""
-    monkeypatch.setenv("MISTRAL_MODEL", "codestral-2508")
-    monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
-
-    captured = {}
-    def mock_mistral_iter(messages, **kwargs):
-        captured.update(kwargs)
-        yield {"type": "delta", "data": "routed to mistral"}
-        yield {"type": "done", "content": "routed to mistral"}
-
-    monkeypatch.setattr(mistral_client, "iter_response", mock_mistral_iter)
-
-    messages = [{"role": "user", "content": "hello"}]
-    events = list(nvidia_client.iter_response(messages, model="codestral-2508", reasoning_effort="high"))
-
-    assert captured.get("model") == "codestral-2508"
-    assert captured.get("reasoning_effort") == "high"
-    assert any(ev.get("data") == "routed to mistral" for ev in events)
+@pytest.mark.parametrize("model", ["codestral-2508", "ministral-8b-2512", "mistralai/mistral-small-4-119b-2603", "pixtral-12b-2409"])
+def test_nvidia_dispatcher_rejects_temporarily_disabled_mistral(monkeypatch, model):
+    provider = MagicMock(return_value=iter([]))
+    monkeypatch.setattr(mistral_client, "iter_response", provider)
+    monkeypatch.setattr(nvidia_client, "_client", MagicMock(side_effect=AssertionError("must not call NVIDIA")))
+    with pytest.raises(RuntimeError, match="Mistral.*disabled"):
+        list(nvidia_client.iter_response([], model=model))
+    provider.assert_not_called()
 
 
 def test_nvidia_dispatcher_preserves_nvidia_models(monkeypatch):

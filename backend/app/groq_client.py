@@ -27,7 +27,7 @@ from openai import (
     RateLimitError,
 )
 
-from .config import DEFAULT_AEON_MODEL, DEFAULT_GROQ_BASE_URL
+from .config import DEFAULT_GROQ_BASE_URL, get_aeon_model
 
 logger = logging.getLogger("bmo.groq")
 
@@ -50,11 +50,7 @@ def base_url() -> str:
 
 
 def default_model() -> str:
-    return (
-        os.getenv("GROQ_AEON_MODEL")
-        or os.getenv("GROQ_MODEL")
-        or DEFAULT_AEON_MODEL
-    ).strip()
+    return get_aeon_model()
 
 
 def _read_api_key() -> str:

@@ -9,10 +9,10 @@ from __future__ import annotations
 import os
 
 # Default foundation models
-DEFAULT_STANZA_MODEL = "ministral-8b-2512"
 DEFAULT_NEXOS_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 DEFAULT_VISION_MODEL = "google/diffusiongemma-26b-a4b-it"
 DEFAULT_AEON_MODEL = "qwen/qwen3.8-27b"
+DEFAULT_STANZA_MODEL = DEFAULT_AEON_MODEL
 DEFAULT_IMAGE_MODEL = "black-forest-labs/flux-3-image-klein"
 # NVIDIA hosts the undistilled FLUX 3 Klein base; fewer steps garble lettering.
 IMAGE_STEPS = 50
@@ -41,11 +41,8 @@ def get_mistral_model() -> str:
 
 
 def get_stanza_model() -> str:
-    return (
-        os.getenv("MISTRAL_MODEL")
-        or os.getenv("NVIDIA_STANZA_MODEL")
-        or DEFAULT_STANZA_MODEL
-    ).strip()
+    # Temporary provider experiment: keep Stanza identical to WhatsApp Aeon.
+    return get_aeon_model()
 
 
 def get_nexos_model() -> str:

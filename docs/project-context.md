@@ -15,6 +15,21 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Temporary provider experiment: Stanza (`thinking`, Stanza 2.5) now resolves
+  exactly the same Groq/Qwen model as WhatsApp Aeon, including Groq model overrides
+  and the existing legacy Aeon override. The Groq adapter shares that resolver.
+  Old Mistral/Stanza-specific settings no longer select Stanza. Mistral has no
+  production imports, inference, fallback, key lookup, or startup logging; its
+  dormant adapter and isolated tests remain for reversal. Known raw Mistral IDs
+  are rejected. Groq failures propagate; search uses rules and semantic Voice
+  checks report unavailable when Groq is unavailable. Titles use authenticated
+  Groq with the existing eight-second budget and Qwen reasoning disabled.
+  Extended thinking appears only for Nexos, with frontend cache versions bumped.
+  Keep this experiment in its own commit so reverting it preserves the earlier
+  Voice and save/title/mobile fixes. Verification: 508 backend tests (117 existing
+  warnings), 164 frontend tests, Render YAML validation, and Graft build/check
+  pass; no live model calls. See
+  `docs/verification/stanza-groq-experiment-2026-11-16.md` for rollback and limits.
 - The product release is Bmo 6.0. Existing and new users receive a features-only
   release card once per account. Its durable marker is Supabase Auth user
   metadata `bmo_release_seen`; retain other user metadata when updating it.

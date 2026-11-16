@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from . import groq_client, mistral_client, nvidia_client, store, supabase_client, whatsapp
+from . import groq_client, nvidia_client, store, supabase_client, whatsapp
 from .auth import prewarm_jwks
 from .config import (
     DEFAULT_IMAGE_MODEL,
@@ -138,9 +138,6 @@ if supabase_client.is_configured():
 # Run a one-time API test on import
 if groq_client.is_configured():
     logger.info("Groq key fingerprint: %s (model=%s)", groq_client.api_key_fingerprint(), groq_client.default_model())
-
-if mistral_client.is_configured():
-    logger.info("Mistral key fingerprint: %s (model=%s)", mistral_client.api_key_fingerprint(), mistral_client.default_model())
 
 if nvidia_client.is_configured():
     logger.info("NVIDIA key fingerprint: %s", nvidia_client.api_key_fingerprint())

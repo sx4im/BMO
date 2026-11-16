@@ -22,7 +22,7 @@ A streaming AI chat workspace and agent built with vanilla JavaScript on the fro
 
 Bmo is a fast, full-featured AI workspace and agent. It streams responses token by token via Server-Sent Events, renders live Markdown, code blocks with syntax highlighting, and math expressions, and supports image generation, document parsing, and bidirectional voice interaction.
 
-The client is built with clean, dependency-free HTML, CSS, and modern ES modules—no bundlers or build steps required. The backend is an efficient Flask gateway that validates Supabase user tokens, enforces rate limits, and routes inference to NVIDIA and Mistral endpoints.
+The client is built with clean, dependency-free HTML, CSS, and modern ES modules—no bundlers or build steps required. The backend is an efficient Flask gateway that validates Supabase user tokens, enforces rate limits, and routes inference to NVIDIA and Groq endpoints.
 
 ## Explainer video
 
@@ -34,7 +34,7 @@ The client is built with clean, dependency-free HTML, CSS, and modern ES modules
 
 - **Passwordless authentication**: Sign in with Google through Supabase OAuth. Tokens are verified using ES256 JWTs against project JWKS keys.
 - **Live streaming**: Responses stream using Server-Sent Events with inline Markdown, syntax-highlighted code blocks, and KaTeX rendering.
-- **Model routing**: Switch between all-round help (Stanza 2.5 powered by Mistral AI), deep reasoning (Nexos 3.0), and image generation (Iris 2.0).
+- **Model routing**: Switch between all-round help (Stanza 2.5 powered by the same Groq/Qwen model as WhatsApp Aeon), deep reasoning (Nexos 3.0), and image generation (Iris 2.0).
 - **Document parsing**: Drop in PDF, DOCX, XLSX, PPTX, or ZIP files to extract text and analyze contents.
 - **Vision processing**: Attach images to route prompts to a vision model.
 - **Autonomous web search**: Bmo decides on its own when a question needs live results and searches via TinyFish. A search card above the answer shows the query it ran, the pages it read with their freshness, and how long the search took. Full page scraping for pasted URLs.
@@ -67,7 +67,7 @@ The client is built with clean, dependency-free HTML, CSS, and modern ES modules
 ## Quick start
 
 ### Prerequisites
-Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (powers Stanza 2.5 with `ministral-8b-2512`), and an NVIDIA API key (powers Nexos 3.0, Vision, and TTS).
+Python 3.11+, a Supabase account, a [Groq API key](https://console.groq.com/keys) (powers Stanza 2.5 and WhatsApp Aeon with `qwen/qwen3.8-27b` by default), and an NVIDIA API key (powers Nexos 3.0, Vision, and image generation).
 
 ### 1. Database setup
 Run these forward migrations from `backend/migrations/` in order inside your Supabase project SQL editor. Files ending in `_down.sql` undo migrations; use them only for an intentional rollback.
@@ -106,6 +106,16 @@ python -m http.server 5500
 ```
 Open `http://localhost:5500` in your browser. Configure your Supabase URL and backend origin in Settings.
 
+Stanza temporarily uses exactly the model selected for WhatsApp Aeon through
+`GROQ_AEON_MODEL` (then `GROQ_MODEL`, the legacy `NVIDIA_AEON_MODEL`, or the default).
+`MISTRAL_MODEL` and `NVIDIA_STANZA_MODEL` no longer select Stanza. Mistral inference
+and fallback are disabled. The dormant `mistral_client.py` adapter and its isolated
+tests remain solely to simplify reversal; no production path imports it. Groq
+failures surface normally, while search routing
+uses rules and semantic Voice checks report unavailable if Groq is unavailable.
+Extended thinking remains available for Nexos. See the
+[experiment verification and rollback notes](docs/verification/stanza-groq-experiment-2026-11-16.md).
+
 ## Project structure
 
 ```text
@@ -115,7 +125,8 @@ Bmo/
 │   │   ├── main.py                Flask gateway, streaming routes, model map
 │   │   ├── auth.py                JWT and JWKS authentication verification
 │   │   ├── store.py               Postgres and Storage data operations
-│   │   ├── mistral_client.py      Mistral AI client for Stanza 2.5
+│   │   ├── groq_client.py         Shared Stanza / WhatsApp Aeon inference client
+│   │   ├── mistral_client.py      Dormant adapter retained for experiment rollback
 │   │   ├── nvidia_client.py       Inference wrapper for OpenAI SDK and NIM
 │   │   ├── riva_transcribe.py     Riva speech-to-text integration
 │   │   ├── riva_tts.py            Riva text-to-speech integration

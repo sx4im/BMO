@@ -498,6 +498,7 @@ export class Composer {
   }
 
   getReasoningEffort(model = this.currentModel) {
+    if (model !== "deep") return null;
     if (this.extendedThinking) {
       return "high";
     }
@@ -692,6 +693,8 @@ export class Composer {
       ]);
       this.modelDropdown.append(item);
     }
+
+    if (this.currentModel !== "deep") return;
 
     this.modelDropdown.append(el("div", { class: "model-dropdown-divider" }));
 

@@ -57,17 +57,16 @@ def test_turn_endpoint_requires_auth_and_validates_input(gateway, headers, monke
     decide.assert_called_once_with('How are you?', 'Hello')
 
 
-def test_semantic_check_can_use_existing_mistral_when_groq_is_absent(monkeypatch):
-    create = Mock(return_value=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"complete":true}'))]))
+def test_semantic_check_never_uses_mistral_when_groq_is_absent(monkeypatch):
+    from app import mistral_client
+    create = Mock()
     monkeypatch.setattr(voice_turns.groq_client, 'is_configured', lambda: False)
-    monkeypatch.setattr(voice_turns.mistral_client, 'is_configured', lambda: True)
-    monkeypatch.setattr(voice_turns.mistral_client, '_client', lambda: SimpleNamespace(with_options=lambda **_: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))))
-    assert voice_turns.check_turn('موسم کیسا ہے؟') == {'available': True, 'complete': True}
-    assert create.call_args.kwargs['timeout'] == 1.0
-    assert 'reasoning_effort' not in create.call_args.kwargs
+    monkeypatch.setenv('MISTRAL_API_KEY', 'unused-test-key')
+    monkeypatch.setattr(mistral_client, '_client', create)
+    assert voice_turns.check_turn('موسم کیسا ہے؟') == {'available': False, 'complete': False}
+    create.assert_not_called()
 
 
 def test_semantic_check_without_a_provider_is_explicitly_unavailable(monkeypatch):
     monkeypatch.setattr(voice_turns.groq_client, 'is_configured', lambda: False)
-    monkeypatch.setattr(voice_turns.mistral_client, 'is_configured', lambda: False)
     assert voice_turns.check_turn('Hello') == {'available': False, 'complete': False}

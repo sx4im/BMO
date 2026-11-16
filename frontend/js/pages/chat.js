@@ -16,7 +16,7 @@ import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=3
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=67";
 import * as api from "../api.js?v=66";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=39";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=40";
 import { MessageFeed } from "../chat/message-feed.js?v=47";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=14";
 import {
