@@ -1049,7 +1049,7 @@ def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:
             client = mistral_client._client()
         else:
             client = _client(model_to_use)
-        completion = client.chat.completions.create(
+        completion = client.with_options(timeout=8.0, max_retries=0).chat.completions.create(
             model=model_to_use,
             messages=[
                 {"role": "system", "content": TITLE_PROMPT},

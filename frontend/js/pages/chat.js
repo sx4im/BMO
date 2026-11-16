@@ -97,6 +97,8 @@ export async function renderChat({ id, incognito }) {
   let activeVoiceOnSearch = null;
   let activeVoiceOnStyle = null;
   let unmounted = false;
+  const titleRefreshTimers = new Set();
+  let conversationListRequest = 0;
   let reconciling = false;
   let branching = false;
   let skillCatalogRequest = 0;
@@ -173,6 +175,7 @@ export async function renderChat({ id, incognito }) {
         onConfirm: async (val) => {
           if (val && val !== conversation.title) {
             await api.updateConversation(auth.token, conversation.id, { title: val });
+            clearTitleRefreshes();
             conversation.title = val;
             updateTopBarTitle();
             loadConversations();
@@ -728,6 +731,7 @@ export async function renderChat({ id, incognito }) {
     if (found) {
       let changed = false;
       if (found.title && found.title !== conversation.title) {
+        clearTitleRefreshes();
         conversation.title = found.title;
         changed = true;
       }
@@ -741,9 +745,30 @@ export async function renderChat({ id, incognito }) {
     }
   }
 
+  function clearTitleRefreshes() {
+    for (const timer of titleRefreshTimers) clearTimeout(timer);
+    titleRefreshTimers.clear();
+  }
+
+  function refreshGeneratedTitle(conversationId) {
+    clearTitleRefreshes();
+    // The title request has its own eight-second budget. Cover it and a slow
+    // database update; stop as soon as a changed title is observed.
+    for (const delay of [1200, 2500, 4500, 8000, 12000, 20000]) {
+      const timer = setTimeout(() => {
+        titleRefreshTimers.delete(timer);
+        if (!unmounted && id === conversationId) return loadConversations();
+      }, delay);
+      titleRefreshTimers.add(timer);
+    }
+  }
+
   async function loadConversations() {
+    if (unmounted) return;
+    const request = ++conversationListRequest;
     try {
       const list = await api.listConversations(auth.token);
+      if (unmounted || request !== conversationListRequest) return;
       shell.setConversations(list);
       syncCurrentConversationFromList(list);
     } catch {
@@ -950,11 +975,7 @@ export async function renderChat({ id, incognito }) {
       composer.syncSendEnabled();
       renderUI();
       loadConversations();
-      if (isFirstTurn) {
-        setTimeout(loadConversations, 1200);
-        setTimeout(loadConversations, 2500);
-        setTimeout(loadConversations, 4500);
-      }
+      if (isFirstTurn && !incognito && id && !unmounted) refreshGeneratedTitle(id);
     }
   }
 
@@ -1181,6 +1202,7 @@ export async function renderChat({ id, incognito }) {
   }
 
   function resetToNewConversation() {
+    clearTitleRefreshes();
     id = null;
     conversation = null;
     composer.skillPicker.setSelected([]);
@@ -1310,6 +1332,7 @@ export async function renderChat({ id, incognito }) {
 
   return () => {
     unmounted = true;
+    clearTitleRefreshes();
     if (imagePollTimer) { clearInterval(imagePollTimer); imagePollTimer = null; }
     messageFeed.unmountScrollFollower();
     pageFetchController?.abort();

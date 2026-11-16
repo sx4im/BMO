@@ -1,0 +1,63 @@
+{
+  "source": "Real Chromium computed geometry using current full stylesheet and representative action markup",
+  "measurements": [
+    {
+      "viewportWidth": 390,
+      "touch": true,
+      "gap": "2px",
+      "buttons": [
+        {
+          "x": 16,
+          "width": 32,
+          "height": 44
+        },
+        {
+          "x": 50,
+          "width": 32,
+          "height": 44
+        },
+        {
+          "x": 84,
+          "width": 32,
+          "height": 44
+        },
+        {
+          "x": 118,
+          "width": 32,
+          "height": 44
+        }
+      ],
+      "centerDistance": 34,
+      "overflows": false
+    },
+    {
+      "viewportWidth": 1280,
+      "touch": false,
+      "gap": "8px",
+      "buttons": [
+        {
+          "x": 16,
+          "width": 27,
+          "height": 17
+        },
+        {
+          "x": 51,
+          "width": 27,
+          "height": 17
+        },
+        {
+          "x": 86,
+          "width": 27,
+          "height": 17
+        },
+        {
+          "x": 121,
+          "width": 27,
+          "height": 17
+        }
+      ],
+      "centerDistance": 35,
+      "overflows": false
+    }
+  ]
+}

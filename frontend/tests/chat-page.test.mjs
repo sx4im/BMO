@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleLoader } from "./modules.mjs";
 
-async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt, streamChat, fetchMessages } = {}) {
+async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt, streamChat, fetchMessages, listConversations, timers } = {}) {
   let composer, feed, voice, lastRender;
   const renderStates = [];
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
@@ -23,7 +23,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
   const api = {
     listSkills: async () => skills,
     listModels: async () => ({ models: [{ id: "thinking", label: "Stanza" }], default: "thinking" }),
-    listConversations: async () => [],
+    listConversations: listConversations || (async () => []),
     getMessages: async () => fetchMessages ? fetchMessages() : ({ conversation: { id, model: "thinking", title: "Original chat", active_skills: activeSkills, system_prompt: conversationPrompt }, messages }),
     branchConversation: async (_token, parentId, messageId) => {
       branchCalls.push({ parentId, messageId });
@@ -71,7 +71,8 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     "image-modal.js": { openImageModal() {} },
   };
   app = moduleLoader(stubs, { globals: {
-    setTimeout: (fn, milliseconds) => setTimeout(fn, milliseconds).unref(),
+    setTimeout: timers?.setTimeout || ((fn, milliseconds) => setTimeout(fn, milliseconds).unref()),
+    clearTimeout: timers?.clearTimeout || clearTimeout,
     setInterval: (fn, milliseconds) => setInterval(fn, milliseconds).unref(),
   } });
   if (hash) app.dom.window.history.replaceState(null, "", hash);
@@ -345,4 +346,49 @@ test("retrying an unconfirmed reply branches at its saved question, never its lo
   await page.feed.callbacks.onRetryAssistantMessage(page.rendered().messages.find(m=>m.unsaved));
   await new Promise(setImmediate);
   assert.equal(page.branchCalls[0].messageId,"saved-user");assert.equal(page.payloads.length,2);
+});
+
+
+test("a title generated after the old refresh window reaches the header and cancels remaining refreshes", async t => {
+  const pending=new Map();let next=0,title="Explain sorting";
+  const timers={setTimeout(fn,ms){pending.set(++next,{fn,ms});return next;},clearTimeout(id){pending.delete(id);}};
+  const page=await chatPage({timers,listConversations:async()=>[{id:"saved",title,model:"thinking"}],
+    streamChat:async(_token,_payload,callbacks)=>{
+      callbacks.onConversation({id:"saved",title:"Explain sorting",model:"thinking"});
+      callbacks.onUserMessage({id:"user",role:"user",content:"Explain sorting"});
+      callbacks.onToken({delta:"An explanation"});callbacks.onComplete();
+      callbacks.onAssistantMessage({id:"assistant",role:"assistant",content:"An explanation"});
+    }});
+  t.after(page.unmount);
+  await page.turn("Explain sorting");
+  title="Sorting Algorithms";
+  const late=[...pending].find(([,timer])=>timer.ms>4500);
+  assert.ok(late,"Title refresh must continue after4.5 seconds");
+  pending.delete(late[0]);await late[1].fn();
+  assert.equal(page.app.dom.window.document.querySelector('.chat-topbar-title-text').textContent,"Sorting Algorithms");
+  assert.ok(![...pending.values()].some(timer=>timer.ms>=1200));
+});
+
+test("closing the chat cancels title refreshes and ignores pending sidebar results", async () => {
+  const pending=new Map();let next=0;
+  const timers={setTimeout(fn,ms){pending.set(++next,{fn,ms});return next;},clearTimeout(id){pending.delete(id);}};
+  const page=await chatPage({timers});
+  await page.turn("A question");
+  assert.ok([...pending.values()].some(timer=>timer.ms>=1200));
+  page.unmount();
+  assert.ok(![...pending.values()].some(timer=>timer.ms>=1200));
+});
+
+
+test("an older sidebar response cannot replace the newly generated title", async t => {
+  const requests=[];
+  const page=await chatPage({listConversations:()=>new Promise(resolve=>requests.push(resolve))});
+  t.after(page.unmount);
+  await page.turn("A question");
+  assert.ok(requests.length>=2);
+  requests.at(-1)([{id:"saved",title:"A Helpful Answer",model:"thinking"}]);
+  await new Promise(setImmediate);
+  for(const resolve of requests.slice(0,-1))resolve([{id:"saved",title:"A question",model:"thinking"}]);
+  await new Promise(setImmediate);
+  assert.equal(page.app.dom.window.document.querySelector('.chat-topbar-title-text').textContent,"A Helpful Answer");
 });

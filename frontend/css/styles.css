@@ -4381,6 +4381,11 @@ button:hover .icon-dislike,
   .msg-act { min-width: 44px; min-height: 44px; justify-content: center; }
 }
 
+@media (max-width: 767px) {
+  .message .actions { gap: 2px; }
+  .msg-act { min-width: 32px; min-height: 44px; justify-content: center; }
+}
+
 /* =============================================================
    Chat search palette (ChatGPT-style command menu)
    ============================================================= */

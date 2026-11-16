@@ -338,6 +338,16 @@ def branch_conversation(conversation_id: str, user_id: str, before_message_id: s
     return {"conversation": branch, "messages": saved or []}
 
 
+def set_generated_conversation_title(conversation_id: str, user_id: str, seed_title: str, title: str) -> Optional[dict]:
+    """Enrich the seed title without overwriting a concurrent manual rename."""
+    result = _execute(
+        supabase().table("conversations")
+        .update({"title": title, "updated_at": _now_iso()})
+        .eq("id", conversation_id).eq("user_id", user_id).eq("title", seed_title)
+    )
+    return (result.data or [None])[0]
+
+
 # ---------- messages ----------
 
 

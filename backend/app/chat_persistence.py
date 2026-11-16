@@ -7,7 +7,9 @@ import time
 
 logger = logging.getLogger("bmo.chat_persistence")
 CHECKPOINT_INTERVAL = 1.0
-FINAL_FLUSH_TIMEOUT = 2.0
+# Generation completion is streamed first. Slow cold database connections must
+# have time to confirm the final row before the browser is told saving failed.
+FINAL_FLUSH_TIMEOUT = 30.0
 
 
 class TurnWriter:

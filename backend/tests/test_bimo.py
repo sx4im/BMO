@@ -2109,6 +2109,9 @@ def test_generate_title_normalizes_pascal_case_and_strips_prefixes(monkeypatch):
         choices = [_FakeChoice()]
 
     class _FakeClient:
+        def with_options(self, **kwargs):
+            return self
+
         class chat:  # noqa: N801
             class completions:  # noqa: N801
                 @staticmethod

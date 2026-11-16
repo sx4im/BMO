@@ -621,10 +621,14 @@ def chat(user):
             ) if writer else None
             if not metered and (full_reply.strip() or full_reasoning.strip()):
                 metered = True
-                store.record_usage(
-                    user.id, chosen_friendly,
-                    estimate_tokens(message_text, full_reply, full_reasoning),
-                )
+                try:
+                    store.record_usage(
+                        user.id, chosen_friendly,
+                        estimate_tokens(message_text, full_reply, full_reasoning),
+                    )
+                except Exception:
+                    # A metering outage cannot invalidate a committed answer.
+                    logger.exception("usage recording failed for convo=%s", convo.get("id"))
             return assistant_message
 
         try:
@@ -887,13 +891,14 @@ def chat(user):
                     convo_id_for_title = convo["id"]
                     user_id_for_title = user.id
                     reply_snapshot = full_reply
+                    title_seed = convo.get("title") or ""
 
                     def _bg_title():
                         try:
                             new_title = nvidia_client.generate_title(message_text, reply_snapshot)
                             if new_title:
-                                store.update_conversation(
-                                    convo_id_for_title, user_id_for_title, {"title": new_title}
+                                store.set_generated_conversation_title(
+                                    convo_id_for_title, user_id_for_title, title_seed, new_title,
                                 )
                         except Exception as title_exc:  # noqa: BLE001
                             logger.warning("title generation failed for convo=%s: %s", convo_id_for_title, title_exc)

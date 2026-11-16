@@ -266,8 +266,10 @@ def test_usage_failure_still_closes_writer_with_final_snapshot(gateway, headers,
     monkeypatch.setattr(store, "record_usage", lambda *a: (_ for _ in ()).throw(ConnectionError("meter unavailable")))
     monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
     response = gateway.post("/chat", headers=headers, json={"message": "Explain", "auto_search": False})
-    response.get_data()
+    received = list(events(response))
     assert [m["content"] for m in db.rows["messages"] if m["role"] == "assistant"] == ["First final"]
+    assert any(event["type"] == "assistant_message" for event in received)
+    assert not any(event["type"] == "error" for event in received)
 
 
 def test_periodic_checkpoint_saves_latest_without_waiting_for_model_end(db, monkeypatch):
@@ -336,3 +338,44 @@ def test_incognito_reasoning_only_keeps_response_without_message_writes(gateway,
     assert assistant and assistant["content"] == "" and assistant["reasoning"] == "Private reasoning"
     assert not db.rows["messages"] and not db.rows["conversations"]
     assert len(db.rows["usage_events"]) == 1
+
+
+def test_slow_successful_save_is_acknowledged_after_the_old_two_second_deadline(gateway, headers, db, monkeypatch):
+    entered, release, saved = threading.Event(), threading.Event(), threading.Event()
+    original = store.add_message
+
+    def delayed(*a, **k):
+        if k.get("role") == "assistant":
+            entered.set()
+            assert release.wait(5)
+        result = original(*a, **k)
+        if k.get("role") == "assistant":
+            saved.set()
+        return result
+
+    monkeypatch.setattr(store, "add_message", delayed)
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "A complete answer"}]))
+    started = time.monotonic()
+    response = gateway.post("/chat", headers=headers, json={"message": "Explain", "auto_search": False}, buffered=False)
+    received = []
+    try:
+        stream = events(response)
+        for event in stream:
+            received.append(event)
+            if event["type"] == "complete":
+                break
+        assert entered.wait(1)
+        assert time.monotonic() - started < 1, "Displaying the answer must not wait for storage"
+        # A successful write taking longer than the old deadline must still be
+        # acknowledged, rather than returning an irreversible false error.
+        release_timer = threading.Timer(2.2, release.set)
+        release_timer.start()
+        received.extend(stream)
+        assert not any(event["type"] == "error" for event in received)
+        ack = next(event["data"] for event in received if event["type"] == "assistant_message")
+        assert ack["content"] == "A complete answer"
+        assert ack["id"] == next(row["id"] for row in db.rows["messages"] if row["role"] == "assistant")
+    finally:
+        release.set()
+        assert saved.wait(1)
+        response.close()

@@ -18,6 +18,18 @@ through Graft and the current source before editing.
 - The product release is Bmo 6.0. Existing and new users receive a features-only
   release card once per account. Its durable marker is Supabase Auth user
   metadata `bmo_release_seen`; retain other user metadata when updating it.
+- Final chat save confirmation waits up to 30 seconds after generation completes,
+  instead of reporting failure after two seconds. Usage-recording errors are
+  logged independently and cannot discard a saved-message acknowledgment.
+  Verification: 495 backend and 163 frontend tests pass; see
+  `docs/verification/chat-save-titles-2026-11-16.md` for scope and limits.
+- Generated conversation titles have an independent eight-second provider request
+  budget, update only an unchanged seed title, and cannot overwrite manual renames.
+  The frontend refreshes first-turn titles through 20 seconds, discards stale list
+  responses, and clears refresh timers when a title arrives or the page closes.
+- Mobile message actions use 32×44px targets and a 2px gap below 768px;
+  desktop spacing is unchanged. Chromium geometry evidence is in
+  `docs/verification/mobile-message-actions-2026-11-16.json`.
 - Chat persistence acknowledges durable IDs during streaming. Saving must not
   remount the active answer, duplicate messages, or block initial response output.
   Streaming and saved answers should retain the same formatting.
