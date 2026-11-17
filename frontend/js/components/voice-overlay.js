@@ -22,6 +22,7 @@ import { LiveTranscriber } from "../chat/live-transcriber.js?v=3";
 import { getRandomPhrase } from "../chat/waiting-phrases.js?v=1";
 import { SemanticTurnDetector } from "../chat/turn-detector.js?v=1";
 import { VOICE_LANGUAGES } from "./voice-languages.js?v=1";
+import { getVoiceAcknowledgment } from "./voice-acknowledgments.js?v=1";
 export { VOICE_LANGUAGES };
 import { createVoiceOrb } from "./voice-orb.js?v=4";
 import { createAudioMeter } from "./voice-audio-meter.js?v=3";
@@ -1085,9 +1086,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     let searchAnnounced = false;
     let searchDone = Promise.resolve();
     let pendingText = "";
+    let responseFailed = false;
     const startedAt = performance.now();
     function pushReply() {
-      if (!isCurrent() || !audioCtx || searchActive || speech?.cancelled) return;
+      if (!isCurrent() || responseFailed || !audioCtx || searchActive || speech?.cancelled) return;
       if (!speech) {
         speech = createDeepgramTTSStream(startedAt);
         activeSpeech = speech;
@@ -1095,41 +1097,49 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       speech.pushText(pendingText);
     }
 
+    const activeLang = getLangConfig();
+    function announce(kind) {
+      if (!isCurrent() || !audioCtx || searchAnnounced || pendingText) return;
+      searchAnnounced = true;
+      searchActive = true;
+      searchSpeech = createDeepgramTTSStream(startedAt);
+      activeSpeech = searchSpeech;
+      searchSpeech.finish(getVoiceAcknowledgment(activeLang.id, kind));
+      searchDone = searchSpeech.done().then(() => {
+        searchActive = false;
+        if (!isCurrent() || responseFailed) return;
+        if (activeSpeech === searchSpeech) activeSpeech = null;
+        setState("thinking");
+        if (pendingText) pushReply();
+      });
+    }
+    // Quick answers speak directly; a slow turn gets one short local cue.
+    const acknowledgmentTimer = setTimeout(() => announce("thinking"), 650);
+
     try {
-      const activeLang = getLangConfig();
       const reply = (await sendTurn(text, {
         language: activeLang.id,
         languageName: activeLang.label,
         delivery: inputDelivery,
         onVoiceStyle: tone => { if (isCurrent()) currentTone = ["gentle", "lively"].includes(tone) ? tone : "neutral"; },
         onSearching: () => {
-          if (!isCurrent() || !audioCtx || searchAnnounced) return;
-          searchAnnounced = true;
-          searchActive = true;
+          if (!isCurrent()) return;
+          clearTimeout(acknowledgmentTimer);
           setState("thinking", "Searching…");
-          const announcements = {
-            en: "I'm searching for that now.", es: "Estoy buscando esa información.",
-            fr: "Je cherche cette information.", de: "Ich suche gerade danach.",
-            it: "Sto cercando questa informazione.", ja: "今、調べています。", nl: "Ik zoek dat even op.",
-          };
-          if (!announcements[activeLang.id]) {
-            searchActive = false;
-            return;
-          }
-          searchSpeech = createDeepgramTTSStream(startedAt);
-          activeSpeech = searchSpeech;
-          searchSpeech.finish(announcements[activeLang.id]);
-          searchDone = searchSpeech.done().then(() => {
-            searchActive = false;
-            if (!isCurrent()) return;
-            if (activeSpeech === searchSpeech) activeSpeech = null;
-            setState("thinking");
-            if (pendingText) pushReply();
-          });
+          announce("search");
         },
-        onDelta: soFar => { if (isCurrent()) { pendingText = soFar; pushReply(); } },
+        onDelta: soFar => {
+          if (!isCurrent()) return;
+          clearTimeout(acknowledgmentTimer);
+          pendingText = soFar;
+          // A slow acknowledgment synthesizer must never hold up real output.
+          if (pendingText && searchSpeech && !searchSpeech.hasAudio()) searchSpeech.cancel();
+          pushReply();
+        },
       })) || "";
 
+      clearTimeout(acknowledgmentTimer);
+      if (reply && searchSpeech && !searchSpeech.hasAudio()) searchSpeech.cancel();
       await searchDone;
       if (!isCurrent()) { speech?.cancel(); searchSpeech?.cancel(); return; }
       previousAssistant = reply;
@@ -1147,6 +1157,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       if (!isCurrent() || speech.cancelled) return;
       afterSpeaking();
     } catch (err) {
+      responseFailed = true;
       if (isCurrent()) {
         console.warn("[bimo-voice] sendTurn failed:", err?.message);
         toast(err?.message || "Couldn't connect", { tone: "error" });
@@ -1155,6 +1166,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         afterSpeaking();
       }
     } finally {
+      clearTimeout(acknowledgmentTimer);
       if (isCurrent()) turnInFlight = false;
     }
   }
@@ -1377,7 +1389,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       if (!pending) return;
 
       // Prefer sentence boundaries; keep a useful first phrase for fast startup.
-      const match = pending.match(/([.!?](?=\s|$)|[。！？\n])/);
+      const match = pending.match(/([.!?](?=\s|$)|[。！？۔؟।॥\n])/);
       if (match && match.index != null) {
         const endIdx = match.index + match[0].length;
         const toSend = pending.slice(0, endIdx);
@@ -1387,7 +1399,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       }
 
       // Longer later chunks give synthesis more context without splitting words.
-      if (pending.length >= (hasSentFirstChunk ? 160 : 60)) {
+      if (pending.length >= (hasSentFirstChunk ? 160 : 40)) {
         const lastSpace = pending.lastIndexOf(" ");
         if (lastSpace > 0) {
           const toSend = pending.slice(0, lastSpace + 1);

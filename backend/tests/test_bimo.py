@@ -2395,3 +2395,16 @@ def test_augmented_page_can_still_request_current_web_facts(client, monkeypatch)
     resp = client.post('/chat', headers={'Authorization': f'Bearer {_search_chat_token()}'}, json={'conversation_id': 'c_page', 'message': 'Compare this page with current benchmarks', 'augmented_message': 'Fetched page text'})
     assert '"type": "searching"' in resp.get_data(as_text=True)
     assert decisions[0]['has_attachments'] is True
+
+
+def test_public_creator_context_is_brief_and_shared_across_chat_modes():
+    from app import prompts
+    profile = prompts.CREATOR_PROFILE_PROMPT
+    assert len(profile.split()) < 85
+    for text in ('Saim Shafique', 'sx4im', 'Hafizabad', 'AI systems engineer', 'https://saimshafique.com'):
+        assert text in profile
+    for prompt in (prompts.DEFAULT_SYSTEM_PROMPT, prompts.VISION_SYSTEM_PROMPT,
+                   prompts.WHATSAPP_SYSTEM_PROMPT, prompts.VOICE_SYSTEM_PROMPT):
+        assert profile in prompt
+        assert '19-year-old Frontend Engineer' not in prompt
+    assert 'only when asked' in profile

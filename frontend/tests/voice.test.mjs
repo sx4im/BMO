@@ -16,8 +16,8 @@ async function voicePage(sendTurn, language='en', options = {}) {
     constructor(url) { this.url=url; sockets.push(this);queueMicrotask(()=>{this.readyState=1;this.onopen?.();}); }
     send(raw) {
       const command=JSON.parse(raw);commands.push({...command,url:this.url});
-      if(command.type==='Speak') queueMicrotask(()=>this.onmessage?.({data:new Int16Array(240).buffer}));
-      if(command.type==='Flush') queueMicrotask(()=>this.onmessage?.({data:JSON.stringify({type:this.url.includes('aura')?'Flushed':'SpeechMetadata'})}));
+      if(command.type==='Speak' && !(options.silentFirstSpeech && commands.filter(c=>c.type==='Speak').length===1)) queueMicrotask(()=>this.onmessage?.({data:new Int16Array(240).buffer}));
+      if(command.type==='Flush' && !(options.silentFirstSpeech && commands.filter(c=>c.type==='Speak').length===1)) queueMicrotask(()=>this.onmessage?.({data:JSON.stringify({type:this.url.includes('aura')?'Flushed':'SpeechMetadata'})}));
     }
     close() {this.readyState=3;this.onclose?.();}
   }
@@ -117,7 +117,8 @@ test('voice announces retrieval once, then speaks only the answer with its chose
   await until(()=>page.commands.filter(c=>c.type==='Flush').length===2);
   await until(()=>page.dom.window.document.querySelector('.voice-overlay').dataset.state==='idle');
   const spoken=page.commands.filter(c=>c.type==='Speak');
-  assert.equal(spoken.filter(c=>c.text.includes("I'm searching")).length,1);
+  const {voiceAcknowledgments}=await page.load("js/components/voice-acknowledgments.js");
+  assert.ok(voiceAcknowledgments("en","search").includes(spoken[0].text.trim()));
   assert.equal(spoken.slice(1).map(c=>c.text).join('').trim(),reply);
   assert.ok(spoken.slice(1).every(c=>new URL(c.url).searchParams.get('expressivity')==='-1'));
   assert.equal(page.notices.length,0);
@@ -1060,4 +1061,68 @@ test('voice waiting phrases rotate until audio starts and stop after closing',as
   page.overlay.close();const closed=status.textContent;
   await new Promise(resolve=>setTimeout(resolve,3100));
   assert.equal(status.textContent,closed);
+});
+
+test('all supported Voice languages have twelve distinct, nonrepeating local speech cues', async () => {
+  const app=moduleLoader();
+  const {VOICE_LANGUAGES}=await app.load('js/components/voice-languages.js');
+  const {voiceAcknowledgments,getVoiceAcknowledgment}=await app.load('js/components/voice-acknowledgments.js');
+  for(const language of VOICE_LANGUAGES) for(const kind of ['thinking','search']) {
+    const choices=voiceAcknowledgments(language.id,kind);
+    assert.equal(new Set(choices).size,12,language.label+' '+kind);
+    const first=getVoiceAcknowledgment(language.id,kind);
+    assert.notEqual(getVoiceAcknowledgment(language.id,kind),first);
+    if(language.id!=='en') assert.ok(choices.every(text=>!text.includes("I'm searching")&&!text.includes('Let me think')));
+  }
+});
+
+test('Urdu Voice announces an actual web search in Urdu', async t => {
+  const page=await voicePage(async (_text,ctx)=>{ctx.onSearching();await tick();return 'یہ تازہ معلومات ہیں۔';},'ur');
+  t.after(()=>page.overlay.close());page.submit('تازہ خبریں کیا ہیں؟');
+  await until(()=>page.commands.some(command=>command.type==='Speak'));
+  const first=page.commands.find(command=>command.type==='Speak');
+  assert.match(first.text,/[\u0600-\u06ff]/);
+  assert.match(first.text,/تلاش|آن لائن|معلومات/);
+  assert.ok(new URL(first.url).searchParams.get('model').endsWith('-ur'));
+});
+
+test('a slow Voice reply gets one local acknowledgment while model output is pending', async t => {
+  let finish;
+  const page=await voicePage(()=>new Promise(resolve=>{finish=resolve;}),'fr');
+  t.after(()=>page.overlay.close());page.submit('Explique ce sujet.');
+  await until(()=>page.commands.some(command=>command.type==='Speak'),1500);
+  const spoken=page.commands.filter(command=>command.type==='Speak');
+  assert.equal(spoken.length,1);
+  const {voiceAcknowledgments}=await page.load('js/components/voice-acknowledgments.js');
+  assert.ok(voiceAcknowledgments('fr').includes(spoken[0].text.trim()));
+  finish('Voici la réponse.');
+});
+
+test('Urdu sentence punctuation starts speaking before model completion', async t => {
+  let finish;
+  const page=await voicePage((_text,ctx)=>{ctx.onDelta('یہ جواب ہے۔');return new Promise(resolve=>{finish=resolve;});},'ur');
+  t.after(()=>page.overlay.close());page.submit('جواب دیں');
+  await until(()=>page.commands.some(command=>command.type==='Speak'),500);
+  assert.equal(page.commands.find(command=>command.type==='Speak').text.trim(),'یہ جواب ہے۔');
+  finish('یہ جواب ہے۔');
+});
+
+
+test('an acknowledgment with no audio never blocks the actual answer', async t => {
+  const reply='The answer is ready.';
+  const page=await voicePage(async (_text,ctx)=>{ctx.onSearching();ctx.onDelta(reply);return reply;},'en',{silentFirstSpeech:true});
+  t.after(()=>page.overlay.close());page.submit('Find the latest update.');
+  await until(()=>page.commands.some(command=>command.type==='Speak'&&command.text.includes(reply)),500);
+  assert.ok(page.commands.some(command=>command.type==='Interrupt'));
+});
+
+test('a failed searched turn cannot replay buffered answer text after its cue is cancelled', async t => {
+  const page=await voicePage(async (_text,ctx)=>{
+    ctx.onSearching();await tick();
+    ctx.onDelta('Buffered partial answer.');
+    throw new Error('Isolated provider failure');
+  });
+  t.after(()=>page.overlay.close());page.submit('Check the latest news.');
+  await until(()=>page.notices.length===1);await tick();
+  assert.ok(page.commands.filter(command=>command.type==='Speak').every(command=>!command.text.includes('Buffered partial answer')));
 });

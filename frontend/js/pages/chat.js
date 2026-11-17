@@ -7,17 +7,17 @@ import { el, clear, formatTitle } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { getAuth } from "../auth.js";
 import { navigate } from "../router.js";
-import { mountAppShell } from "../app-shell.js";
+import { mountAppShell } from "../app-shell.js?v=2";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { openShareModal } from "../components/share-modal.js?v=3";
-import { openMoveChatModal } from "./projects.js";
+import { openMoveChatModal } from "./projects.js?v=2";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=35";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=67";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=68";
 import * as api from "../api.js?v=69";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=40";
-import { MessageFeed } from "../chat/message-feed.js?v=48";
+import { MessageFeed } from "../chat/message-feed.js?v=49";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=16";
 import {
   detectExportIntent,

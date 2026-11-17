@@ -10,9 +10,8 @@
  *     and the jump-to-latest BUTTON appears — whether or not a response is
  *     being generated. Scrolling back to the bottom (or tapping the button)
  *     re-attaches the pin and hides the button.
- *   - The button is anchored inside .chat-page, horizontally centred over
- *     the composer (message bar) and hovering just above it; its position
- *     is recomputed on resize so layout changes never strand it.
+ *   - CSS anchors the button to .composer-wrap, so it stays centred above
+ *     the input as drafts, attachments, or viewport dimensions change.
  *
  * This used to live inside StreamingRenderer, which made scroll-up support
  * exist only during generation — a lifecycle bug. Follow-ship belongs to the
@@ -70,23 +69,18 @@ export class ScrollFollower {
       this._lastHeight = el.scrollHeight;
       this._lastViewport = el.clientHeight;
     };
-
-    // Keep the button centred over the composer across viewport changes.
-    this._onResize = () => { if (this.button) this._position(); };
   }
 
   mount() {
     if (this._mounted) return;
     this._mounted = true;
     this.scroller.addEventListener("scroll", this._onScroll, { passive: true });
-    window.addEventListener("resize", this._onResize);
   }
 
   unmount() {
     if (!this._mounted) return;
     this._mounted = false;
     this.scroller.removeEventListener("scroll", this._onScroll);
-    window.removeEventListener("resize", this._onResize);
     this.removeButton();
   }
 
@@ -123,7 +117,6 @@ export class ScrollFollower {
   /** The feed added settled messages / swapped the streaming bubble. */
   notifyContentAppended() {
     this.chase();
-    if (this.button && !this.pinned) this._position(); // keep above composer
   }
 
   _page() {
@@ -144,26 +137,7 @@ export class ScrollFollower {
       `<path d="m6 9 6 6 6-6"/></svg></span>`;
     b.addEventListener("click", () => this.jumpToBottom());
     this.button = b;
-    this._position();
-    page.append(b);
-  }
-
-  /** Centre over the composer (message bar), hovering just above it. */
-  _position() {
-    const b = this.button;
-    const page = this._page();
-    if (!b || !page) return;
-    const pr = page.getBoundingClientRect();
-    const composer = page.querySelector(".composer");
-    if (composer) {
-      const cr = composer.getBoundingClientRect();
-      b.style.left = `${Math.round(cr.left + cr.width / 2 - pr.left)}px`;
-      b.style.bottom = `${Math.round(pr.bottom - cr.top) + 12}px`;
-    } else {
-      b.style.left = "50%";
-      b.style.bottom = "150px";
-    }
-    b.style.transform = "translateX(-50%)";
+    (page.querySelector(".composer-wrap") || page).append(b);
   }
 
   removeButton() {

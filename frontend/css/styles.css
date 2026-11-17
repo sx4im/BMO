@@ -2581,14 +2581,8 @@ button:hover .icon-audio-lines .audio-bar-4,
   transform-origin: center;
 }
 
-.composer .send:hover:not(:disabled) .icon-arrowUp,
-.composer .send:hover:not(:disabled) .icon-arrow-up,
-.composer .send:focus-visible:not(:disabled) .icon-arrowUp,
-.composer .send:focus-visible:not(:disabled) .icon-arrow-up,
-button:hover .icon-arrowUp,
-button:hover .icon-arrow-up,
-.icon-arrowUp:hover,
-.icon-arrow-up:hover {
+.composer .send:active:not(:disabled) .icon-arrowUp,
+.composer .send:active:not(:disabled) .icon-arrow-up {
   animation: arrowUpBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -4623,6 +4617,7 @@ button:hover .icon-dislike,
 /* Composer */
 
 .composer-wrap {
+  position: relative;
   padding: 12px 24px 12px;
   /* Transparent so the composer reads as a single clean message bar that
      blends into the page, with no visible band/seam on the left and right. */
@@ -9275,57 +9270,52 @@ em {
   }
 }
 
-/* Floating jump-to-latest button — a circular button with a
-   single down chevron, no text. Anchored inside .chat-page, horizontally
-   centred over the COMPOSER (message bar) itself — the renderer measures the
-   composer's live rect and sets left/bottom inline — hovering just above it,
-   never covering the input, on desktop and mobile alike. */
+/* The wrapper's top follows the composer as drafts grow and shrink.
+   Its 12px top padding provides the gap between the button and input. */
 .stream-jump-pill {
   position: absolute;
-  width: 34px;
-  height: 34px;
+  left: 50%;
+  bottom: 150px;
+  width: 44px;
+  height: 44px;
   padding: 0;
-  border-radius: 9999px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   z-index: 60;
   cursor: pointer;
   color: var(--ink);
-  background: var(--input-bar);
+  background: var(--surface-card);
   border: 1px solid var(--hairline-strong);
-  box-shadow: 0 2px 8px rgba(20, 20, 19, 0.08), 0 1px 2px rgba(20, 20, 19, 0.04);
+  box-shadow: 0 4px 12px rgba(20, 20, 19, 0.16);
   transform: translateX(-50%);
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
-  animation: streamJumpPillIn 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+  animation: streamJumpPillIn 180ms ease-out;
 }
 
-.stream-jump-pill:hover {
-  background: var(--surface-soft);
-  color: var(--ink);
-  border-color: var(--hairline-strong);
-  box-shadow: 0 4px 14px rgba(20, 20, 19, 0.14);
-  transform: translateX(-50%) translateY(-1px);
-}
-
-.stream-jump-pill:active {
-  transform: translateX(-50%) translateY(0);
-}
-
-.stream-jump-pill:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--primary-soft), 0 2px 8px rgba(20, 20, 19, 0.08);
+.composer-wrap > .stream-jump-pill {
+  bottom: 100%;
 }
 
 :root[data-theme="dark"] .stream-jump-pill {
   background: var(--surface-dark-elevated);
-  border-color: var(--hairline-strong);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
+.stream-jump-pill:hover,
 :root[data-theme="dark"] .stream-jump-pill:hover {
-  background: var(--surface-active);
-  color: var(--ink);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.stream-jump-pill:active {
+  transform: translateX(-50%) scale(0.95);
+}
+
+.stream-jump-pill:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 
 .stream-jump-pill .pill-ic {

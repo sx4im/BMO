@@ -15,6 +15,25 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Final UI/Voice/search pass: 634 backend and 219 frontend tests passed.
+  Jump-to-latest is CSS-anchored to the composer wrapper, with a 44px target,
+  orange hover and visible keyboard focus; growing/clearing drafts cannot strand
+  it. Send-arrow animation runs only while pressed. The creator footer link
+  inherits the footer color and uses a dotted underline.
+- Brief shared creator context is sourced from https://saimshafique.com
+  (verified 2026-11-17): AI systems engineer/open-source contributor in
+  Hafizabad, Pakistan, focused on Bmo and AI-agent verification/evaluation/testing.
+  It appears only when asked about Saim; old WhatsApp age/job claims were removed.
+- Voice has twelve local acknowledgment variants per state for all 42 languages.
+  Search cues follow real search events; slow turns get at most one cue after
+  650ms. Quick answers skip it, and stalled cue synthesis cannot block real
+  output. Urdu/Indic sentence punctuation now starts speech before completion;
+  first phrase fallback is 40 characters. A failed turn cannot replay buffered
+  text from its canceled cue. Live provider/network latency is not benchmarked.
+- Search skips complete conversational closings before evaluating news/recency
+  keywords. “Thanks for the news, and have a good day” stays local; mixed turns
+  that also request current facts still search. See
+  `docs/verification/final-ui-voice-search-2026-11-17.md` for evidence and limits.
 - Stability release verified with610 backend and210 frontend tests; Graft
   build/check passed. Provider finish reasons are preserved; Qwen3.8 requests
   an explicit 16,384-token completion budget (`GROQ_MAX_TOKENS` can lower it).

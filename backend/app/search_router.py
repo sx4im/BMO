@@ -45,6 +45,25 @@ MAX_SNIPPET_CHARS = 1200
 
 # ---------- Tier 1: instant rules ----------
 
+# Match the WHOLE conversational turn, never just a polite prefix. Mentioning
+# news in a thank-you is not a request for another live lookup.
+_SOCIAL_UNIT = (
+    r"(?:ok(?:ay)?|all ?right|great|cool|sure|well|yes|yeah|got it|understood|"
+    r"that(?:'s| is) all|nothing else|no thanks|"
+    r"thank(?:s| you)(?: so much| very much)?"
+    r"(?: for (?:the |your |that |this )?(?:latest |today's )?"
+    r"(?:news|updates?|weather update|help|information|info|answer|explanation|clarification)"
+    r"(?: today)?)?|"
+    r"good ?bye|bye(?: bye)?|see you(?: later| soon)?|take care|"
+    r"have a (?:good|great|nice|wonderful|lovely) (?:day|evening|night|weekend)|"
+    r"good night|shukriya|bohat shukriya|allah hafiz|khuda hafiz|theek hai|"
+    r"شکریہ|اللہ حافظ|خدا حافظ|ٹھیک ہے)"
+)
+_SOCIAL_TURN = re.compile(
+    rf"{_SOCIAL_UNIT}(?:[\s,.!?;:،۔؟]+(?:(?:and|aur|اور)\s+)?{_SOCIAL_UNIT})*[\s,.!?;:،۔؟]*",
+    re.IGNORECASE,
+)
+
 _CODE_INTENT = re.compile(
     r"\b(write|create|make|generate|build|implement|refactor|debug|fix|optimi[sz]e|convert)\b"
     r"[^.?!]{0,60}\b(code|script|function|program|class|method|query|regex|component|"
@@ -220,6 +239,8 @@ def _tier1(text: str) -> bool | None:
     """Instant verdict, or None when the prompt needs the classifier."""
     if not text:
         return False
+    if _SOCIAL_TURN.fullmatch(text):
+        return False
     # Personal/creative writing stays local; current factual articles still search.
     composition = _COMPOSITION_INTENT.search(text)
     if composition and not (_LIVE_TOPIC.search(text) or _RANKING.search(text)):
@@ -290,6 +311,8 @@ def _decision_prompt() -> str:
         "Choose false for greetings, small talk, creative writing, coding, "
         "mathematics, logic puzzles, riddles, brain teasers, and stable general knowledge. A which-is-best question "
         "about named models or products is not an opinion; choose true.\n"
+        "A thank-you or farewell is not a new request, even after a news discussion. "
+        "Use history to resolve references, never to invent a request in a social closing.\n"
         "When true, write a concise search query. Preserve named entities, "
         "locations, explicit dates, comparisons, exclusions and other constraints. "
         "Resolve references from conversation context; remove greetings and request "

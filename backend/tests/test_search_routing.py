@@ -291,3 +291,32 @@ def test_search_data_structure_topics_are_not_browse_commands(prompt, monkeypatc
 
     monkeypatch.setattr(router, '_classify', unexpected)
     assert router.should_search(prompt) == (False, '')
+
+
+@pytest.mark.parametrize('prompt', [
+    'Okay. Thanks for the news, and have a good day.',
+    'Thanks for the latest news. Bye!',
+    'Thank you for the weather update. Take care.',
+    'That is all, thank you. Goodbye.',
+    'Okay thanks for the update today, have a nice evening.',
+    'Thanks for the information!',
+    'Goodbye', 'Allah hafiz', 'Shukriya, Allah hafiz.', 'شکریہ، اللہ حافظ۔',
+])
+def test_social_closing_never_searches_or_calls_classifier_after_news(prompt, monkeypatch):
+    def unexpected(*args, **kwargs):
+        pytest.fail('A conversational closing must not call the classifier')
+    monkeypatch.setattr(router, '_classify', unexpected)
+    history = [{'role':'user','content':'Tell me the latest news today'},
+               {'role':'assistant','content':'Here are the latest news headlines.'}]
+    assert router.should_search(prompt, history=history) == (False, '')
+
+
+@pytest.mark.parametrize('prompt', [
+    'Thanks, what is the weather tomorrow?',
+    'Okay, give me the latest news.',
+    'Thanks for the news. What is the BTC price today?',
+    'Goodbye for now, but first search for the latest election results.',
+])
+def test_social_words_do_not_hide_an_actual_live_request(prompt, monkeypatch):
+    monkeypatch.setattr(router, '_classify', lambda *args, **kwargs: None)
+    assert router.should_search(prompt)[0] is True
