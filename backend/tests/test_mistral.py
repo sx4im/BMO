@@ -23,14 +23,14 @@ def test_mistral_config_defaults(monkeypatch):
 
     assert mistral_client.default_model() == "ministral-8b-2512"
     assert mistral_client.base_url() == "https://api.mistral.ai/v1"
-    assert config.get_stanza_model() == config.get_aeon_model()
+    assert config.get_stanza_model() == mistral_client.default_model()
 
 
 def test_mistral_model_env_override(monkeypatch):
     """MISTRAL_MODEL env var overrides default model."""
     monkeypatch.setenv("MISTRAL_MODEL", "mistral-large-latest")
     assert mistral_client.default_model() == "mistral-large-latest"
-    assert config.get_stanza_model() == config.get_aeon_model()
+    assert config.get_stanza_model() == mistral_client.default_model()
 
 
 def test_is_mistral_model():
@@ -92,12 +92,16 @@ def test_mistral_streaming_success(monkeypatch):
 
     done = next(ev for ev in events if ev["type"] == "done")
     assert done["content"] == "Hello world from Codestral!"
+    assert done["finish_reason"] == "stop"
+    assert events[0]["provider"] == "mistral"
+    assert events[0]["requested_model"] == "codestral-2508"
 
     # Verify messages passed to OpenAI client
     mock_client.chat.completions.create.assert_called_once()
     call_kwargs = mock_client.chat.completions.create.call_args.kwargs
     assert call_kwargs["model"] == "codestral-2508"
     assert call_kwargs["stream"] is True
+    assert call_kwargs["max_tokens"] == 16384
     assert call_kwargs["messages"] == messages
     # Codestral defaults to 0.2 temperature for lower latency / precise code
     assert call_kwargs["temperature"] == 0.2
@@ -108,7 +112,7 @@ def test_codestral_extended_thinking_injection(monkeypatch):
     monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
 
     mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = iter([])
+    mock_client.chat.completions.create.side_effect = lambda **kwargs: iter([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=types.SimpleNamespace(content=None), finish_reason="stop")])])
     monkeypatch.setattr(mistral_client, "_client", lambda: mock_client)
 
     # 1. Extended thinking ON (high) with existing system message
@@ -148,7 +152,7 @@ def test_mistral_multi_turn_history(monkeypatch):
     monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
 
     mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = iter([])
+    mock_client.chat.completions.create.side_effect = lambda **kwargs: iter([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=types.SimpleNamespace(content=None), finish_reason="stop")])])
     monkeypatch.setattr(mistral_client, "_client", lambda: mock_client)
 
     history = [
@@ -194,13 +198,12 @@ def test_mistral_error_handling(monkeypatch):
 
 
 @pytest.mark.parametrize("model", ["codestral-2508", "ministral-8b-2512", "mistralai/mistral-small-4-119b-2603", "pixtral-12b-2409"])
-def test_nvidia_dispatcher_rejects_temporarily_disabled_mistral(monkeypatch, model):
-    provider = MagicMock(return_value=iter([]))
+def test_nvidia_dispatcher_routes_mistral(monkeypatch, model):
+    provider = MagicMock(return_value=iter([{"type": "done", "content": "Mistral answer", "finish_reason": "stop"}]))
     monkeypatch.setattr(mistral_client, "iter_response", provider)
     monkeypatch.setattr(nvidia_client, "_client", MagicMock(side_effect=AssertionError("must not call NVIDIA")))
-    with pytest.raises(RuntimeError, match="Mistral.*disabled"):
-        list(nvidia_client.iter_response([], model=model))
-    provider.assert_not_called()
+    assert list(nvidia_client.iter_response([], model=model))[-1]["content"] == "Mistral answer"
+    provider.assert_called_once_with([], model=model, temperature=0.7, max_tokens=None, reasoning_effort=None)
 
 
 def test_nvidia_dispatcher_preserves_nvidia_models(monkeypatch):

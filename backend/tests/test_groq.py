@@ -135,7 +135,7 @@ def test_nvidia_dispatcher_requires_groq_key_without_mistral_fallback(monkeypatc
     {"NVIDIA_AEON_MODEL": "qwen/qwen3-32b"},
     {"GROQ_AEON_MODEL": "qwen/qwen3.8-27b", "GROQ_MODEL": "qwen-2.5-32b"},
 ])
-def test_stanza_uses_exact_aeon_model_despite_stale_provider_overrides(monkeypatch, overrides):
+def test_stanza_uses_mistral_independently_of_aeon_overrides(monkeypatch, overrides):
     for key in ("GROQ_AEON_MODEL", "GROQ_MODEL", "NVIDIA_AEON_MODEL"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("MISTRAL_MODEL", "ministral-8b-2512")
@@ -143,16 +143,17 @@ def test_stanza_uses_exact_aeon_model_despite_stale_provider_overrides(monkeypat
     for key, value in overrides.items():
         monkeypatch.setenv(key, value)
     expected = config.get_aeon_model()
-    assert config.get_stanza_model() == expected
+    assert config.get_stanza_model() == "ministral-8b-2512"
     catalog = config.get_real_id_map()
-    assert catalog["thinking"] == catalog["aeon"] == expected
+    assert catalog["thinking"] == "ministral-8b-2512"
+    assert catalog["aeon"] == expected
 
 
-def test_mistral_key_alone_does_not_configure_active_inference(monkeypatch):
+def test_mistral_key_alone_configures_active_inference(monkeypatch):
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("MISTRAL_API_KEY", "unused-test-key")
-    assert nvidia_client.is_configured() is False
+    assert nvidia_client.is_configured() is True
 
 
 def test_groq_pre_token_error_propagates_without_retry_or_mistral(monkeypatch):
@@ -189,7 +190,7 @@ def test_groq_legacy_aeon_override_drives_default_and_dispatch(monkeypatch):
     wrong_provider = MagicMock(side_effect=AssertionError("must not call NVIDIA"))
     monkeypatch.setattr(groq_client, "iter_response", stream)
     monkeypatch.setattr(nvidia_client, "_client", wrong_provider)
-    events = list(nvidia_client.iter_response([], model=config.get_stanza_model()))
+    events = list(nvidia_client.iter_response([], model=config.get_aeon_model()))
     assert events == [{"type": "done", "content": "Groq answer"}]
     assert groq_client.default_model() == config.get_aeon_model() == "qwen/qwen3-32b"
     stream.assert_called_once_with([], model="qwen/qwen3-32b", temperature=0.7, max_tokens=None)

@@ -20,7 +20,7 @@ def test_generated_title_only_updates_the_owned_unchanged_seed(db):
     assert db.rows["conversations"][1]["title"] == "Explain sorting"
 
 
-@pytest.mark.parametrize("legacy_override", [False, True])
+@pytest.mark.parametrize("legacy_override", [False, True, "mistral"])
 def test_title_request_has_a_short_independent_budget(monkeypatch, legacy_override):
     options, requests = [], []
     class Client:
@@ -38,9 +38,14 @@ def test_title_request_has_a_short_independent_budget(monkeypatch, legacy_overri
     model = "qwen/qwen3-32b" if legacy_override else "qwen/qwen3.8-27b"
     monkeypatch.setenv("NVIDIA_AEON_MODEL" if legacy_override else "GROQ_AEON_MODEL", model)
     monkeypatch.setattr(nvidia_client.groq_client, "_client", lambda: Client())
+    monkeypatch.setattr(nvidia_client, "get_stanza_model", lambda: "ministral-8b-2512" if legacy_override == "mistral" else model)
+    monkeypatch.setattr(nvidia_client.mistral_client, "_client", lambda: Client())
     monkeypatch.setattr(nvidia_client, "_client", Mock(side_effect=AssertionError("wrong provider")))
     assert nvidia_client.generate_title("Explain sorting", "An explanation") == "Sorting Algorithms"
     assert options == [{"timeout": 8.0, "max_retries": 0}]
     assert requests[0]["messages"][-1]["content"].startswith("User message:\nExplain sorting")
-    assert requests[0]["model"] == model
-    assert requests[0]["reasoning_effort"] == "none"
+    assert requests[0]["model"] == ("ministral-8b-2512" if legacy_override == "mistral" else model)
+    if legacy_override == "mistral":
+        assert "reasoning_effort" not in requests[0]
+    else:
+        assert requests[0]["reasoning_effort"] == "none"

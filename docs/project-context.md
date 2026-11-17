@@ -37,21 +37,17 @@ through Graft and the current source before editing.
   self-identification nor a configured health flag proves upstream model use.
 - State-machine inventory: `docs/verification/state-machines-2026-11-17.md`.
   Stability evidence and limits: `docs/verification/stability-2026-11-17.md`.
-- Temporary provider experiment: Stanza (`thinking`, Stanza 2.5) now resolves
-  exactly the same Groq/Qwen model as WhatsApp Aeon, including Groq model overrides
-  and the existing legacy Aeon override. The Groq adapter shares that resolver.
-  Old Mistral/Stanza-specific settings no longer select Stanza. Mistral has no
-  production imports, inference, fallback, key lookup, or startup logging; its
-  dormant adapter and isolated tests remain for reversal. Known raw Mistral IDs
-  are rejected. Groq failures propagate; search uses rules and semantic Voice
-  checks report unavailable when Groq is unavailable. Titles use authenticated
-  Groq with the existing eight-second budget and Qwen reasoning disabled.
-  Extended thinking appears only for Nexos, with frontend cache versions bumped.
-  Keep this experiment in its own commit so reverting it preserves the earlier
-  Voice and save/title/mobile fixes. Verification: 508 backend tests (117 existing
-  warnings), 164 frontend tests, Render YAML validation, and Graft build/check
-  pass; no live model calls. See
-  `docs/verification/stanza-groq-experiment-2026-11-16.md` for rollback and limits.
+- Stanza 2.5 (`thinking`) is back on Mistral `ministral-8b-2512`, ending
+  the temporary Groq/Qwen experiment. `MISTRAL_MODEL` selects its upstream model;
+  legacy `NVIDIA_STANZA_MODEL` is ignored. WhatsApp Aeon, search classification,
+  and semantic Voice checks retain their existing Groq routing. Titles use the
+  Stanza provider with the existing independent eight-second budget. Mistral
+  streams now retain finish reasons, usage, upstream inference metadata, and
+  cancellation cleanup so bounded continuation and incomplete-stream detection
+  remain active. Restore `MISTRAL_API_KEY` on Render if it was removed; the
+  blueprint declares it without storing credentials. Verification: 619 backend
+  tests passed (135 existing warnings); no live Mistral call was possible because
+  no Mistral credential is available locally.
 - The product release is Bmo 6.0. Existing and new users receive a features-only
   release card once per account. Its durable marker is Supabase Auth user
   metadata `bmo_release_seen`; retain other user metadata when updating it.

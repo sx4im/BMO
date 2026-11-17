@@ -277,7 +277,8 @@ def test_real_model_ids_follow_env(monkeypatch):
     importlib.reload(main)
     importlib.reload(nvidia_client)
 
-    assert main.REAL_ID_MAP["thinking"] == main.REAL_ID_MAP["aeon"] == "qwen-2.5-32b"
+    assert main.REAL_ID_MAP["thinking"] == "ministral-8b-2512"
+    assert main.REAL_ID_MAP["aeon"] == "qwen-2.5-32b"
     assert main.REAL_ID_MAP["deep"]     == "vendor/nexos-custom"
     assert main.VISION_MODEL            == "vendor/vision-custom"
 
@@ -2136,7 +2137,7 @@ def test_generate_title_normalizes_pascal_case_and_strips_prefixes(monkeypatch):
                 def create(**kwargs):
                     return _FakeCompletion()
 
-    monkeypatch.setattr(nvidia_client.groq_client, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(nvidia_client.mistral_client, "_client", lambda: _FakeClient())
 
     title = nvidia_client.generate_title("solve puzzle", "box arrangement")
     assert title == "Initial Box Placement Rules"

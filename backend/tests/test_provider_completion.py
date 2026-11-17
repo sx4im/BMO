@@ -4,10 +4,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app import groq_client, nvidia_client
+from app import groq_client, mistral_client, nvidia_client
 
 
-@pytest.fixture(params=[groq_client, nvidia_client])
+@pytest.fixture(params=[groq_client, mistral_client, nvidia_client])
 def provider(request, monkeypatch):
     adapter = request.param
     client = MagicMock()

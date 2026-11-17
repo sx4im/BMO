@@ -201,16 +201,28 @@ def iter_response(
         "temperature": temperature,
         "stream": True,
     }
-    if max_tokens is not None:
-        call_kwargs["max_tokens"] = max_tokens
+    call_kwargs["max_tokens"] = max_tokens if max_tokens is not None else 16384
 
     full: list[str] = []
     chunk_count = 0
+    finish_reason = None
+    usage = None
+    stream = None
 
     try:
         stream = client.chat.completions.create(**call_kwargs)
         for chunk in stream:
             chunk_count += 1
+            if chunk_count == 1:
+                yield {
+                    "type": "inference", "provider": "mistral",
+                    "requested_model": chosen_model,
+                    "reported_model": getattr(chunk, "model", None),
+                    "request_id": getattr(chunk, "id", None),
+                }
+            chunk_usage = getattr(chunk, "usage", None)
+            if chunk_usage is not None:
+                usage = chunk_usage if isinstance(chunk_usage, dict) else chunk_usage.model_dump()
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
@@ -222,11 +234,11 @@ def iter_response(
                     yield {"type": "delta", "data": cleaned_delta}
 
             if choice.finish_reason:
+                finish_reason = choice.finish_reason
                 logger.info(
                     "mistral: finish_reason=%s chunks=%d chars=%d model=%s",
                     choice.finish_reason, chunk_count, len("".join(full)), chosen_model,
                 )
-                break
     except AuthenticationError as exc:
         raise RuntimeError("Mistral authentication failed (401). Check MISTRAL_API_KEY.") from exc
     except RateLimitError as exc:
@@ -248,7 +260,19 @@ def iter_response(
         msg = str(exc).strip() or exc.__class__.__name__
         raise RuntimeError(f"Mistral stream interrupted: {msg}") from exc
 
-    yield {"type": "done", "content": "".join(full)}
+    finally:
+        if stream is not None:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
+
+    if finish_reason is None:
+        raise RuntimeError("Mistral stream ended before a finish reason was received.")
+    yield {
+        "type": "done", "content": "".join(full),
+        "finish_reason": finish_reason, "usage": usage,
+        "complete": finish_reason == "stop",
+    }
 
 
 def test_call(model: Optional[str] = None) -> dict:

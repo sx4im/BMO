@@ -26,7 +26,7 @@ services:
         value: https://integrate.api.nvidia.com/v1
       - key: NVIDIA_MODEL
         value: meta/llama-3.3-70b-instruct
-      # NVIDIA model IDs for Nexos and vision. Stanza shares Groq Aeon below.
+      # NVIDIA model IDs for Nexos and vision. Stanza uses Mistral below.
       # Redeploy after editing.
       - key: NVIDIA_NEXOS_MODEL
         sync: false
@@ -70,13 +70,18 @@ services:
         value: bimo_whatsapp_verify_token_2026
       - key: WHATSAPP_APP_SECRET
         sync: false
-      # Groq AI shared by Stanza 2.5 and WhatsApp Aeon
+      # Groq AI for WhatsApp Aeon
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_AEON_MODEL
         value: qwen/qwen3.8-27b
       - key: GROQ_MAX_TOKENS
         value: "16384"
+      # Mistral AI for Stanza 2.5
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: MISTRAL_MODEL
+        value: ministral-8b-2512
       # Web Search & Scraping (TinyFish)
       - key: TINYFISH_API_KEY
         sync: false
