@@ -6,8 +6,8 @@ services:
     region: oregon
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    # One process leaves memory headroom on Free's 512 MB; keep 8 HTTP threads.
-    startCommand: gunicorn -w 1 -k gthread --threads 8 --timeout 600 --bind 0.0.0.0:$PORT app.main:app
+    # Preserve independent request capacity when model streams occupy threads.
+    startCommand: gunicorn -w 2 -k gthread --threads 8 --timeout 600 --bind 0.0.0.0:$PORT app.main:app
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION

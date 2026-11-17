@@ -30,8 +30,8 @@ through Graft and the current source before editing.
   spans/IDs and unrelated entity strings survive storage, rendering, copy/export.
 - Image generation omits `seed`: the deployed FLUX3 endpoint rejects that field.
 - Supabase uses an initialized process-local admin client and bounded separate
-  transports; analytics imports are lazy. Render configuration selects one worker
-  with eight threads. Boot does not perform model inference by default.
+  transports; analytics imports are lazy. Render configuration restores two workers
+  with eight threads each. Boot does not perform model inference by default.
 - Authenticated chat SSE exposes `inference` metadata from actual upstream chunks;
   `/health.backend_revision` reports Render's source revision. Neither model
   self-identification nor a configured health flag proves upstream model use.
@@ -106,3 +106,18 @@ through Graft and the current source before editing.
 - Frontend regression suite: `npm run test:run` from `frontend/`.
 - Existing release, persistence, streaming-layout, search, and voice evidence lives
   in `docs/verification/`; record the scope and limits of new checks there when useful.
+
+## Active incident: 2026-11-17 backend unresponsive
+
+- The frontend returned HTTP200 in0.43s and a direct authenticated database read
+  returned HTTP200 in0.82s. Backend `/health`, `/models`, and `/conversations`
+  timed out after15s; a separate health probe also timed out after25s.
+- Render's public status reported all systems operational. This does not establish
+  this service's health. No request logs, worker metrics, or account audit logs
+  are available through the current credentials; an attack cannot be confirmed
+  or ruled out from endpoint timeouts alone.
+- Restore the previous two-worker Gunicorn setting, preserving lazy analytics
+  imports and other memory reductions. This removes the recent capacity reduction
+  but is mitigation, not a proven incident root cause. Git push requests an
+  automatic deployment; a configured Render start-command override may need the
+  same setting. Confirm health and authenticated chat after rollout.
