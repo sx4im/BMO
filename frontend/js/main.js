@@ -3,7 +3,7 @@ import { bootstrap, getAuth, onAuthChange } from "./auth.js";
 import { initThemeSync } from "./prefs.js";
 import * as api from "./api.js?v=69";
 import { renderLanding } from "./pages/landing.js?v=53";
-import { renderChat } from "./pages/chat.js?v=206";
+import { renderChat } from "./pages/chat.js?v=207";
 import { renderSettings } from "./pages/settings.js?v=79";
 import { renderNotFound } from "./pages/not-found.js?v=54";
 import { renderSharedChat } from "./pages/shared-chat.js?v=6";

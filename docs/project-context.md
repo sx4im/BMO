@@ -60,6 +60,11 @@ through Graft and the current source before editing.
   budget, update only an unchanged seed title, and cannot overwrite manual renames.
   The frontend refreshes first-turn titles through 20 seconds, discards stale list
   responses, and clears refresh timers when a title arrives or the page closes.
+- Mouse text selection in chat is preserved: document pointer events track input
+  type without focusing the composer, message-feed clicks do not steal focus,
+  and delayed/window autofocus respects active selections and editable controls.
+  Verification: 212 frontend tests pass; Chromium native mouse drag and Ctrl+C
+  copied the selected 40-character reply excerpt. Frontend cache versions bumped.
 - Mobile message actions use 32×44px targets and a 2px gap below 768px;
   desktop spacing is unchanged. Chromium geometry evidence is in
   `docs/verification/mobile-message-actions-2026-11-16.json`.
@@ -107,7 +112,7 @@ through Graft and the current source before editing.
 - Existing release, persistence, streaming-layout, search, and voice evidence lives
   in `docs/verification/`; record the scope and limits of new checks there when useful.
 
-## Active incident: 2026-11-17 backend unresponsive
+## Incident record: 2026-11-17 backend unresponsive
 
 - The frontend returned HTTP200 in0.43s and a direct authenticated database read
   returned HTTP200 in0.82s. Backend `/health`, `/models`, and `/conversations`
@@ -121,3 +126,12 @@ through Graft and the current source before editing.
   but is mitigation, not a proven incident root cause. Git push requests an
   automatic deployment; a configured Render start-command override may need the
   same setting. Confirm health and authenticated chat after rollout.
+
+- Recovery: `/health` returned HTTP200 in0.51s at revision `1b6bc78`, and the user
+  reported chats working again. User-provided earlier logs already showed two
+  workers, so the worker-count change is not established as the outage cause.
+  Render rate-limit storage is `memory://`. Local preloaded Gunicorn with SDK
+  3.52.0 completed16 concurrent authenticated model/conversation requests against
+  the real Supabase database; the isolated test account was removed successfully.
+  The outage root cause remains unconfirmed. Render MCP OAuth is configured,
+  but its tools require a new Codex session to load.

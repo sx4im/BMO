@@ -656,3 +656,39 @@ for (const outcome of ['timeout', 'success']) {
     assert.equal([...tasks.values()].some(task => task.ms === 120000 || task.ms === 3000), false);
   });
 }
+
+test("mouse selection in replies survives composer focus handlers", async t => {
+  const pending = [];
+  const page = await chatPage({ timers: {
+    setTimeout: (fn, delay) => { const timer = setTimeout(fn, delay).unref(); pending.push({fn, delay}); return timer; },
+  } });
+  t.after(page.unmount);
+  const { window } = page.app.dom;
+  const paragraph = window.document.createElement("p");
+  paragraph.textContent = "Select just this part of the assistant reply.";
+  page.feed.element.append(paragraph);
+  page.composer.textarea.blur();
+  const pointer = new window.Event("pointerdown", { bubbles: true });
+  Object.defineProperty(pointer, "pointerType", { value: "mouse" });
+  paragraph.dispatchEvent(pointer);
+  assert.notEqual(window.document.activeElement, page.composer.textarea, "drag start must not focus the composer");
+  const selection = window.getSelection();
+  const range = window.document.createRange();
+  range.setStart(paragraph.firstChild, 7);
+  range.setEnd(paragraph.firstChild, 21);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  paragraph.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  window.dispatchEvent(new window.Event("focus"));
+  for (const timer of pending.filter(timer => [50, 150, 300, 600, 1000].includes(timer.delay))) timer.fn();
+  assert.notEqual(window.document.activeElement, page.composer.textarea, "selection must survive click, tab focus and delayed autofocus");
+  assert.equal(selection.toString(), "just this part");
+});
+
+test("clicking empty chat chrome still focuses the composer", async t => {
+  const page = await chatPage();
+  t.after(page.unmount);
+  page.composer.textarea.blur();
+  page.app.dom.window.document.querySelector(".chat-page").click();
+  assert.equal(page.app.dom.window.document.activeElement, page.composer.textarea);
+});

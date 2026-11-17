@@ -637,8 +637,12 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   host.append(page);
   messageFeed.mountScrollFollower(); // permanent pin/free-scroll + jump button
 
-  // Auto-focus composer textarea so it is always active and hungry for input
+  // Focus the composer only while the user is not selecting text or using
+  // another editable control. Startup retries and window focus obey this too.
   const attemptFocus = () => {
+    if (unmounted || window.getSelection()?.isCollapsed === false) return;
+    const active = document.activeElement;
+    if (active === composer.textarea || active?.matches("input, textarea, select, [contenteditable='true']")) return;
     try {
       if (composer?.textarea) {
         composer.textarea.focus({ preventScroll: true });
@@ -661,8 +665,11 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   // taps must not, because focusing a textarea raises the on-screen keyboard.
   let lastPointerType = "mouse";
   const handleUniversalFocus = (e) => {
-    if (e.type === "pointerdown") lastPointerType = e.pointerType || "mouse";
-    if (lastPointerType !== "mouse") return;
+    if (e.type === "pointerdown") {
+      lastPointerType = e.pointerType || "mouse";
+      return;
+    }
+    if (lastPointerType !== "mouse" || messageFeed.element.contains(e.target)) return;
     if (e.target?.closest?.("button, a, input, select, textarea, [role='menu'], [role='option'], .model-dropdown, .tools-menu, .attachment-menu")) {
       return;
     }
