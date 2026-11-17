@@ -523,7 +523,11 @@ export async function transcribeAudio(token, audioBlob, { language, signal } = {
     const fd = new FormData();
     const isWav = (audioBlob.type || "").includes("wav");
     fd.append("audio", audioBlob, isWav ? "recording.wav" : "recording.webm");
-    if (language) fd.append("language", language);
+    if (language === "auto") {
+      // Older backends safely ignore this flag and still understand multi.
+      fd.append("language", "multi");
+      fd.append("auto_language", "1");
+    } else if (language) fd.append("language", language);
     const response = await fetch(`${config.apiUrl}/transcribe`, {
       method: "POST",
       headers: authHeaders(t),

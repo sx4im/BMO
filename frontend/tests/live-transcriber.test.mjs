@@ -137,3 +137,21 @@ test('final word timing and microphone level inform delivery without classifying
   assert.deepEqual(languages,['fr']);
   f.client.cancel();
 });
+
+test('a trailing English word does not override the dominant utterance language',async()=>{
+  const f=await fixture();const started=f.client.start({});await new Promise(setImmediate);f.sockets[0].open();await started;
+  f.sockets[0].onmessage({data:JSON.stringify({type:'Results',start:0,is_final:true,channel:{alternatives:[{
+    transcript:'Bonjour comment allez vous, thanks',languages:['fr','en'],
+    words:[{language:'fr'},{language:'fr'},{language:'fr'},{language:'fr'},{language:'en'}],
+  }]}})});
+  assert.equal(f.client.detectedLanguage,'fr');f.client.cancel();
+});
+
+test('word language counts choose the main language when the provider omits its ordered list',async()=>{
+  const f=await fixture();const started=f.client.start({});await new Promise(setImmediate);f.sockets[0].open();await started;
+  f.sockets[0].onmessage({data:JSON.stringify({type:'Results',start:0,is_final:true,channel:{alternatives:[{
+    transcript:'Bonjour comment allez vous, thanks',
+    words:[{language:'fr'},{language:'fr'},{language:'fr'},{language:'fr'},{language:'en'}],
+  }]}})});
+  assert.equal(f.client.detectedLanguage,'fr');f.client.cancel();
+});

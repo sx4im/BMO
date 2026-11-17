@@ -34,3 +34,18 @@ test('stream errors preserve structured retry state without treating it as answe
   assert.equal(errors.length, 1);
   assert.equal(tokens.length, 0);
 });
+
+test('Auto transcription stays compatible while frontend and backend deploy separately', async () => {
+  let sent;
+  const app=moduleLoader({
+    'config.js':{config:{apiUrl:'https://api.invalid'}},
+    'auth.js':{getAuth:()=>({auth:{token:'test'}}),refreshSession:async()=>null},
+    'supabaseClient.js':{isSupabaseConfigured:()=>false,supabaseClient(){}},
+  },{globals:{FormData:class extends Map{append(key,value){this.set(key,value);}},fetch:async(_url,options)=>{
+    sent=options.body;return new Response(JSON.stringify({text:'Bonjour',language:'french'}));
+  }}});
+  const {transcribeAudio}=await app.load('js/api.js');
+  await transcribeAudio('test',new Blob(['isolated-test']),{language:'auto'});
+  assert.equal(sent.get('language'),'multi');
+  assert.equal(sent.get('auto_language'),'1');
+});

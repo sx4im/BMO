@@ -1,5 +1,6 @@
 // Verified 2026-11-15: https://developers.deepgram.com/docs/flux-tts/voices
-// All entries also support explicit Nova-3 recognition. Urdu requires language=ur.
+// All entries support explicit Nova-3 recognition. Its multi model omits Urdu;
+// Voice Auto verifies complete recordings with Whisper for full language coverage.
 export const VOICE_LANGUAGES = [
   {"id": "bn", "code": "BN", "label": "Bengali", "voiceName": "Afsana", "model": "flux-afsana-bn", "recLang": "bn"},
   {"id": "bg", "code": "BG", "label": "Bulgarian", "voiceName": "Desislava", "model": "flux-desislava-bg", "recLang": "bg"},
@@ -44,3 +45,13 @@ export const VOICE_LANGUAGES = [
   {"id": "ur", "code": "UR", "label": "Urdu", "voiceName": "Ambreen", "model": "flux-ambreen-ur", "recLang": "ur"},
   {"id": "vi", "code": "VI", "label": "Vietnamese", "voiceName": "Hoa", "model": "flux-hoa-vi", "recLang": "vi"},
 ];
+
+// Whisper returns language names; live providers use BCP-47 tags.
+export function normalizeVoiceLanguage(value) {
+  if (typeof value !== "string") return null;
+  const name = value.trim().toLowerCase();
+  const aliases = { greek: "el", filipino: "tl", fil: "tl", nb: "no", nn: "no", cmn: "zh", mandarin: "zh" };
+  const base = name.split(/[-_]/)[0];
+  const code = aliases[name] || aliases[base] || base;
+  return VOICE_LANGUAGES.find(language => language.id === code || language.label.toLowerCase() === name)?.id || null;
+}

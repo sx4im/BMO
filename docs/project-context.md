@@ -15,6 +15,20 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Voice Auto now verifies complete recorded turns with the configured Whisper
+  transcription provider and applies its detected language to the final transcript,
+  reply and TTS voice. Live Nova captions remain provisional. This covers Urdu,
+  which Nova-3's multilingual list excludes, and avoids reusing a fixed English
+  locale during recorded recovery. Auto adds one recorded transcription step;
+  manually selected languages retain the direct live path and stay pinned.
+  Empty completed live transcripts retain the existing manual-mode silence path.
+- Live language selection uses the provider's dominant language (or word counts),
+  not the final word. Language names, regional tags and common aliases normalize
+  to supported voices. Auto requests use a backward-compatible multipart flag;
+  missing detection configuration/metadata is actionable rather than a hidden
+  English fallback. Verification: 639 backend and 227 frontend tests passed,
+  with Graft build/check and diff checks clean. See
+  `docs/verification/voice-auto-2026-11-17.md`.
 - Final UI/Voice/search pass: 634 backend and 219 frontend tests passed.
   Jump-to-latest is CSS-anchored to the composer wrapper, with a 44px target,
   orange hover and visible keyboard focus; growing/clearing drafts cannot strand

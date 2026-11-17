@@ -82,8 +82,14 @@ export class LiveTranscriber {
             if (text) this.finals.set(event.start, text);
             this.interim = '';
             if (text) {
-              const lastLanguage = alternative.words?.findLast(word => word.language)?.language || alternative.languages?.[0];
-              if (lastLanguage) { this.detectedLanguage = lastLanguage; this.onLanguage?.(lastLanguage); }
+              // Provider languages are ordered by word count. A borrowed word
+              // at the end must not select the whole reply's language/voice.
+              const counts = new Map();
+              for (const word of alternative.words || []) {
+                if (word.language) counts.set(word.language, (counts.get(word.language) || 0) + 1);
+              }
+              const dominant = alternative.languages?.[0] || [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+              if (dominant) { this.detectedLanguage = dominant; this.onLanguage?.(dominant); }
               const words = alternative.words || [];
               const duration = words.length ? words.at(-1).end - words[0].start : 0;
               const rate = duration > 0 && words.length >= 4 ? words.length / duration : 0;

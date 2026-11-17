@@ -17,11 +17,11 @@
 import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
-import * as api from "../api.js?v=68";
-import { LiveTranscriber } from "../chat/live-transcriber.js?v=3";
+import * as api from "../api.js?v=70";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=4";
 import { getRandomPhrase } from "../chat/waiting-phrases.js?v=1";
 import { SemanticTurnDetector } from "../chat/turn-detector.js?v=1";
-import { VOICE_LANGUAGES } from "./voice-languages.js?v=1";
+import { VOICE_LANGUAGES, normalizeVoiceLanguage } from "./voice-languages.js?v=2";
 import { getVoiceAcknowledgment } from "./voice-acknowledgments.js?v=1";
 export { VOICE_LANGUAGES };
 import { createVoiceOrb } from "./voice-orb.js?v=4";
@@ -189,8 +189,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
   function applyDetectedLanguage(language) {
     if (!autoLanguage || !language) return;
-    const code = language.split("-")[0];
-    if (!VOICE_LANGUAGES.some(item => item.id === code)) return;
+    const code = normalizeVoiceLanguage(language);
+    if (!code) return;
     currentLangId = code;
     try { localStorage.setItem("bimo-voice-lang", code); } catch {}
     langBtn.setAttribute("aria-label", `Language: Automatic (${getLangConfig().label})`);
@@ -309,7 +309,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   const langBtn = el("select", {
     class: "voice-lang-btn",
     "aria-label": autoLanguage ? "Language: Automatic" : `Language: ${getLangConfig().label}`,
-    title: "Choose language. Auto supports multilingual detection; select Urdu explicitly.",
+    title: "Auto follows the language you speak. Choose a language to keep it fixed.",
     onchange: (event) => selectLanguage(event.target.value),
   }, [el("option", { value: "auto", text: "Auto" }), ...VOICE_LANGUAGES.map(language => el("option", {
     value: language.id, text: language.label,
@@ -1007,7 +1007,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       if (state === "listening" && !turnInFlight) startListening();
       return;
     }
-    if (readyCaption) {
+    if (readyCaption && !autoLanguage) {
       recorder?.liveInput?.cancel();
       audioChunks = [];
       endTurn(readyCaption);
@@ -1035,7 +1035,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     controller.signal.addEventListener("abort", () => recorder?.liveInput?.cancel(), { once: true });
     try {
       let t;
-      if (recorder?.liveResult) {
+      const detectRecording = autoLanguage && audioChunks.length > 0;
+      if (detectRecording && recorder?.liveResult) {
+        inputDelivery = recorder.liveInput?.delivery || "neutral";
+        // Auto needs full-language coverage (including Urdu), not just Nova's
+        // live multilingual subset. Captions remain provisional until this call.
+        recorder.liveResult.catch(() => {});
+        recorder.liveInput?.cancel();
+      }
+      if (recorder?.liveResult && !detectRecording) {
         try {
           t = (await recorder.liveResult).trim();
           if (!isCurrent()) return;
@@ -1049,9 +1057,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         const blob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
         const wav = await blobToWav16kMono(blob);
         if (!isCurrent()) return;
-        const res = await api.transcribeAudio(token, wav, { language: currentLangId, signal: controller.signal });
+        const res = await api.transcribeAudio(token, wav, { language: autoLanguage ? "auto" : currentLangId, signal: controller.signal });
         if (!isCurrent()) return;
         t = (res?.text || "").trim();
+        applyDetectedLanguage(res?.language);
       }
       audioChunks = [];
       if (t) endTurn(t);

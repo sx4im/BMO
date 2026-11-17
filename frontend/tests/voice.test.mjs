@@ -584,6 +584,7 @@ test('automatic language changes the Flux voice without restarting the microphon
   }
   const page=await voicePage(async(_text,opts)=>{submitted=opts;return '';},'auto',{
     liveTranscriber:Live,recordingData:true,
+    transcribeAudio:async()=>({text:"Bonjour comment allez vous?",language:"french"}),
     getUserMedia:async()=>{captures++;return {getTracks:()=>[{stop(){}}]};},
   });t.after(()=>page.overlay.close());
   await until(()=>sessions.length);
@@ -1125,4 +1126,66 @@ test('a failed searched turn cannot replay buffered answer text after its cue is
   t.after(()=>page.overlay.close());page.submit('Check the latest news.');
   await until(()=>page.notices.length===1);await tick();
   assert.ok(page.commands.filter(command=>command.type==='Speak').every(command=>!command.text.includes('Buffered partial answer')));
+});
+
+test('Auto verifies the complete recorded turn and corrects provisional Hindi detection to Urdu',async t=>{
+  let live,submitted,request;
+  class Live {
+    delivery='neutral';detectedLanguage='hi';
+    constructor(options){this.options=options;live=this;}
+    async start(){} finish(){return Promise.resolve('गलत भाषा');} cancel(){}
+  }
+  const page=await voicePage(async(text,opts)=>{submitted={text,...opts};return '';},'auto',{
+    liveTranscriber:Live,recordingData:true,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
+    transcribeAudio:async(_token,_audio,opts)=>{request=opts;return {text:'آپ کیسے ہیں؟',language:'urdu'};},
+  });t.after(()=>page.overlay.close());await until(()=>live);
+  live.options.onLanguage('hi');live.options.onUtteranceEnd();await until(()=>submitted);
+  assert.equal(request.language,'auto');assert.ok(request.signal);
+  assert.equal(submitted.text,'آپ کیسے ہیں؟');assert.equal(submitted.language,'ur');
+  assert.ok(page.sockets.some(socket=>socket.url.includes('model=flux-ambreen-ur')));
+});
+
+test('Auto recorded recovery applies a detected regional locale instead of the previous English voice',async t=>{
+  let offset=0,submitted,request;
+  const page=await voicePage(async(text,opts)=>{submitted={text,...opts};return '';},'auto',{
+    recorder:true,recordingData:true,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
+    transcribeAudio:async(_token,_audio,opts)=>{request=opts;return {text:'Bonjour à vous.',language:'FR_fr'};},
+  });t.after(()=>page.overlay.close());await until(()=>page.recorders[0]?.state==='recording');
+  offset=1000;page.dom.window.document.querySelector('.voice-mic').click();await until(()=>submitted);
+  assert.equal(request.language,'auto');assert.equal(submitted.language,'fr');
+  assert.equal(submitted.languageName,'French');
+});
+
+test('Auto recovers the full recording when its live transcript is empty',async t=>{
+  let live,submitted,uploads=0;
+  class Live {constructor(options){this.options=options;live=this;}async start(){}finish(){return Promise.resolve('');}cancel(){}}
+  const page=await voicePage(async text=>{submitted=text;return '';},'auto',{
+    liveTranscriber:Live,recordingData:true,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
+    transcribeAudio:async()=>{uploads++;return {text:'The whole question.',language:'english'};},
+  });t.after(()=>page.overlay.close());await until(()=>live);live.options.onUtteranceEnd();await until(()=>submitted);
+  assert.equal(submitted,'The whole question.');assert.equal(uploads,1);
+});
+
+test('provider language names and regional tags normalize to supported voices',async()=>{
+  const app=moduleLoader();const {normalizeVoiceLanguage}=await app.load('js/components/voice-languages.js');
+  for(const [value,expected] of [['urdu','ur'],['FR_fr','fr'],['Greek','el'],['filipino','tl'],['nb-NO','no'],['en-US','en'],['not-supported',null],[null,null]]) {
+    assert.equal(normalizeVoiceLanguage(value),expected);
+  }
+});
+
+test('an explicitly selected voice language stays pinned despite different detection metadata',async t=>{
+  let live,submitted;
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}finish(){return Promise.resolve('آپ کیسے ہیں؟');}cancel(){}
+  }
+  const page=await voicePage(async(text,opts)=>{submitted=opts;return '';},'ur',{
+    liveTranscriber:Live,recordingData:true,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
+  });t.after(()=>page.overlay.close());await until(()=>live);
+  live.options.onLanguage('fr');live.options.onUtteranceEnd();await until(()=>submitted);
+  assert.equal(submitted.language,'ur');
 });
