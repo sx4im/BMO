@@ -1,0 +1,82 @@
+[
+  {
+    "name": "normal spans",
+    "source": "<span class=\"history\" id=\"history\"></span><span id=\"result\">0</span>",
+    "expected": "<span class=\"history\" id=\"history\"></span><span id=\"result\">0</span>"
+  },
+  {
+    "name": "normal nesting",
+    "source": "<span id=\"outer\"><span class=\"value\" data-x=\"a &gt; b\">&lt;literal&gt;</span></span>",
+    "expected": "<span id=\"outer\"><span class=\"value\" data-x=\"a &gt; b\">&lt;literal&gt;</span></span>"
+  },
+  {
+    "name": "escaped normal spans",
+    "source": "&lt;span id=&quot;result&quot;&gt;0&lt;/span&gt; &amp;lt;",
+    "expected": "&lt;span id=&quot;result&quot;&gt;0&lt;/span&gt; &amp;lt;"
+  },
+  {
+    "name": "unmatched closer",
+    "source": "</span> &lt;literal&gt;",
+    "expected": "</span> &lt;literal&gt;"
+  },
+  {
+    "name": "unclosed highlighter",
+    "source": "<span class=\"hljs-keyword\">int &lt;literal&gt;",
+    "expected": "<span class=\"hljs-keyword\">int &lt;literal&gt;"
+  },
+  {
+    "name": "false class substring",
+    "source": "<span class=\"not-hljs-keyword\" title=\"class=hljs\">&lt;literal&gt;</span>",
+    "expected": "<span class=\"not-hljs-keyword\" title=\"class=hljs\">&lt;literal&gt;</span>"
+  },
+  {
+    "name": "raw highlighter",
+    "source": "<span class=\"hljs-keyword\">int</span> x;",
+    "expected": "int x;"
+  },
+  {
+    "name": "nested highlighter",
+    "source": "<span class=\"hljs\">#<span class=\"hljs-string\">&lt;vector&gt;</span></span>",
+    "expected": "#<vector>"
+  },
+  {
+    "name": "ordinary outer nesting",
+    "source": "<span id=\"outer\"><span class=\"hljs-keyword\">int</span> &lt;literal&gt;</span>",
+    "expected": "<span id=\"outer\">int &lt;literal&gt;</span>"
+  },
+  {
+    "name": "ordinary inner nesting",
+    "source": "<span class=\"hljs\"><span id=\"keep\" data-x=\"&quot;\">value</span></span>",
+    "expected": "<span id=\"keep\" data-x=\"&quot;\">value</span>"
+  },
+  {
+    "name": "unrelated entities",
+    "source": "<span class=\"hljs-string\">&lt;vector&gt;</span>\nconst entity = \"&lt;\"; &amp;",
+    "expected": "<vector>\nconst entity = \"&lt;\"; &amp;"
+  },
+  {
+    "name": "decoded once within region",
+    "source": "<span class=\"hljs-string\">&amp;lt;</span>",
+    "expected": "&lt;"
+  },
+  {
+    "name": "quoted greater-than",
+    "source": "<span title=\"a > b\" class=\"hljs-keyword\">int</span>",
+    "expected": "int"
+  },
+  {
+    "name": "numeric escaped",
+    "source": "&#60;span class=&#34;hljs-keyword&#34;&#62;int&#60;/span&#62;",
+    "expected": "int"
+  },
+  {
+    "name": "escaped 1",
+    "source": "&lt;span class=&quot;hljs-string&quot;&gt;&amp;lt;vector&amp;gt;&lt;/span&gt;",
+    "expected": "<vector>"
+  },
+  {
+    "name": "escaped 2",
+    "source": "&amp;lt;span class=&amp;quot;hljs-string&amp;quot;&amp;gt;&amp;amp;lt;vector&amp;amp;gt;&amp;lt;/span&amp;gt;",
+    "expected": "<vector>"
+  }
+]

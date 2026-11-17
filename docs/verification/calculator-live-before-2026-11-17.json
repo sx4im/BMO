@@ -1,0 +1,143 @@
+{
+  "started_at": "2026-11-17T04:33:05Z",
+  "steps": [
+    {
+      "name": "create_temporary_user",
+      "status": 200
+    },
+    {
+      "name": "sign_in",
+      "status": 422,
+      "code": 422,
+      "msg": "Email logins are disabled",
+      "error_code": "email_provider_disabled"
+    },
+    {
+      "name": "admin_test_link",
+      "status": 200
+    },
+    {
+      "name": "verify_test_link",
+      "status": 200
+    },
+    {
+      "name": "backend/me",
+      "status": 200,
+      "item_count": 0
+    },
+    {
+      "name": "backend/models",
+      "status": 200,
+      "item_count": 2
+    },
+    {
+      "name": "backend/conversations",
+      "status": 200,
+      "item_count": 0
+    },
+    {
+      "name": "live_chat_http",
+      "status": 200,
+      "headers": {
+        "x-render-origin-server": "gunicorn"
+      }
+    },
+    {
+      "name": "live_chat_event",
+      "type": "conversation",
+      "seconds": 2.046,
+      "durable": false
+    },
+    {
+      "name": "live_chat_event",
+      "type": "user_message",
+      "seconds": 2.046,
+      "durable": false,
+      "content_length": 250
+    },
+    {
+      "name": "live_chat_event",
+      "type": "conversation",
+      "seconds": 7.224,
+      "durable": true
+    },
+    {
+      "name": "live_chat_event",
+      "type": "user_message",
+      "seconds": 7.225,
+      "durable": true,
+      "content_length": 250
+    },
+    {
+      "name": "live_chat_event",
+      "type": "complete",
+      "seconds": 9.728
+    },
+    {
+      "name": "live_chat_event",
+      "type": "assistant_message",
+      "seconds": 14.232,
+      "durable": true,
+      "content_length": 6056
+    },
+    {
+      "name": "calculator_completeness",
+      "closed_html": false,
+      "fence_count": 1,
+      "tail": "r();\n  }\n\n  function percent() {\n    if (current === \"Error\") return;\n    const v = Number(current) / 100;\n    current = formatDisplay(v);\n    overwrite = true;"
+    },
+    {
+      "name": "live_chat_summary",
+      "seconds": 14.236,
+      "token_chars": 6190,
+      "event_counts": {
+        "conversation": 2,
+        "user_message": 2,
+        "token": 2047,
+        "complete": 1,
+        "assistant_message": 1
+      }
+    },
+    {
+      "name": "reload/conversations",
+      "status": 200
+    },
+    {
+      "name": "reload/conversations/",
+      "status": 200
+    },
+    {
+      "name": "reloaded_messages",
+      "rows": [
+        {
+          "role": "user",
+          "content_length": 250
+        },
+        {
+          "role": "assistant",
+          "content_length": 6056
+        }
+      ]
+    },
+    {
+      "name": "direct_database_messages",
+      "status": 200,
+      "rows": [
+        {
+          "role": "user",
+          "content_length": 250,
+          "reasoning_length": 0
+        },
+        {
+          "role": "assistant",
+          "content_length": 6056,
+          "reasoning_length": 0
+        }
+      ]
+    },
+    {
+      "name": "temporary_user_cleanup",
+      "status": 200
+    }
+  ]
+}

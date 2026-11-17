@@ -1,6 +1,6 @@
 # BMO project context
 
-Updated 2026-11-16. Use this as an entry point; confirm implementation details
+Updated 2026-11-17. Use this as an entry point; confirm implementation details
 through Graft and the current source before editing.
 
 ## Architecture and deployment
@@ -15,6 +15,28 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Stability release verified with610 backend and210 frontend tests; Graft
+  build/check passed. Provider finish reasons are preserved; Qwen3.8 requests
+  an explicit 16,384-token completion budget (`GROQ_MAX_TOKENS` can lower it).
+  Length-limited answers continue in bounded windows on the same upstream model.
+  Broken streams and provider errors are not saved as successful busy replies.
+- Chat inserts use stable server-owned IDs and scoped reconciliation before safe
+  transient retries. Committed content acknowledgment no longer waits on sidebar
+  timestamp updates or usage recording. Stop/reconnect preserve received content.
+- Router, stream, submit, and image requests have ownership/cancellation guards;
+  image polling has no overlap and retains a strict wall-clock timeout. Advance
+  `bmo-build` as well as import versions on every frontend release.
+- Source cleanup strips only balanced proven highlight.js wrappers. Real HTML
+  spans/IDs and unrelated entity strings survive storage, rendering, copy/export.
+- Image generation omits `seed`: the deployed FLUX3 endpoint rejects that field.
+- Supabase uses an initialized process-local admin client and bounded separate
+  transports; analytics imports are lazy. Render configuration selects one worker
+  with eight threads. Boot does not perform model inference by default.
+- Authenticated chat SSE exposes `inference` metadata from actual upstream chunks;
+  `/health.backend_revision` reports Render's source revision. Neither model
+  self-identification nor a configured health flag proves upstream model use.
+- State-machine inventory: `docs/verification/state-machines-2026-11-17.md`.
+  Stability evidence and limits: `docs/verification/stability-2026-11-17.md`.
 - Temporary provider experiment: Stanza (`thinking`, Stanza 2.5) now resolves
   exactly the same Groq/Qwen model as WhatsApp Aeon, including Groq model overrides
   and the existing legacy Aeon override. The Groq adapter shares that resolver.

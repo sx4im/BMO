@@ -16,6 +16,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import httpx
 from postgrest.exceptions import APIError
 
 from .supabase_client import attachments_bucket, supabase
@@ -61,6 +62,41 @@ def _execute(builder, *, max_retries: int = 2, delay: float = 0.35):
                 time.sleep(delay)
                 continue
             raise
+
+
+def is_transient_persistence_error(exc: Exception) -> bool:
+    """Only transport failures and explicitly retryable database errors qualify."""
+    if isinstance(exc, (ConnectionError, TimeoutError, httpx.TransportError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (408, 429) or 500 <= exc.response.status_code < 600
+    if isinstance(exc, APIError):
+        code = str(getattr(exc, "code", ""))
+        return code in {"408", "429", "40001", "40P01", "PGRST000", "PGRST001", "PGRST002", "PGRST003", "PGRST303"} or (
+            code.isdigit() and 500 <= int(code) < 600
+        )
+    return False
+
+
+def _insert_with_confirmation(table: str, payload: dict, lookup=None) -> dict:
+    """Reconcile ambiguous inserts only when the caller supplies a stable ID."""
+    try:
+        result = _execute(supabase().table(table).insert(payload))
+    except Exception as exc:
+        duplicate = isinstance(exc, APIError) and str(getattr(exc, "code", "")) == "23505"
+        if lookup is not None and (duplicate or is_transient_persistence_error(exc)):
+            existing = lookup()
+            if existing is not None:
+                return existing
+        raise
+    if result.data:
+        return result.data[0]
+    if lookup is not None:
+        existing = lookup()
+        if existing is not None:
+            return existing
+        raise ConnectionError("message or conversation insert was not confirmed")
+    raise RuntimeError(f"Could not insert {table}")
 
 
 def _fetch_all(query, *, page_size: int = 200) -> list[dict]:
@@ -158,6 +194,7 @@ def create_conversation(
     system_prompt: Optional[str] = None,
     project_id: Optional[str] = None,
     active_skills: Optional[list] = None,
+    conversation_id: Optional[str] = None,
 ) -> dict:
     title = (first_message or "New conversation").strip().replace("\n", " ")[:80] or "New conversation"
     payload = {
@@ -170,10 +207,10 @@ def create_conversation(
         payload["project_id"] = project_id
     if active_skills:
         payload["active_skills"] = active_skills
-    res = _execute(supabase().table("conversations").insert(payload))
-    if not res.data:
-        raise RuntimeError("Could not create conversation")
-    return res.data[0]
+    if conversation_id is not None:
+        payload["id"] = conversation_id
+    lookup = (lambda: get_conversation(conversation_id, user_id)) if conversation_id is not None else None
+    return _insert_with_confirmation("conversations", payload, lookup)
 
 
 def update_conversation(conversation_id: str, user_id: str, patch: dict) -> Optional[dict]:
@@ -390,6 +427,8 @@ def add_message(
     attachments: Optional[list] = None,
     reasoning: Optional[str] = None,
     skills: Optional[list] = None,
+    message_id: Optional[str] = None,
+    touch: bool = True,
 ) -> dict:
     if not get_conversation(conversation_id, user_id):
         raise PermissionError("conversation not found")
@@ -404,8 +443,26 @@ def add_message(
         payload["reasoning"] = reasoning
     if skills:
         payload["skills"] = skills
+    if message_id is not None:
+        payload["id"] = message_id
+
+    def lookup():
+        rows = _execute(
+            supabase().table("messages").select("*")
+            .eq("id", message_id).eq("conversation_id", conversation_id).eq("role", role).limit(1)
+        ).data
+        existing = (rows or [None])[0]
+        if existing is not None:
+            immutable = ("attachments", "skills") if role == "assistant" else ("content", "attachments", "skills")
+            if any((existing.get(key) or None) != (payload.get(key) or None) for key in immutable):
+                raise ValueError("message ID is already used by a different message")
+            if role == "assistant" and any(existing.get(key) != payload.get(key) for key in ("content", "reasoning")):
+                return update_assistant_message(conversation_id, user_id, message_id, content=content, reasoning=reasoning, touch=False)
+        return existing
+
+    confirm = lookup if message_id is not None else None
     try:
-        res = _execute(supabase().table("messages").insert(payload))
+        msg = _insert_with_confirmation("messages", payload, confirm)
     except Exception as exc:
         # If the insert failed because the reasoning column doesn't exist
         # (e.g., migration not yet run), retry without it so the message
@@ -417,17 +474,15 @@ def add_message(
                 exc,
             )
             payload.pop("reasoning")
-            res = _execute(supabase().table("messages").insert(payload))
+            msg = _insert_with_confirmation("messages", payload, confirm)
         else:
             raise
-    if not res.data:
-        raise RuntimeError("Could not insert message")
-    msg = res.data[0]
-    _touch_after_message(conversation_id, user_id)
+    if touch:
+        _touch_after_message(conversation_id, user_id)
     return msg
 
 
-def update_assistant_message(conversation_id: str, user_id: str, message_id: str, *, content: str, reasoning: Optional[str] = None) -> dict:
+def update_assistant_message(conversation_id: str, user_id: str, message_id: str, *, content: str, reasoning: Optional[str] = None, touch: bool = True) -> dict:
     """Checkpoint one assistant row in a conversation owned by this user."""
     if not get_conversation(conversation_id, user_id):
         raise PermissionError("conversation not found")
@@ -448,7 +503,8 @@ def update_assistant_message(conversation_id: str, user_id: str, message_id: str
         result = update()
     if not result.data:
         raise PermissionError("assistant message not found")
-    _touch_after_message(conversation_id, user_id)
+    if touch:
+        _touch_after_message(conversation_id, user_id)
     return result.data[0]
 
 

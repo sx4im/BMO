@@ -62,6 +62,9 @@ class MemoryQuery:
             self.action = "insert"
         if self.action == "insert":
             values = self.values if isinstance(self.values, list) else [self.values]
+            if any(value.get("id") and row["id"] == value["id"] for row in rows for value in values):
+                from postgrest.exceptions import APIError
+                raise APIError({"code": "23505", "message": "duplicate id", "details": "", "hint": ""})
             if self.table == "skills" and any(row["user_id"] == value["user_id"] and row["name"] == value["name"] for row in rows for value in values):
                 from postgrest.exceptions import APIError
                 raise APIError({"code": "23505", "message": "duplicate name", "details": "", "hint": ""})
@@ -221,6 +224,7 @@ def test_incognito_history_and_metering_without_persistence(gateway, headers, db
     def stream(messages, **kwargs):
         captured.append(messages)
         yield {"type": "delta", "data": "Your number is 731."}
+        yield {"type": "done", "content": "Your number is 731.", "finish_reason": "stop"}
     monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
     response = gateway.post("/chat/incognito", headers=headers, json={
         "message": "What number did I give you?", "auto_search": False,
@@ -321,6 +325,7 @@ def test_pdf_batches_keep_project_and_conversation_instructions(gateway, headers
     def stream(messages, **kwargs):
         captured.append(copy.deepcopy(messages))
         yield {"type": "delta", "data": "Page analysis."}
+        yield {"type": "done", "content": "Page analysis.", "finish_reason": "stop"}
     monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
     response = gateway.post("/chat", headers=headers, json={
         "conversation_id": "chat", "message": "Analyze all pages", "auto_search": False,

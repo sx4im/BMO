@@ -6,7 +6,8 @@ services:
     region: oregon
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 2 -k gthread --threads 8 --timeout 600 --bind 0.0.0.0:$PORT app.main:app
+    # One process leaves memory headroom on Free's 512 MB; keep 8 HTTP threads.
+    startCommand: gunicorn -w 1 -k gthread --threads 8 --timeout 600 --bind 0.0.0.0:$PORT app.main:app
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
@@ -74,6 +75,8 @@ services:
         sync: false
       - key: GROQ_AEON_MODEL
         value: qwen/qwen3.8-27b
+      - key: GROQ_MAX_TOKENS
+        value: "16384"
       # Web Search & Scraping (TinyFish)
       - key: TINYFISH_API_KEY
         sync: false

@@ -16,6 +16,7 @@ from flask import Blueprint, Response, request, stream_with_context
 
 from .. import document_processor, nvidia_client, search_router, skill_service, store
 from ..chat_persistence import TurnWriter
+from ..chat_generation import iter_completed_response
 from ..auth import require_user
 from ..cancellation import register as _register_cancel, signal as _signal_cancel, unregister as _unregister_cancel
 from ..config import (
@@ -36,13 +37,13 @@ from ..prompts import (
     wrap_attachment_content,
 )
 from .helpers import (
-    MODEL_BUSY_REPLY,
     bad_request,
     estimate_tokens,
     friendly_error,
     get_usage_status,
     human_duration,
     is_transient_model_error,
+    model_error_details,
     is_trivial_prompt,
     sse_event,
     user_owns_path,
@@ -52,6 +53,7 @@ from .helpers import (
 logger = logging.getLogger("bmo.routes.chat")
 
 chat_bp = Blueprint("chat_routes", __name__)
+SSE_HEARTBEAT_SECONDS = 15.0
 
 # ---------- PDF batching helpers ----------
 
@@ -571,6 +573,11 @@ def chat(user):
         yield sse_event({"type": "conversation", "data": {k: v for k, v in convo.items() if not str(k).startswith("_")}})
         yield sse_event({"type": "user_message", "data": user_message})
 
+        durable_conversation_id = str(uuid.uuid4()) if convo.get("_new") else convo["id"]
+        durable_user_id = str(uuid.uuid4())
+        durable_assistant_id = str(uuid.uuid4())
+        touch_scheduled = False
+
         def materialize_user_turn():
             nonlocal convo, user_message
             if convo.get("_new"):
@@ -579,11 +586,13 @@ def chat(user):
                     model=convo.get("model") or model,
                     system_prompt=convo.get("system_prompt"),
                     project_id=convo.get("project_id"),
+                    conversation_id=durable_conversation_id,
                 )
             if defer_user_persist:
                 user_message = store.add_message(
                     convo["id"], user.id, role="user", content=message_text,
                     attachments=attachments or None,
+                    message_id=durable_user_id, touch=False,
                     **({"skills": skill_labels} if skill_labels else {}),
                 )
                 sse_queue.put(sse_event({"type": "conversation", "data": convo}))
@@ -593,16 +602,17 @@ def chat(user):
             if previous is None:
                 return store.add_message(
                     convo["id"], user.id, role="assistant", content=nvidia_client.sanitize_reply(content),
-                    reasoning=reasoning or None,
+                    reasoning=reasoning or None, message_id=durable_assistant_id, touch=False,
                 )
             return store.update_assistant_message(
                 convo["id"], user.id, previous["id"], content=nvidia_client.sanitize_reply(content),
-                reasoning=reasoning or None,
+                reasoning=reasoning or None, touch=False,
             )
 
-        writer = None if is_incognito else TurnWriter(materialize_user_turn, write_assistant)
+        writer = None if is_incognito else TurnWriter(materialize_user_turn, write_assistant, retry_safe=True)
         full_reply = ""
         full_reasoning = ""
+        generation_error = None
         finalized = False
         metered = False
 
@@ -610,8 +620,18 @@ def chat(user):
             if writer:
                 writer.submit(full_reply, full_reasoning)
 
+        def record_turn_usage():
+            nonlocal metered
+            if metered or not (full_reply.strip() or full_reasoning.strip()):
+                return
+            metered = True
+            try:
+                store.record_usage(user.id, chosen_friendly, estimate_tokens(message_text, full_reply, full_reasoning))
+            except Exception:
+                logger.exception("usage recording failed for convo=%s", convo.get("id"))
+
         def persist_reply():
-            nonlocal finalized, metered
+            nonlocal finalized, touch_scheduled
             if finalized:
                 return None
             finalized = True
@@ -619,16 +639,14 @@ def chat(user):
             assistant_message = writer.finish(
                 nvidia_client.sanitize_reply(full_reply), full_reasoning,
             ) if writer else None
-            if not metered and (full_reply.strip() or full_reasoning.strip()):
-                metered = True
-                try:
-                    store.record_usage(
-                        user.id, chosen_friendly,
-                        estimate_tokens(message_text, full_reply, full_reasoning),
-                    )
-                except Exception:
-                    # A metering outage cannot invalidate a committed answer.
-                    logger.exception("usage recording failed for convo=%s", convo.get("id"))
+            if assistant_message and not touch_scheduled:
+                touch_scheduled = True
+                def touch_after_commit():
+                    try:
+                        store.touch_conversation(convo["id"], user.id)
+                    except Exception:
+                        logger.warning("message committed but sidebar timestamp update failed convo=%s", convo.get("id"), exc_info=True)
+                threading.Thread(target=touch_after_commit, name="bmo-chat-touch", daemon=True).start()
             return assistant_message
 
         try:
@@ -756,8 +774,9 @@ def chat(user):
                         return
                     streamed = False
                     try:
-                        for ev in nvidia_client.iter_response_with_fallback(
+                        for ev in iter_completed_response(
                             messages_payload,
+                            cancel_event=cancel_event,
                             model=chosen_model,
                             reasoning_effort=reasoning_effort,
                             thinking=use_thinking,
@@ -784,6 +803,10 @@ def chat(user):
                                 full_reasoning += ev["data"]
                                 checkpoint()
                                 yield sse_event({"type": "reasoning_token", "data": {"delta": ev["data"]}})
+                            elif ev["type"] == "inference":
+                                yield sse_event({"type": "inference", "data": {k: v for k, v in ev.items() if k != "type"}})
+                            elif ev["type"] == "generation_status":
+                                yield sse_event(ev)
                             elif ev["type"] == "done":
                                 if not streamed:
                                     delta = ev.get("content") or ""
@@ -821,7 +844,12 @@ def chat(user):
                                 "chat: model %s busy (attempt %d), retrying: %s",
                                 chosen_model, attempt + 1, exc,
                             )
-                            if cancel_event.wait(retry_delays[attempt]):
+                            details = model_error_details(exc)
+                            delay = details.get("retry_after", retry_delays[attempt])
+                            if delay > 5:
+                                generation_error = details
+                                break
+                            if cancel_event.wait(delay):
                                 return
                             continue
                         logger.warning(
@@ -833,16 +861,11 @@ def chat(user):
                         checkpoint()
                         if delta:
                             yield sse_event({"type": "token", "data": {"delta": delta}})
-                        if len(batches) > 1:
-                            error_note = f"\n\n[Part {batch_idx + 1} couldn't be read. {MODEL_BUSY_REPLY}]\n\n"
-                        elif full_reply.strip():
-                            error_note = f"\n\n{MODEL_BUSY_REPLY}"
-                        else:
-                            error_note = MODEL_BUSY_REPLY
-                        full_reply += error_note
-                        checkpoint()
-                        yield sse_event({"type": "token", "data": {"delta": error_note}})
+                        generation_error = model_error_details(exc)
                         break
+                if generation_error:
+                    break
+
 
             # Final pass over the assembled reply: catch highlight.js markup
             # that arrived split across SSE chunks and decode entities the
@@ -850,13 +873,8 @@ def chat(user):
             # title snapshot in one place.
             full_reply = nvidia_client.sanitize_reply(full_reply)
 
-            if not full_reply.strip() and not full_reasoning.strip():
-                full_reply = (
-                    "I received your document but wasn't able to generate a response. "
-                    "Please try asking again."
-                )
-
-            yield sse_event({"type": "complete"})
+            if generation_error is None:
+                yield sse_event({"type": "complete", "finish_reason": "stop"})
 
             assistant_message = persist_reply()
             if is_incognito:
@@ -871,11 +889,18 @@ def chat(user):
                             "reasoning": full_reasoning or None,
                         },
                     })
+                if generation_error:
+                    yield sse_event({"type": "error", **generation_error})
             else:
                 if not assistant_message and (full_reply.strip() or full_reasoning.strip()):
                     yield sse_event({"type": "error", "detail": "Your response could not be fully saved. Please keep this page open and copy it if needed."})
                 if assistant_message:
+                    if generation_error:
+                        assistant_message = {**assistant_message, "generation_status": "incomplete"}
                     yield sse_event({"type": "assistant_message", "data": assistant_message})
+                if generation_error:
+                    yield sse_event({"type": "error", **generation_error})
+                    return
                 # Background enrichment needs the real persisted user message.
                 if writer.error or not writer.message:
                     return
@@ -916,6 +941,7 @@ def chat(user):
             persist_reply()
             if stream_id:
                 _unregister_cancel(cancel_event)
+            record_turn_usage()
             logger.info("chat: generate finished model=%s convo=%s chars=%d in %.3fs", chosen_model, convo.get("id"), len(full_reply), time.time() - t_gen_start)
 
     sse_queue: "queue.Queue" = queue.Queue()
@@ -935,7 +961,11 @@ def chat(user):
     def drain():
         try:
             while True:
-                chunk = sse_queue.get()
+                try:
+                    chunk = sse_queue.get(timeout=SSE_HEARTBEAT_SECONDS)
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+                    continue
                 if chunk is _DONE:
                     break
                 yield chunk

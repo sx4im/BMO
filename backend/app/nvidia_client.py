@@ -23,7 +23,6 @@ import io
 import logging
 import os
 import queue
-import random
 import re
 import threading
 import time
@@ -258,8 +257,9 @@ def generate_image(
     pinned_seed = seed is not None
     attempts = 1 if pinned_seed else 3
     for attempt in range(attempts):
-        use_seed = seed if pinned_seed else random.randint(0, 2_147_483_646)
-        body = {"prompt": prompt, "seed": use_seed, "steps": steps, "width": width, "height": height}
+        # FLUX3 rejects seed as an extra input. Keep the Python argument only
+        # for caller compatibility; generation randomness belongs to the API.
+        body = {"prompt": prompt, "steps": steps, "width": width, "height": height}
         data = _post_image(url, key, body)
 
         finish = _extract_finish_reason(data).upper()
@@ -267,8 +267,8 @@ def generate_image(
         if not b64:
             if "FILTER" in finish:
                 logger.warning(
-                    "image gen filtered with empty payload (attempt %d/%d, finish=%s) model=%s seed=%s",
-                    attempt + 1, attempts, finish or "?", chosen, use_seed,
+                    "image gen filtered with empty payload (attempt %d/%d, finish=%s) model=%s",
+                    attempt + 1, attempts, finish or "?", chosen,
                 )
                 continue
             logger.warning(
@@ -288,8 +288,8 @@ def generate_image(
             return png
 
         logger.warning(
-            "image gen blank/filtered (attempt %d/%d, finish=%s blank=%s) model=%s seed=%s",
-            attempt + 1, attempts, finish or "?", blank, chosen, use_seed,
+            "image gen blank/filtered (attempt %d/%d, finish=%s blank=%s) model=%s",
+            attempt + 1, attempts, finish or "?", blank, chosen,
         )
 
     raise RuntimeError(
@@ -433,68 +433,94 @@ def _coerce_alternating(messages: list[dict]) -> list[dict]:
     return system + merged
 
 
-_SPAN_RE = re.compile(r"</?span\b[^>]*>", re.IGNORECASE)
-
-# A span opener hiding behind HTML entities: &lt;span / &#60;span etc. The
-# optional "amp;" catches the double-escaped "&amp;lt;span" form too.
-_ESCAPED_SPAN_RE = re.compile(r"&(?:amp;|)lt;(?:amp;|)\s*span\b", re.IGNORECASE)
+# Recognize complete span tags; malformed or unmatched markup stays untouched.
+_RAW_SPAN_RE = re.compile(r"""</?span\b(?:[^>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
+_SPAN_RE = re.compile(
+    _RAW_SPAN_RE.pattern + r"|&(?:amp;)*(?:lt|#0*60|#x0*3c);/?span\b.*?&(?:amp;)*(?:gt|#0*62|#x0*3e);",
+    re.IGNORECASE | re.DOTALL,
+)
+_SPAN_ATTR_RE = re.compile(r"""([^\s=<>/]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?""")
 
 
 def sanitize_reply(text: str) -> str:
-    """Final-pass cleaner for COMPLETE assistant replies.
-
-    Runs once over the assembled reply (after SSE chunks are joined back into
-    contiguous markup): strip raw + entity-escaped highlight.js spans. Entities
-    outside deleted spans are never decoded, so legitimate escaped source like
-    ``#include &lt;iostream&gt;`` survives untouched.
-    """
-    if not text:
-        return text
-    return _strip_leaked_highlight_spans(text)
+    """Remove balanced highlight.js wrappers from an assembled reply only."""
+    return _strip_leaked_highlight_spans(text) if text else text
 
 
 def _strip_leaked_highlight_spans(text: str) -> str:
-    """Remove leaked highlight.js span markup — raw and entity-escaped forms.
+    """Preserve source outside proven, balanced hljs serialization regions.
 
-    The upstream model occasionally pastes pre-rendered highlight.js output
-    into its markdown code fences, either as raw HTML or as entity-escaped
-    literal text (&lt;span class=...&gt;). hljs also entity-escapes the code
-    itself (&lt;vector&gt;), so once a leak is PROVEN every remaining entity
-    in the text is treated as highlighter serialization and decoded back to
-    the original source characters. Text without any span evidence is returned
-    byte-identical.
+    An ordinary span (including its matching closing tag), incomplete markup,
+    and unrelated entity escapes are source, not highlighter debris. Explicit
+    hljs classes are the evidence for cleanup; literal examples of those classes
+    remain inherently ambiguous, so only balanced wrappers are recognized.
     """
-    if not text or ("span" not in text.lower() and "&" not in text):
+    if not text or "span" not in text.lower():
         return text
-
-    leaked = False
-    prev = None
-    while prev != text:
-        prev = text
-        stripped = _SPAN_RE.sub("", text)
-        if stripped != text:
-            text = stripped          # removed a raw <span ...> layer
-            leaked = True
+    tokens = []
+    stacks = {}
+    pairs = {}
+    for match in _SPAN_RE.finditer(text):
+        tag = match.group()
+        depth = 0
+        while not tag.startswith("<"):
+            decoded = html.unescape(tag)
+            if decoded == tag:
+                break
+            tag = decoded
+            depth += 1
+        if not _RAW_SPAN_RE.fullmatch(tag):
             continue
-        if _ESCAPED_SPAN_RE.search(text):
-            text = html.unescape(text)  # reveal an entity-escaped layer
-            leaked = True
-            continue
-        break
-
-    if not leaked:
+        index = len(tokens)
+        tokens.append((match.start(), match.end(), depth))
+        stack = stacks.setdefault(depth, [])
+        if tag.startswith("</"):
+            if stack:
+                opener, highlighted = stack.pop()
+                if highlighted:
+                    pairs[opener] = index
+        elif not tag.endswith("/>"):
+            classes = []
+            for attribute in _SPAN_ATTR_RE.finditer(tag[5:-1]):
+                if attribute[1].lower() == "class":
+                    classes = (attribute[2] or "").strip("\"'").split()
+            highlighted = any(c == "hljs" or c.startswith("hljs-") for c in classes)
+            stack.append((index, highlighted))
+    if not pairs:
         return text
-    # Decode whatever the highlighter escaped inside the leaked markup.
-    return html.unescape(text)
+    closers = {closer: opener for opener, closer in pairs.items()}
+    active = {}
+    result = []
+    cursor = 0
+
+    def decode(value):
+        for _ in range(max(active.values(), default=-1) + 1):
+            value = html.unescape(value)
+        return value
+
+    for index, (start, end, depth) in enumerate(tokens):
+        result.append(decode(text[cursor:start]))
+        if index in pairs:
+            active[index] = depth
+        elif index in closers:
+            active.pop(closers[index], None)
+        else:
+            # Preserve raw attributes exactly, even within a highlighter wrapper.
+            result.append(decode(text[start:end]) if depth else text[start:end])
+        cursor = end
+    result.append(decode(text[cursor:]))
+    return "".join(result)
 
 
 def _clean_llm_text(text: str) -> str:
+    return _strip_leaked_highlight_spans(_clean_stream_text(text))
+
+
+def _clean_stream_text(text: str) -> str:
+    """Strip protocol markers without rewriting partially streamed source markup."""
     if not text:
         return ""
-    # Strip channel tokens e.g. <|channel|>thought, <|channel|>, <channel|>
-    text = re.sub(r"<\|channel\|>[a-zA-Z0-9_]*|<\|channel\|>|<channel\|>[a-zA-Z0-9_]*|<channel\|>", "", text)
-    text = _strip_leaked_highlight_spans(text)
-    return text
+    return re.sub(r"<\|channel\|>[a-zA-Z0-9_]*|<\|channel\|>|<channel\|>[a-zA-Z0-9_]*|<channel\|>", "", text)
 
 
 def build_messages_for_vision(
@@ -726,6 +752,7 @@ def iter_response(
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            stream_options={"include_usage": True},
             **kwargs
         )
         t_stream_obj = time.time()
@@ -766,12 +793,24 @@ def iter_response(
     full: list[str] = []
     reasoning_full: list[str] = []
     chunk_count = 0
-    got_finish = False
+    finish_reason = None
+    usage = None
     show_thought_ui = True
 
     try:
         for chunk in stream:
             chunk_count += 1
+            if chunk_count == 1:
+                yield {
+                    "type": "inference",
+                    "provider": "nvidia",
+                    "requested_model": chosen_model,
+                    "reported_model": getattr(chunk, "model", None),
+                    "request_id": getattr(chunk, "id", None),
+                }
+            chunk_usage = getattr(chunk, "usage", None)
+            if chunk_usage is not None:
+                usage = chunk_usage if isinstance(chunk_usage, dict) else chunk_usage.model_dump()
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
@@ -782,19 +821,17 @@ def iter_response(
             delta = getattr(choice.delta, "content", None) if choice.delta else None
             
             if reasoning:
-                clean_reasoning = _clean_llm_text(reasoning)
+                clean_reasoning = _clean_stream_text(reasoning)
                 if clean_reasoning:
                     reasoning_full.append(clean_reasoning)
                     if show_thought_ui:
                         yield {"type": "reasoning_delta", "data": clean_reasoning}
                 
             if delta:
-                delta = _strip_leaked_highlight_spans(delta)
-
                 if "<|channel|>thought" in delta:
                     parts = delta.split("<|channel|>thought", 1)
                     if parts[0]:
-                        p0 = _clean_llm_text(parts[0])
+                        p0 = _clean_stream_text(parts[0])
                         if p0:
                             full.append(p0)
                             yield {"type": "delta", "data": p0}
@@ -805,7 +842,7 @@ def iter_response(
                     if "<|channel|>" in delta:
                         think_part, content_part = delta.split("<|channel|>", 1)
                         if think_part:
-                            tp = _clean_llm_text(think_part)
+                            tp = _clean_stream_text(think_part)
                             if tp:
                                 reasoning_full.append(tp)
                                 if show_thought_ui:
@@ -813,7 +850,7 @@ def iter_response(
                         in_channel_thought = False
                         delta = content_part
                     else:
-                        tp = _clean_llm_text(delta)
+                        tp = _clean_stream_text(delta)
                         if tp:
                             reasoning_full.append(tp)
                             if show_thought_ui:
@@ -823,7 +860,7 @@ def iter_response(
                 if delta and "<think>" in delta:
                     parts = delta.split("<think>", 1)
                     if parts[0]:
-                        p0 = _clean_llm_text(parts[0])
+                        p0 = _clean_stream_text(parts[0])
                         if p0:
                             full.append(p0)
                             yield {"type": "delta", "data": p0}
@@ -834,7 +871,7 @@ def iter_response(
                     if "</think>" in delta:
                         think_part, content_part = delta.split("</think>", 1)
                         if think_part:
-                            tp = _clean_llm_text(think_part)
+                            tp = _clean_stream_text(think_part)
                             if tp:
                                 reasoning_full.append(tp)
                                 if show_thought_ui:
@@ -842,7 +879,7 @@ def iter_response(
                         in_think_tag = False
                         delta = content_part
                     else:
-                        tp = _clean_llm_text(delta)
+                        tp = _clean_stream_text(delta)
                         if tp:
                             reasoning_full.append(tp)
                             if show_thought_ui:
@@ -850,18 +887,17 @@ def iter_response(
                         delta = None
 
             if delta:
-                delta = _clean_llm_text(delta)
+                delta = _clean_stream_text(delta)
                 if delta:
                     full.append(delta)
                     yield {"type": "delta", "data": delta}
                 
             if choice.finish_reason:
-                got_finish = True
+                finish_reason = choice.finish_reason
                 logger.info(
                     "nvidia: finish_reason=%s chunks=%d chars=%d model=%s",
                     choice.finish_reason, chunk_count, len("".join(full)), chosen_model,
                 )
-                break
     except APIStatusError as exc:
         raise RuntimeError(_format_api_error(exc)) from exc
     except (APIConnectionError, APITimeoutError) as exc:
@@ -870,14 +906,25 @@ def iter_response(
         msg = str(exc).strip() or exc.__class__.__name__
         raise RuntimeError(f"Stream interrupted: {msg}") from exc
 
+    finally:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            close()
+
+    if finish_reason is None:
+        raise RuntimeError("NVIDIA stream ended before a finish reason was received.")
     content = "".join(full)
     if not content.strip():
         logger.warning(
             "nvidia: model returned EMPTY content (chunks=%d finish=%s model=%s). "
             "If this is a PDF, the model may have timed out or rejected the image payload.",
-            chunk_count, got_finish, chosen_model,
+            chunk_count, finish_reason, chosen_model,
         )
-    yield {"type": "done", "content": content, "reasoning": "".join(reasoning_full)}
+    yield {
+        "type": "done", "content": content, "reasoning": "".join(reasoning_full),
+        "finish_reason": finish_reason, "usage": usage,
+        "complete": finish_reason == "stop",
+    }
 
 
 def iter_response_with_fallback(
@@ -888,6 +935,7 @@ def iter_response_with_fallback(
     max_tokens: Optional[int] = None,
     reasoning_effort: Optional[str] = None,
     thinking: bool = True,
+    allow_fallback: bool = True,
 ) -> Iterator[dict]:
     """Wraps `iter_response` with automatic fallback to Stanza 2.5 if primary times out."""
     chosen_model = model or default_model()
@@ -940,36 +988,51 @@ def iter_response_with_fallback(
     t.start()
 
     try:
-        kind, first_val = q.get(timeout=first_token_timeout)
-    except queue.Empty:
+        first_token_deadline = time.monotonic() + first_token_timeout
+        try:
+            while True:
+                kind, first_val = q.get(timeout=max(0, first_token_deadline - time.monotonic()))
+                if kind != "data" or first_val.get("type") != "inference":
+                    break
+                # An upstream role/metadata chunk is evidence of a request, but
+                # does not satisfy the existing first-answer-token deadline.
+                yield first_val
+        except queue.Empty:
+            stop_event.set()
+            kind, first_val = "timeout", f"No token within {int(first_token_timeout)}s"
+
+        if kind == "data":
+            yield first_val
+            while True:
+                k, v = q.get()
+                if k == "end":
+                    break
+                if k == "error":
+                    raise v
+                if k == "data":
+                    yield v
+            return
+
+        if not allow_fallback:
+            if kind == "error":
+                raise first_val
+            raise TimeoutError(str(first_val or "Model ended before the first answer token"))
+
+        logger.warning(
+            "nvidia: primary model %s failed first-token check (%s). Auto-switching to Stanza 2.5 (%s)...",
+            chosen_model, first_val, stanza_model
+        )
+
+        yield from iter_response(
+            messages,
+            model=stanza_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            thinking=thinking,
+        )
+    finally:
         stop_event.set()
-        kind, first_val = "timeout", f"No token within {int(first_token_timeout)}s"
-
-    if kind == "data":
-        yield first_val
-        while True:
-            k, v = q.get()
-            if k == "end":
-                break
-            if k == "error":
-                raise v
-            if k == "data":
-                yield v
-        return
-
-    logger.warning(
-        "nvidia: primary model %s failed first-token check (%s). Auto-switching to Stanza 2.5 (%s)...",
-        chosen_model, first_val, stanza_model
-    )
-
-    yield from iter_response(
-        messages,
-        model=stanza_model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        reasoning_effort=reasoning_effort,
-        thinking=thinking,
-    )
 
 
 def complete(

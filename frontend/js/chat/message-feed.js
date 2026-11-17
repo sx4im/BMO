@@ -16,10 +16,10 @@
 import { el, clear } from "../utils.js?v=30";
 import { readingOrb } from "../components/orb.js?v=3";
 import { searchCard } from "../components/search-card.js?v=4";
-import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=34";
-import { messageBubble, reasoningDetails } from "../components/message.js?v=78";
-import { EXPORT_FORMATS, downloadBlob } from "../export.js?v=4";
-import { StreamingRenderer } from "./stream-renderer.js?v=14";
+import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=35";
+import { messageBubble, reasoningDetails } from "../components/message.js?v=79";
+import { EXPORT_FORMATS, downloadBlob } from "../export.js?v=5";
+import { StreamingRenderer } from "./stream-renderer.js?v=15";
 import { stripStrayCursors } from "./caret.js?v=1";
 import { ScrollFollower } from "./scroll-follower.js?v=5";
 import { getGreeting, getRandomGreetingTemplate, getPageGreetingTemplate, getFirstName } from "./greetings.js?v=4";

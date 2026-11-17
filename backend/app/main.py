@@ -135,12 +135,16 @@ app = create_app()
 if supabase_client.is_configured():
     threading.Thread(target=prewarm_jwks, name="bmo-jwks-prewarm", daemon=True).start()
 
-# Run a one-time API test on import
+# Log configured providers without issuing inference during application boot.
 if groq_client.is_configured():
     logger.info("Groq key fingerprint: %s (model=%s)", groq_client.api_key_fingerprint(), groq_client.default_model())
 
 if nvidia_client.is_configured():
     logger.info("NVIDIA key fingerprint: %s", nvidia_client.api_key_fingerprint())
+
+# Operators can opt into an explicit probe. Default boot/readiness never spends
+# completion quota or blocks a cold start on a slow/decommissioned model.
+if os.environ.get("BMO_MODEL_STARTUP_PROBE") == "1":
     try:
         test_result = nvidia_client.test_call()
         if test_result.get("ok"):

@@ -34,6 +34,7 @@ def test_assistant_draft_and_saved_ids_arrive_before_model_finishes(gateway, hea
         model_waiting.set()
         release.wait(3)
         yield {"type": "delta", "data": " complete"}
+        yield {"type": "done", "content": "First draft complete", "finish_reason": "stop"}
 
     monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
     response = gateway.post("/chat", headers=headers, json={"message": "Explain", "auto_search": False}, buffered=False)
@@ -69,7 +70,7 @@ def test_blocked_user_write_does_not_delay_first_token(gateway, headers, db, mon
         return original(*a, **k)
 
     monkeypatch.setattr(store, "add_message", blocked)
-    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "Immediate"}]))
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "Immediate"}, {"type": "done", "content": "Immediate", "finish_reason": "stop"}]))
     started = time.monotonic()
     response = gateway.post("/chat", headers=headers, json={"message": "Explain", "auto_search": False}, buffered=False)
     try:
@@ -165,6 +166,7 @@ def test_reasoning_is_durable_before_content_and_final_remains_reasoning_only(ga
     def stream(*a, **k):
         yield {"type": "reasoning_delta", "data": "Reasoning without answer"}
         assert draft_saved.wait(1)
+        yield {"type": "done", "content": "", "reasoning": "Reasoning without answer", "finish_reason": "stop"}
 
     monkeypatch.setattr(store, "add_message", add)
     monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
@@ -206,6 +208,7 @@ def test_failed_final_update_is_visible_and_never_claimed_saved(gateway, headers
         yield {"type": "delta", "data": "Durable draft"}
         assert draft_saved.wait(1)
         yield {"type": "delta", "data": " final"}
+        yield {"type": "done", "content": "Durable draft final", "finish_reason": "stop"}
 
     monkeypatch.setattr(store, "add_message", add)
     monkeypatch.setattr(store, "update_assistant_message", lambda *a, **k: (_ for _ in ()).throw(ConnectionError("database down")))
@@ -233,7 +236,7 @@ def test_complete_precedes_bounded_final_flush_and_saved_ack(gateway, headers, d
         return original(*a, **k)
 
     monkeypatch.setattr(store, "add_message", blocked)
-    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "Immediate"}]))
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "Immediate"}, {"type": "done", "content": "Immediate", "finish_reason": "stop"}]))
     started = time.monotonic()
     response = gateway.post("/chat", headers=headers, json={"message": "Explain", "auto_search": False})
     try:
@@ -261,6 +264,7 @@ def test_usage_failure_still_closes_writer_with_final_snapshot(gateway, headers,
         yield {"type": "delta", "data": "First"}
         assert saved_draft.wait(1)
         yield {"type": "delta", "data": " final"}
+        yield {"type": "done", "content": "First final", "finish_reason": "stop"}
 
     monkeypatch.setattr(store, "add_message", add)
     monkeypatch.setattr(store, "record_usage", lambda *a: (_ for _ in ()).throw(ConnectionError("meter unavailable")))
@@ -319,7 +323,7 @@ def test_model_error_preserves_partial_and_final_saved_ack(gateway, headers, db,
 
 def test_user_persistence_failure_streams_answer_without_false_saved_ids(gateway, headers, db, monkeypatch):
     monkeypatch.setattr(store, "add_message", lambda *a, **k: (_ for _ in ()).throw(ConnectionError("database unavailable")))
-    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "Visible answer"}]))
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "Visible answer"}, {"type": "done", "content": "Visible answer", "finish_reason": "stop"}]))
     response = gateway.post("/chat", headers=headers, json={"message": "Explain", "auto_search": False})
     received = list(events(response))
     assert any(e["type"] == "token" and e["data"]["delta"] == "Visible answer" for e in received)
@@ -331,7 +335,7 @@ def test_user_persistence_failure_streams_answer_without_false_saved_ids(gateway
 
 
 def test_incognito_reasoning_only_keeps_response_without_message_writes(gateway, headers, db, monkeypatch):
-    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "reasoning_delta", "data": "Private reasoning"}]))
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "reasoning_delta", "data": "Private reasoning"}, {"type": "done", "content": "", "finish_reason": "stop", "reasoning": "Private reasoning"}]))
     response = gateway.post("/chat/incognito", headers=headers, json={"message": "Explain", "auto_search": False})
     received = list(events(response))
     assistant = next((e["data"] for e in received if e["type"] == "assistant_message"), None)
@@ -354,7 +358,7 @@ def test_slow_successful_save_is_acknowledged_after_the_old_two_second_deadline(
         return result
 
     monkeypatch.setattr(store, "add_message", delayed)
-    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "A complete answer"}]))
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", lambda *a, **k: iter([{"type": "delta", "data": "A complete answer"}, {"type": "done", "content": "A complete answer", "finish_reason": "stop"}]))
     started = time.monotonic()
     response = gateway.post("/chat", headers=headers, json={"message": "Explain", "auto_search": False}, buffered=False)
     received = []

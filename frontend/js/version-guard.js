@@ -12,8 +12,8 @@
  * no-store, every cold load sees the freshest id. This module remembers
  * the id it booted with, periodically re-fetches "/" with caching
  * disabled, and if the served id is NEWER, reloads the page — but only
- * when the app is idle (tab visible AND no stream painting), so a
- * response is never interrupted mid-generation.
+ * when the app is idle (tab visible, no stream painting, and the mounted
+ * page allows it), preserving drafts and other unfinished work.
  */
 
 const CHECK_INTERVAL_MS = 90 * 1000;
@@ -53,7 +53,7 @@ async function checkForNewerBuild() {
     if (!served || !BOOT_BUILD_ID) return;
     if (served <= BOOT_BUILD_ID) return;
 
-    if (document.hidden || streamInProgress()) {
+    if (document.hidden || streamInProgress() || !window.dispatchEvent(new Event("bmo:before-reload", { cancelable: true }))) {
       // Busy — defer; the next tick retries until the app is quiet.
       console.info(`[version-guard] build ${served} available; waiting for idle to reload`);
       return;

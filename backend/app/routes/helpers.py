@@ -54,10 +54,47 @@ _TRANSIENT_MODEL_ERRORS = (
 )
 
 
+def model_error_details(exc: Exception) -> dict:
+    """Public error state without leaking provider payloads or credentials."""
+    if getattr(exc, "code", None) in {"output_limit", "model_incomplete", "empty_response", "model_connection"}:
+        return {"code": exc.code, "detail": str(exc), "retryable": bool(getattr(exc, "retryable", False))}
+    cause = exc
+    seen = set()
+    status = None
+    retry_after = None
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        status = getattr(cause, "status_code", None) or status
+        response = getattr(cause, "response", None)
+        headers = getattr(response, "headers", {})
+        try:
+            if headers.get("retry-after") is not None:
+                retry_after = max(0.0, float(headers["retry-after"]))
+        except (TypeError, ValueError):
+            pass
+        cause = cause.__cause__
+    lower = str(exc).lower()
+    if status == 429 or "rate limit" in lower or "429" in lower:
+        result = {"code": "rate_limited", "detail": "The model's rate limit was reached. Please retry after a short wait.", "retryable": True}
+    elif status in (401, 403, 404) or any(word in lower for word in ("api_key", "authentication failed", "not configured")):
+        result = {"code": "model_unavailable", "detail": "This model is unavailable. Please choose another model.", "retryable": False}
+    elif status in (400, 413, 422):
+        result = {"code": "model_request", "detail": "The model could not accept this request. Try reducing the input or attachments.", "retryable": False}
+    elif status in (408, 504) or "timeout" in lower or "timed out" in lower:
+        result = {"code": "model_timeout", "detail": "The model did not respond in time. Your received content has been kept.", "retryable": True}
+    elif status in (500, 502, 503) or any(word in lower for word in ("unavailable", "overloaded", "resourceexhausted")):
+        result = {"code": "model_unavailable", "detail": "The model service is temporarily unavailable. Please retry shortly.", "retryable": True}
+    else:
+        result = {"code": "model_connection", "detail": "The model connection was interrupted. Your received content has been kept.",
+                  "retryable": isinstance(exc, (ConnectionError, TimeoutError)) or any(marker in lower for marker in _TRANSIENT_MODEL_ERRORS)}
+    if retry_after is not None:
+        result["retry_after"] = retry_after
+    return result
+
+
 def is_transient_model_error(exc: Exception) -> bool:
-    """True for provider capacity/network blips that are worth retrying."""
-    lower = (str(exc) or exc.__class__.__name__).lower()
-    return any(marker in lower for marker in _TRANSIENT_MODEL_ERRORS)
+    """True only for provider capacity/network errors worth a bounded retry."""
+    return model_error_details(exc)["retryable"]
 
 
 def estimate_tokens(*texts: str) -> int:

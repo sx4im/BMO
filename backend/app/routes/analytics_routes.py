@@ -9,7 +9,6 @@ import os
 from flask import Blueprint, jsonify, request, send_file
 
 from .. import nvidia_client, store, supabase_client
-from ..analytics import build_summary, ratings_chart_png
 from ..auth import require_user
 from ..config import is_deepgram_configured
 from .helpers import bad_request, friendly_error
@@ -19,12 +18,26 @@ logger = logging.getLogger("bmo.routes.analytics")
 analytics_bp = Blueprint("analytics_routes", __name__)
 
 
+def build_summary(rows):
+    # Keep report helpers patchable without loading pandas during chat startup.
+    from ..analytics import build_summary as summarize
+
+    return summarize(rows)
+
+
+def ratings_chart_png(rows):
+    from ..analytics import ratings_chart_png as render_chart
+
+    return render_chart(rows)
+
+
 # ---------- Health Check ----------
 
 @analytics_bp.get("/health")
 def health():
     return jsonify({
         "status": "ok",
+        "backend_revision": os.getenv("RENDER_GIT_COMMIT") or None,
         "store": "supabase" if supabase_client.is_configured() else "unconfigured",
         "models": "configured" if nvidia_client.is_configured() else "unconfigured",
         "image_model": nvidia_client.image_model(),

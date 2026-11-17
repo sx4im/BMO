@@ -13,6 +13,7 @@
 const routes = [];
 const listeners = new Set();
 let unmount = null;
+let navigation = null;
 
 export function defineRoute(pattern, handler) {
   routes.push({ pattern, handler });
@@ -53,6 +54,7 @@ function matchPattern(pattern, hash) {
 function findRoute(hash) {
   const clean = (hash.split("?")[0] || "").replace(/\/+$/, "") || "#/";
   for (const route of routes) {
+    if (route.pattern === "*") continue;
     const params = matchPattern(route.pattern, hash) ?? matchPattern(route.pattern, clean);
     if (params != null) return { route, params };
   }
@@ -60,24 +62,28 @@ function findRoute(hash) {
 }
 
 export async function dispatch() {
+  navigation?.abort();
+  const owner = new AbortController();
+  navigation = owner;
+  const previousUnmount = unmount;
+  unmount = null;
+  if (typeof previousUnmount === "function") {
+    try { previousUnmount(); } catch (err) { console.warn("Router unmount error:", err); }
+  }
   const { hash } = getRoute();
   for (const fn of listeners) fn({ hash });
+  if (owner.signal.aborted) return;
   const found = findRoute(hash);
-  if (!found) {
-    // Fallback to the 404 route (registered last via `*`).
-    const wildcard = routes.find((r) => r.pattern === "*");
-    if (wildcard) {
-      if (typeof unmount === "function") {
-        try { unmount(); } catch (err) { console.warn("Router unmount error:", err); }
-      }
-      unmount = await wildcard.handler({});
+  const route = found?.route || routes.find(r => r.pattern === "*");
+  if (!route) return;
+  const cleanup = await route.handler(found?.params || {}, { signal: owner.signal });
+  if (owner.signal.aborted) {
+    if (typeof cleanup === "function") {
+      try { cleanup(); } catch (err) { console.warn("Router unmount error:", err); }
     }
     return;
   }
-  if (typeof unmount === "function") {
-    try { unmount(); } catch (err) { console.warn("Router unmount error:", err); }
-  }
-  unmount = await found.route.handler(found.params);
+  unmount = cleanup;
 }
 
 export function startRouter() {

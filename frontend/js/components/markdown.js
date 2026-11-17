@@ -175,8 +175,9 @@ function decorateCodeBlocks(html) {
 // Runs on every render, which also heals old messages already stored with
 // leaked markup. Mirrors backend nvidia_client._strip_leaked_highlight_spans.
 // ---------------------------------------------------------------------------
-const HLJS_SPAN_RE = /<\/?span\b[^>]*>/gi;
-const HLJS_ESCAPED_SPAN_RE = /&(?:amp;|)lt;(?:amp;|)\s*span\b/i;
+const RAW_SPAN_SOURCE = String.raw`<\/?span\b(?:[^>"']|"[^"]*"|'[^']*')*>`;
+const RAW_SPAN_RE = new RegExp(`^${RAW_SPAN_SOURCE}$`, "i");
+const SPAN_SOURCE = RAW_SPAN_SOURCE + String.raw`|&(?:amp;)*(?:lt|#0*60|#x0*3c);\/?span\b.*?&(?:amp;)*(?:gt|#0*62|#x0*3e);`;
 
 function decodeEntities(text) {
   const el = document.createElement("textarea");
@@ -185,29 +186,54 @@ function decodeEntities(text) {
 }
 
 function stripLeakedHighlightSpans(text) {
-  if (!text || (text.toLowerCase().indexOf("span") === -1 && text.indexOf("&") === -1)) {
-    return text;
-  }
-  let leaked = false;
-  let prev = null;
-  while (prev !== text) {
-    prev = text;
-    const stripped = text.replace(HLJS_SPAN_RE, "");
-    if (stripped !== text) {
-      text = stripped;          // removed a raw <span ...> layer
-      leaked = true;
-      continue;
+  if (!text || !text.toLowerCase().includes("span")) return text;
+  // Pair every span at its serialization depth. Ordinary and unmatched tags
+  // are source; only balanced wrappers with an explicit hljs class are debris.
+  const tokens = [], stacks = new Map(), pairs = new Map();
+  for (const match of text.matchAll(new RegExp(SPAN_SOURCE, "gis"))) {
+    let tag = match[0], depth = 0;
+    while (!tag.startsWith("<")) {
+      const decoded = decodeEntities(tag);
+      if (decoded === tag) break;
+      tag = decoded;
+      depth++;
     }
-    if (HLJS_ESCAPED_SPAN_RE.test(text)) {
-      text = decodeEntities(text); // reveal an entity-escaped layer
-      leaked = true;
-      continue;
+    if (!RAW_SPAN_RE.test(tag)) continue;
+    const index = tokens.length;
+    tokens.push({ start: match.index, end: match.index + match[0].length, depth });
+    if (!stacks.has(depth)) stacks.set(depth, []);
+    const stack = stacks.get(depth);
+    if (tag.startsWith("</")) {
+      const opener = stack.pop();
+      if (opener?.highlighted) pairs.set(opener.index, index);
+    } else if (!tag.endsWith("/>")) {
+      let classes = [];
+      for (const attr of tag.slice(5, -1).matchAll(/([^\s=<>/]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g)) {
+        if (attr[1].toLowerCase() === "class") classes = (attr[2] || "").replace(/^["']|["']$/g, "").split(/\s+/);
+      }
+      const highlighted = classes.some(name => name === "hljs" || name.startsWith("hljs-"));
+      stack.push({ index, highlighted });
     }
-    break;
   }
-  if (!leaked) return text;
-  // Decode whatever the highlighter escaped inside the leaked markup.
-  return decodeEntities(text);
+  if (!pairs.size) return text;
+  const closers = new Map([...pairs].map(([opener, closer]) => [closer, opener]));
+  const active = new Map(), result = [];
+  let cursor = 0;
+  const decode = value => {
+    const depth = Math.max(-1, ...active.values());
+    for (let layer = 0; layer <= depth; layer++) value = decodeEntities(value);
+    return value;
+  };
+  tokens.forEach(({ start, end, depth }, index) => {
+    result.push(decode(text.slice(cursor, start)));
+    if (pairs.has(index)) active.set(index, depth);
+    else if (closers.has(index)) active.delete(closers.get(index));
+    // Raw ordinary attributes remain byte-identical inside highlighted regions.
+    else result.push(depth ? decode(text.slice(start, end)) : text.slice(start, end));
+    cursor = end;
+  });
+  result.push(decode(text.slice(cursor)));
+  return result.join("");
 }
 
 // Re-exported for consumers that handle raw message text outside the render

@@ -4,12 +4,13 @@ import { getAuth } from "../auth.js";
 import { mountAppShell } from "../app-shell.js";
 import * as api from "../api.js?v=64";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
-import { downloadBlob } from "../export.js?v=4";
+import { downloadBlob } from "../export.js?v=5";
 
-export async function renderCustomize() {
+export async function renderCustomize(_params, { signal } = {}) {
   const { auth } = getAuth();
   if (!auth) return;
   const shell = await mountAppShell();
+  if (signal?.aborted) return;
   shell.setActiveConversation(null);
   shell.setIncognitoActive?.(false);
   const page = el("div", { class: "page-shell customize-page" });

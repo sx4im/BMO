@@ -12,13 +12,13 @@ import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { openShareModal } from "../components/share-modal.js?v=3";
 import { openMoveChatModal } from "./projects.js";
-import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=34";
+import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=35";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=67";
-import * as api from "../api.js?v=66";
+import * as api from "../api.js?v=69";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=40";
-import { MessageFeed } from "../chat/message-feed.js?v=47";
-import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=14";
+import { MessageFeed } from "../chat/message-feed.js?v=48";
+import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=16";
 import {
   detectExportIntent,
   buildCanonicalMarkdown,
@@ -26,7 +26,7 @@ import {
   downloadBlob,
   buildClientDocxBlob,
   printDocumentToPdf,
-} from "../export.js?v=4";
+} from "../export.js?v=5";
 
 
 
@@ -62,13 +62,14 @@ function buildScrapeContext(scrapedItems, originalMessage) {
   );
 }
 
-export async function renderChat({ id, incognito }) {
+export async function renderChat({ id, incognito }, { signal } = {}) {
   const { auth } = getAuth();
   if (!auth) {
     navigate("#/", { replace: true });
     return;
   }
   const shell = await mountAppShell();
+  if (signal?.aborted) return;
   shell.setActiveConversation(id || null);
 
   const host = shell.content;
@@ -92,6 +93,9 @@ export async function renderChat({ id, incognito }) {
   let searchCardData = null;
   let imageGenerating = false;
   let imagePollTimer = null;
+  let imageRequest = null;
+  let imagePoll = null;
+  let submitRevision = 0;
   let voiceHandle = null;
   let activeVoiceOnDelta = null;
   let activeVoiceOnSearch = null;
@@ -583,10 +587,11 @@ export async function renderChat({ id, incognito }) {
       loadConversations();
     },
     onError: (err, partial) => {
+      if (unmounted) return;
       if (partial?.content?.trim() || partial?.reasoning?.trim()) {
         messages.push({ id: `unsaved_${uid()}`, role: "assistant", ...partial, unsaved: true });
       }
-      toast(err.message || "Couldn't connect", { tone: "error" });
+      if (err?.name !== "AbortError") toast(err.message || "Couldn't connect", { tone: "error" });
       composer.isGenerating = false;
       composer.syncSendEnabled();
       renderUI();
@@ -598,8 +603,15 @@ export async function renderChat({ id, incognito }) {
   const composer = new Composer({
     onSubmit: (turn) => handleComposerSubmit(turn),
     onStop: () => {
+      ++submitRevision;
       pageFetchController?.abort();
       streamHandler.cancel();
+      composer.isGenerating = false;
+      searching = false;
+      searchPreamble = "";
+      searchCardData = null;
+      composer.syncSendEnabled();
+      renderUI();
     },
     onOpenVoiceAssistant: () => openVoiceMode(),
     onModelChange: async (model) => {
@@ -809,8 +821,10 @@ export async function renderChat({ id, incognito }) {
       messages = [];
       return;
     }
+    const conversationId = id;
     try {
-      const data = await api.getMessages(auth.token, id);
+      const data = await api.getMessages(auth.token, conversationId);
+      if (unmounted || id !== conversationId) return;
       conversation = data?.conversation || null;
       if (conversation?.project_id) {
         activeProjectId = conversation.project_id;
@@ -824,6 +838,7 @@ export async function renderChat({ id, incognito }) {
         pollForImageResult();
       }
     } catch (err) {
+      if (unmounted || id !== conversationId) return;
       if (err?.status === 404) {
         toast("Conversation not found", { tone: "error" });
         navigate("#/app/chat", { replace: true });
@@ -834,6 +849,8 @@ export async function renderChat({ id, incognito }) {
   }
 
   async function handleComposerSubmit(turn) {
+    const revision = ++submitRevision;
+    const ownsSubmit = () => !unmounted && revision === submitRevision;
     const { text, attachments, model, reasoningEffort, autoSearch = true, systemPrompt } = turn;
     const skills = turn.skills || composer.skillPicker.selected;
     composer.skillPicker.setSelected([]);
@@ -925,13 +942,16 @@ export async function renderChat({ id, incognito }) {
       } catch (err) {
         console.warn("web scraping failed:", err.message);
       } finally {
-        searching = false;
-        searchVariant = "search";
+        if (ownsSubmit()) {
+          searching = false;
+          searchVariant = "search";
+        }
       }
     }
 
     if (pageFetchController === fetchController) pageFetchController = null;
-    if (fetchController.signal.aborted || unmounted) {
+    if (!ownsSubmit()) return;
+    if (fetchController.signal.aborted) {
       composer.isGenerating = false;
       composer.syncSendEnabled();
       if (!unmounted) renderUI();
@@ -962,10 +982,12 @@ export async function renderChat({ id, incognito }) {
         onVoiceStyle: data => activeVoiceOnStyle?.(data?.tone),
       });
     } catch (err) {
+      if (!ownsSubmit()) return;
       if (err?.name !== "AbortError" && !messages.at(-1)?.unsaved) {
         messages = messages.filter((x) => x.id !== optimisticUser.id);
       }
     } finally {
+      if (!ownsSubmit()) return;
       // The preamble belongs to the live turn only. The card has normally been
       // handed to the assistant message by now; this clears it after a turn
       // that ended without one (error or abort).
@@ -997,6 +1019,10 @@ export async function renderChat({ id, incognito }) {
     messageFeed.scrollToBottom();
 
     const controller = new AbortController();
+    imageRequest?.abort();
+    imageRequest = controller;
+    const conversationId = id;
+    const ownsImage = () => !unmounted && imageRequest === controller && id === conversationId;
     const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
@@ -1007,6 +1033,7 @@ export async function renderChat({ id, incognito }) {
         attachments,
       }, controller.signal);
 
+      if (!ownsImage()) return;
       if (res?.conversation) {
         conversation = res.conversation;
         if (!id) {
@@ -1023,10 +1050,13 @@ export async function renderChat({ id, incognito }) {
         enteringId = res.assistant_message.id;
       }
     } catch (err) {
+      if (!ownsImage()) return;
       messages = messages.filter((x) => x.id !== optimisticUser.id);
       toast(err.message || "Couldn't create image.", { tone: "error" });
     } finally {
       clearTimeout(timeoutId);
+      if (unmounted || imageRequest !== controller) return;
+      imageRequest = null;
       imageGenerating = false;
       composer.isImageGenerating = false;
       composer.syncSendEnabled();
@@ -1044,42 +1074,47 @@ export async function renderChat({ id, incognito }) {
   }
 
   function pollForImageResult() {
-    if (!id || imagePollTimer || unmounted) return;
+    if (!id || imagePoll || unmounted) return;
+    const poll = { conversationId: id, controller: new AbortController(), deadline: null };
+    imagePoll = poll;
+    const ownsPoll = () => !unmounted && imagePoll === poll && id === poll.conversationId;
     imageGenerating = true;
     composer.isImageGenerating = true;
     composer.syncSendEnabled();
     renderUI();
-
-    const started = Date.now();
-    imagePollTimer = setInterval(async () => {
-      if (Date.now() - started > 120000) {
-        clearInterval(imagePollTimer);
-        imagePollTimer = null;
-        imageGenerating = false;
-        composer.isImageGenerating = false;
-        composer.syncSendEnabled();
-        renderUI();
-        return;
-      }
+    const finish = () => {
+      if (!ownsPoll()) return;
+      clearTimeout(poll.deadline);
+      clearTimeout(imagePollTimer);
+      poll.controller.abort();
+      imagePoll = null;
+      imagePollTimer = null;
+      imageGenerating = false;
+      composer.isImageGenerating = false;
+      composer.syncSendEnabled();
+      renderUI();
+    };
+    const tick = async () => {
+      if (!ownsPoll()) return;
       try {
-        const data = await api.getMessages(auth.token, id);
+        const data = await api.getMessages(auth.token, poll.conversationId, poll.controller.signal);
+        if (!ownsPoll()) return;
         const msgs = Array.isArray(data?.messages) ? data.messages : [];
         const last = msgs[msgs.length - 1];
-        if (last && last.role === "assistant") {
-          clearInterval(imagePollTimer);
-          imagePollTimer = null;
+        if (last?.role === "assistant") {
           conversation = data.conversation || conversation;
           messages = msgs;
           enteringId = last.id;
-          imageGenerating = false;
-          composer.isImageGenerating = false;
           composer.renderModelBadge(incognito);
-          composer.syncSendEnabled();
-          renderUI();
+          finish();
           loadConversations();
+          return;
         }
       } catch {}
-    }, 3000);
+      if (ownsPoll()) imagePollTimer = setTimeout(tick, 3000);
+    };
+    poll.deadline = setTimeout(finish, 120000);
+    imagePollTimer = setTimeout(tick, 3000);
   }
 
   async function branchBeforeMessage(message) {
@@ -1168,6 +1203,42 @@ export async function renderChat({ id, incognito }) {
     }
   }
 
+  function findSavedReply(message, stored) {
+    const index = messages.findIndex(m => m.id === message.id);
+    if (index < 0) return null;
+    const question = messages.slice(0, index).findLast(m => m.role === "user");
+    const questionIndex = stored.findIndex(m => m.id === question?.id);
+    const reply = questionIndex >= 0 ? stored[questionIndex + 1] : null;
+    return reply?.id && reply.role === "assistant" && reply.content?.trim() === message.content?.trim() ? reply : null;
+  }
+
+  async function reconcileUnsavedReplies() {
+    const pending = messages.filter(m => m.unsaved);
+    if (reconciling || unmounted || incognito || !id || !pending.length) return;
+    const conversationId = id;
+    reconciling = true;
+    try {
+      const data = await api.getMessages(auth.token, conversationId);
+      if (unmounted || id !== conversationId || getAuth().auth?.user?.id !== auth.user?.id) return;
+      const stored = Array.isArray(data?.messages) ? data.messages : [];
+      let changed = false;
+      for (const message of pending) {
+        const index = messages.indexOf(message);
+        if (index < 0) continue;
+        const reply = findSavedReply(message, stored);
+        if (!reply) continue;
+        if (messages.some(m => m.id === reply.id)) messages.splice(index, 1);
+        else messages[index] = { ...message, ...reply, unsaved: false };
+        changed = true;
+      }
+      if (changed) renderUI();
+    } catch (err) {
+      console.warn("Could not confirm saved replies:", err.message);
+    } finally {
+      reconciling = false;
+    }
+  }
+
   async function handleMessageFeedback(message, sentiment) {
     try {
       if (message.unsaved) {
@@ -1177,9 +1248,8 @@ export async function renderChat({ id, incognito }) {
         const data = conversationId && question ? await api.getMessages(auth.token, conversationId) : null;
         if (unmounted || id !== conversationId || messages[index]?.id !== message.id) return;
         const stored = Array.isArray(data?.messages) ? data.messages : [];
-        const questionIndex = stored.findIndex(m => m.id === question?.id);
-        const reply = questionIndex >= 0 ? stored[questionIndex + 1] : null;
-        if (!reply?.id || reply.role !== "assistant" || reply.content?.trim() !== message.content?.trim()) {
+        const reply = findSavedReply(message, stored);
+        if (!reply) {
           toast("This reply is still saving. Please try again in a moment.");
           return;
         }
@@ -1202,6 +1272,16 @@ export async function renderChat({ id, incognito }) {
   }
 
   function resetToNewConversation() {
+    imageRequest?.abort();
+    imageRequest = null;
+    clearTimeout(imagePoll?.deadline);
+    imagePoll?.controller.abort();
+    imagePoll = null;
+    clearTimeout(imagePollTimer);
+    imagePollTimer = null;
+    imageGenerating = false;
+    composer.isImageGenerating = false;
+    composer.syncSendEnabled();
     clearTitleRefreshes();
     id = null;
     conversation = null;
@@ -1269,29 +1349,19 @@ export async function renderChat({ id, incognito }) {
       streamHandler.hiddenBuffer = [];
       messageFeed.updateStreamingBubble(streamHandler.streamingText, streamHandler.streamingReasoning);
     }
-    if (streamHandler.isStreaming && id && streamHandler.controller?.signal.aborted) {
-      if (reconciling || !id) return;
-      reconciling = true;
-      try {
-        const data = await api.getMessages(auth.token, id);
-        const serverMsgs = Array.isArray(data?.messages) ? data.messages : null;
-        if (serverMsgs && serverMsgs.length) {
-          const lastServer = serverMsgs[serverMsgs.length - 1];
-          if (lastServer.role === "assistant") {
-            conversation = data.conversation || conversation;
-            messages = serverMsgs;
-            streamHandler.cleanup();
-            composer.isGenerating = false;
-            composer.syncSendEnabled();
-            renderUI();
-          }
-        }
-      } finally {
-        reconciling = false;
-      }
-    }
+    await reconcileUnsavedReplies();
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
+  window.addEventListener("online", reconcileUnsavedReplies);
+
+  // The deploy guard asks the mounted page before discarding local work.
+  const beforeReload = event => {
+    if (voiceHandle || branching || imageGenerating || streamHandler.isStreaming ||
+        composer.isGenerating || composer.isImageGenerating || composer.dictation || composer.isRecording ||
+        composer.textarea.value.trim() || composer.pendingAttachments.length || composer.uploadingFiles.length ||
+        messages.some(message => message.unsaved)) event.preventDefault();
+  };
+  window.addEventListener("bmo:before-reload", beforeReload);
 
   // Initial load
   async function loadSkills() {
@@ -1332,8 +1402,15 @@ export async function renderChat({ id, incognito }) {
 
   return () => {
     unmounted = true;
+    window.removeEventListener("bmo:before-reload", beforeReload);
     clearTitleRefreshes();
-    if (imagePollTimer) { clearInterval(imagePollTimer); imagePollTimer = null; }
+    ++submitRevision;
+    imageRequest?.abort();
+    imageRequest = null;
+    clearTimeout(imagePoll?.deadline);
+    imagePoll?.controller.abort();
+    imagePoll = null;
+    if (imagePollTimer) { clearTimeout(imagePollTimer); imagePollTimer = null; }
     messageFeed.unmountScrollFollower();
     pageFetchController?.abort();
     streamHandler.cancel();
@@ -1345,6 +1422,7 @@ export async function renderChat({ id, incognito }) {
     document.removeEventListener("click", onDocClickConvoMenu);
     document.removeEventListener("pointerdown", handleUniversalFocus);
     document.removeEventListener("visibilitychange", onVisibilityChange);
+    window.removeEventListener("online", reconcileUnsavedReplies);
     window.removeEventListener("bmo:conversations-updated", onConversationsUpdated);
   };
 }

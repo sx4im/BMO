@@ -112,10 +112,11 @@ async function renderUsageInto(host, token) {
   );
 }
 
-export async function renderSettings() {
+export async function renderSettings(_params, { signal } = {}) {
   const { auth } = getAuth();
 
   const shell = await mountAppShell();
+  if (signal?.aborted) return;
   shell.setActiveConversation(null);
   shell.setIncognitoActive?.(false);
   const host = shell.content;

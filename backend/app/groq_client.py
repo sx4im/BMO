@@ -143,7 +143,8 @@ def iter_response(
 ) -> Iterator[dict]:
     """Stream completions from Groq.
 
-    Yields {"type": "delta", "data": str} for each incoming token chunk,
+    Yields upstream "inference" metadata once, then
+    {"type": "delta", "data": str} for each incoming token chunk,
     then {"type": "done", "content": str} when complete.
     """
     chosen_model = model or default_model()
@@ -163,16 +164,47 @@ def iter_response(
         "temperature": temperature,
         "stream": True,
     }
+    # Groq's implicit completion default can be too small for generated code.
+    # Qwen 3.8's documented output ceiling is 16,384 tokens (not its 131K context).
+    if chosen_model == "qwen/qwen3.8-27b":
+        if max_tokens is None:
+            try:
+                max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "16384"))
+            except (TypeError, ValueError):
+                max_tokens = 16384
+            if max_tokens <= 0:
+                max_tokens = 16384
+        max_tokens = min(max_tokens, 16384)
     if max_tokens is not None:
-        call_kwargs["max_tokens"] = max_tokens
+        call_kwargs["max_completion_tokens"] = max_tokens
+    call_kwargs["stream_options"] = {"include_usage": True}
 
     full: list[str] = []
     chunk_count = 0
+    finish_reason = None
+    usage = None
+    stream = None
 
     try:
         stream = client.chat.completions.create(**call_kwargs)
         for chunk in stream:
             chunk_count += 1
+            if chunk_count == 1:
+                yield {
+                    "type": "inference",
+                    "provider": "groq",
+                    "requested_model": chosen_model,
+                    "reported_model": getattr(chunk, "model", None),
+                    "request_id": getattr(chunk, "id", None),
+                }
+            metadata = getattr(chunk, "x_groq", None)
+            if metadata is not None and not isinstance(metadata, dict):
+                metadata = metadata.model_dump()
+            if metadata and metadata.get("error"):
+                raise RuntimeError("Groq stream stopped early due to a provider error.")
+            chunk_usage = getattr(chunk, "usage", None) or (metadata or {}).get("usage")
+            if chunk_usage is not None:
+                usage = chunk_usage if isinstance(chunk_usage, dict) else chunk_usage.model_dump()
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
@@ -184,11 +216,11 @@ def iter_response(
                     yield {"type": "delta", "data": cleaned_delta}
 
             if choice.finish_reason:
+                finish_reason = choice.finish_reason
                 logger.info(
                     "groq: finish_reason=%s chunks=%d chars=%d model=%s",
                     choice.finish_reason, chunk_count, len("".join(full)), chosen_model,
                 )
-                break
     except AuthenticationError as exc:
         raise RuntimeError("Groq authentication failed (401). Check GROQ_API_KEY.") from exc
     except RateLimitError as exc:
@@ -208,4 +240,16 @@ def iter_response(
         msg = str(exc).strip() or exc.__class__.__name__
         raise RuntimeError(f"Groq stream interrupted: {msg}") from exc
 
-    yield {"type": "done", "content": "".join(full)}
+    finally:
+        if stream is not None:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
+
+    if finish_reason is None:
+        raise RuntimeError("Groq stream ended before a finish reason was received.")
+    yield {
+        "type": "done", "content": "".join(full),
+        "finish_reason": finish_reason, "usage": usage,
+        "complete": finish_reason == "stop",
+    }

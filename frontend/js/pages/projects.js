@@ -36,7 +36,7 @@ function formatDate(iso) {
 /**
  * Main route handler for #/app/projects and #/app/projects/:id
  */
-export async function renderProjects({ id } = {}) {
+export async function renderProjects({ id } = {}, { signal } = {}) {
   const { auth } = getAuth();
   if (!auth) {
     navigate("#/", { replace: true });
@@ -44,6 +44,7 @@ export async function renderProjects({ id } = {}) {
   }
 
   const shell = await mountAppShell();
+  if (signal?.aborted) return;
   shell.setActiveConversation(null);
   shell.setIncognitoActive?.(false);
 

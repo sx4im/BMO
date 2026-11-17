@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import types
 
 import pytest
 
@@ -226,7 +227,7 @@ def test_image_generation_always_uses_flux3_klein_at_full_steps(monkeypatch):
 
     assert nvidia_client.image_model() == "black-forest-labs/flux-3-image-klein"
     assert sent["url"].endswith("/black-forest-labs/flux-3-image-klein")
-    assert sent["body"] == {"prompt": "a poster", "seed": 1, "steps": 50, "width": 1024, "height": 1024}
+    assert sent["body"] == {"prompt": "a poster", "steps": 50, "width": 1024, "height": 1024}
 
 
 def test_image_generation_is_blocked_once_the_usage_limit_is_hit(client, monkeypatch):
@@ -488,7 +489,9 @@ def test_iter_response_thinking_toggle_for_deepseek(monkeypatch):
 
     class _FakeStream:
         def __iter__(self):
-            return iter(())
+            return iter([types.SimpleNamespace(choices=[types.SimpleNamespace(
+                delta=types.SimpleNamespace(content=None), finish_reason="stop",
+            )])])
 
     class _FakeClient:
         class chat:  # noqa: N801
@@ -552,7 +555,9 @@ def test_qwen_stanza_gets_full_token_budget(monkeypatch):
 
     class _FakeStream:
         def __iter__(self):
-            return iter(())
+            return iter([types.SimpleNamespace(choices=[types.SimpleNamespace(
+                delta=types.SimpleNamespace(content=None), finish_reason="stop",
+            )])])
 
     class _FakeClient:
         class chat:  # noqa: N801
@@ -581,7 +586,9 @@ def test_nemotron_reasoning_directive(monkeypatch):
 
     class _FakeStream:
         def __iter__(self):
-            return iter(())
+            return iter([types.SimpleNamespace(choices=[types.SimpleNamespace(
+                delta=types.SimpleNamespace(content=None), finish_reason="stop",
+            )])])
 
     class _FakeClient:
         class chat:  # noqa: N801
@@ -746,6 +753,7 @@ def test_whatsapp_uses_aeon_model(monkeypatch):
         captured_kwargs.update(kwargs)
         captured_kwargs["messages"] = messages
         yield {"type": "delta", "data": "Hello from Aeon on WhatsApp!"}
+        yield {"type": "done", "content": "Hello from Aeon on WhatsApp!", "finish_reason": "stop"}
 
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setattr(whatsapp, "send_whatsapp_message", mock_send)
@@ -1958,7 +1966,7 @@ def test_chat_retries_when_the_model_is_busy_before_any_token(client, monkeypatc
     assert "ResourceExhausted" not in body
 
 
-def test_chat_shows_a_short_busy_line_instead_of_the_raw_provider_error(client, monkeypatch):
+def test_chat_reports_structured_unavailability_without_fake_assistant_text(client, monkeypatch):
     from app.routes.helpers import MODEL_BUSY_REPLY
 
     _stub_chat_persistence(monkeypatch)
@@ -1970,9 +1978,14 @@ def test_chat_shows_a_short_busy_line_instead_of_the_raw_provider_error(client, 
     monkeypatch.setattr("app.nvidia_client.iter_response_with_fallback", busy_stream)
 
     body = _post_plain_chat(client, "c_busy_fail").get_data(as_text=True)
-    assert MODEL_BUSY_REPLY in body
+    assert MODEL_BUSY_REPLY not in body
+    received = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+    error = next(event for event in received if event["type"] == "error")
+    assert error["code"] == "model_unavailable" and error["retryable"] is True
+    assert not any(event["type"] == "complete" for event in received)
     assert "ResourceExhausted" not in body
     assert "Analysis for batch" not in body
+    assert not any(event["type"] == "token" for event in received)
 
 
 def test_chat_does_not_retry_after_tokens_already_streamed(client, monkeypatch):
@@ -1991,7 +2004,12 @@ def test_chat_does_not_retry_after_tokens_already_streamed(client, monkeypatch):
     body = _post_plain_chat(client, "c_busy_partial").get_data(as_text=True)
     assert calls["n"] == 1
     assert body.count("Cells are") == 1
-    assert MODEL_BUSY_REPLY in body
+    assert "ResourceExhausted" not in body
+    assert MODEL_BUSY_REPLY not in body
+    received = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+    error = next(event for event in received if event["type"] == "error")
+    assert error["code"] == "model_unavailable" and error["retryable"] is True
+    assert not any(event["type"] == "complete" for event in received)
 
 
 def test_chat_skips_search_when_the_router_declines(client, monkeypatch):

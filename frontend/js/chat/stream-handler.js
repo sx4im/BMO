@@ -3,7 +3,7 @@
  * Manages token assembly, reasoning timer, background buffering, status phrases, and stream cancellation.
  */
 
-import * as api from "../api.js?v=65";
+import * as api from "../api.js?v=69";
 import { getRandomPhrase } from "./waiting-phrases.js?v=1";
 export { ROTATING_PHRASES, getRandomPhrase } from "./waiting-phrases.js?v=1";
 
@@ -60,6 +60,7 @@ export class StreamHandler {
     this.onSearching = onSearching || (() => {});
     this.onSearchComplete = onSearchComplete || (() => {});
 
+    this.run = null;
     this.controller = null;
     this.currentStreamId = null;
     this.rotateInterval = null;
@@ -121,6 +122,7 @@ export class StreamHandler {
   }
 
   cancel() {
+    const partial = { content: this.streamingText, reasoning: this.streamingReasoning };
     const token = this.getAuthToken();
     if (this.currentStreamId && token) {
       api.cancelChat(token, this.currentStreamId).catch(() => {});
@@ -129,9 +131,13 @@ export class StreamHandler {
       this.controller.abort();
     }
     this.cleanup();
+    if (partial.content.trim() || partial.reasoning.trim()) {
+      this.onError(new DOMException("Response stopped", "AbortError"), partial);
+    }
   }
 
-  cleanup() {
+  cleanup({ invalidate = true } = {}) {
+    if (invalidate) this.run = null;
     this.stopStatusRotation();
     this.stopReasoningTimer();
     this.endSearch();
@@ -149,21 +155,25 @@ export class StreamHandler {
     onVoiceStyle,
   }) {
     this.cleanup();
-    this.controller = new AbortController();
+    const run = {};
+    this.run = run;
+    const ownsRun = () => this.run === run;
+    const controller = new AbortController();
+    this.controller = controller;
     this.currentStreamId = streamId;
     this.streamingText = "";
     this.streamingReasoning = "";
     this.lastReasoningSeconds = null;
 
     const token = this.getAuthToken();
-    if (!token) throw new Error("Not authenticated");
+    if (!token) { this.cleanup(); throw new Error("Not authenticated"); }
 
     this.startStatusRotation();
 
     let errorReported = false;
     let receivedAssistant = false;
     const reportError = (err) => {
-      if (errorReported) return;
+      if (!ownsRun() || errorReported) return;
       errorReported = true;
       const partial = { content: this.streamingText, reasoning: this.streamingReasoning };
       this.cleanup();
@@ -175,11 +185,12 @@ export class StreamHandler {
         token,
         { ...payload, stream_id: streamId },
         {
-          signal: this.controller.signal,
-          onConversation: (convo) => this.onConversation(convo),
-          onVoiceStyle,
-          onUserMessage: (msg) => this.onUserMessage(msg),
+          signal: controller.signal,
+          onConversation: (convo) => { if (ownsRun()) this.onConversation(convo); },
+          onVoiceStyle: (data) => { if (ownsRun()) onVoiceStyle?.(data); },
+          onUserMessage: (msg) => { if (ownsRun()) this.onUserMessage(msg); },
           onSearchStatus: ({ status, label }) => {
+            if (!ownsRun()) return;
             if (status === "checking") return;
             if (label) {
               this.stopStatusRotation();
@@ -188,15 +199,18 @@ export class StreamHandler {
             }
           },
           onSearching: ({ query }) => {
+            if (!ownsRun()) return;
             this.stopStatusRotation();
             this.isSearching = true;
             this.onSearching({ query, preamble: getSearchPreamble() });
           },
           onSearchComplete: (done) => {
+            if (!ownsRun()) return;
             if (!this.streamingText) this.startStatusRotation();
             this.endSearch(done);
           },
           onReasoningToken: ({ delta }) => {
+            if (!ownsRun()) return;
             if (this.isSearching) this.startStatusRotation();
             this.endSearch();
             this.streamingReasoning += delta;
@@ -213,6 +227,7 @@ export class StreamHandler {
             });
           },
           onToken: ({ delta }) => {
+            if (!ownsRun()) return;
             this.stopStatusRotation();
             this.endSearch();
             this.streamingText += delta;
@@ -233,10 +248,12 @@ export class StreamHandler {
             });
           },
           onComplete: () => {
+            if (!ownsRun()) return;
             this.stopStatusRotation();
             this.onComplete();
           },
           onAssistantMessage: (msg) => {
+            if (!ownsRun()) return;
             receivedAssistant = true;
             if (this.lastReasoningSeconds != null) {
               msg.reasoning_seconds = this.lastReasoningSeconds;
@@ -244,20 +261,20 @@ export class StreamHandler {
             if (!msg.reasoning && this.streamingReasoning) {
               msg.reasoning = this.streamingReasoning;
             }
-            this.cleanup();
+            this.cleanup({ invalidate: false });
             this.onAssistantMessage(msg);
           },
           onError: reportError,
         }
       );
-      if (!receivedAssistant && !errorReported && (this.streamingText.trim() || this.streamingReasoning.trim())) {
+      if (ownsRun() && !receivedAssistant && !errorReported && (this.streamingText.trim() || this.streamingReasoning.trim())) {
         reportError(new Error("The connection closed before saving was confirmed. Keep this page open and copy the answer if needed."));
       }
     } catch (err) {
       if (err?.name !== "AbortError") reportError(err);
       throw err;
     } finally {
-      this.cleanup();
+      if (ownsRun()) this.cleanup();
     }
   }
 }

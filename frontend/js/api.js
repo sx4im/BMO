@@ -76,8 +76,8 @@ export async function listConversations(token) {
   return request("/conversations", { token });
 }
 
-export async function getMessages(token, conversationId) {
-  return request(`/conversations/${conversationId}/messages`, { token });
+export async function getMessages(token, conversationId, signal) {
+  return request(`/conversations/${conversationId}/messages`, { token, signal });
 }
 
 export async function deleteConversation(token, conversationId) {
@@ -402,6 +402,9 @@ export async function streamChat(token, payload, handlers = {}) {
           break;
         case "error": {
           const err = new Error(event.detail || "Chat error");
+          if (event.code) err.code = event.code;
+          if (typeof event.retryable === "boolean") err.retryable = event.retryable;
+          if (Number.isFinite(event.retry_after)) err.retryAfter = event.retry_after;
           if (onError) onError(err);
           throw err;
         }

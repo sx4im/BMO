@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleLoader } from "./modules.mjs";
 
-async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt, streamChat, fetchMessages, listConversations, timers } = {}) {
+async function chatPage({ incognito = false, messages = [], id, skills = [], activeSkills = [], hash, scrapeUrl, conversationPrompt, streamChat, fetchMessages, listConversations, generateImage, shellGate, signal, timers } = {}) {
   let composer, feed, voice, lastRender;
   const renderStates = [];
   const payloads = [], branchCalls = [], notices = [], downloads = [], printed = [], converted = [];
@@ -24,7 +24,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     listSkills: async () => skills,
     listModels: async () => ({ models: [{ id: "thinking", label: "Stanza" }], default: "thinking" }),
     listConversations: listConversations || (async () => []),
-    getMessages: async () => fetchMessages ? fetchMessages() : ({ conversation: { id, model: "thinking", title: "Original chat", active_skills: activeSkills, system_prompt: conversationPrompt }, messages }),
+    getMessages: async (...args) => fetchMessages ? fetchMessages(...args) : ({ conversation: { id, model: "thinking", title: "Original chat", active_skills: activeSkills, system_prompt: conversationPrompt }, messages }),
     branchConversation: async (_token, parentId, messageId) => {
       branchCalls.push({ parentId, messageId });
       const prefix = messages.slice(0, messages.findIndex(m => m.id === messageId));
@@ -44,16 +44,17 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     },
     submitFeedback: async (_token,payload)=>{feedbackCalls.push(payload);return payload;},
     cancelChat: async () => {},
+    generateImage,
     scrapeUrl,
     exportDocument: async () => { throw Error("Export service unavailable"); },
   };
   const stubs = {
     "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner", name: "Tester" } } }) },
     "router.js": { navigate() {} },
-    "app-shell.js": { mountAppShell: async () => ({
+    "app-shell.js": { mountAppShell: async () => { await shellGate; return ({
       content: app.dom.window.document.querySelector("#app"),
       setActiveConversation() {}, setConversations() {}, setShareActive: (...args) => shareStates.push(args), setIncognitoActive() {},
-    }) },
+    }); } },
     "toast.js": { toast: notice => notices.push(notice) },
     "confirm-modal.js": { openConfirmModal() {}, openPromptModal() {} },
     "share-modal.js": { openShareModal: callbacks => shareCallbacks.push(callbacks) }, "projects.js": { openMoveChatModal() {} },
@@ -73,7 +74,8 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
   app = moduleLoader(stubs, { globals: {
     setTimeout: timers?.setTimeout || ((fn, milliseconds) => setTimeout(fn, milliseconds).unref()),
     clearTimeout: timers?.clearTimeout || clearTimeout,
-    setInterval: (fn, milliseconds) => setInterval(fn, milliseconds).unref(),
+    setInterval: timers?.setInterval || ((fn, milliseconds) => setInterval(fn, milliseconds).unref()),
+    clearInterval: timers?.clearInterval || clearInterval,
   } });
   if (hash) app.dom.window.history.replaceState(null, "", hash);
   const actual = await app.load("js/chat/composer.js");
@@ -81,7 +83,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
     constructor(options) { super(options); composer = this; }
   } };
   const page = await app.load("js/pages/chat.js");
-  const unmount = await page.renderChat({ id, incognito });
+  const unmount = await page.renderChat({ id, incognito }, { signal });
   await new Promise(resolve => setImmediate(resolve));
   const turn = (text, extras = {}) => composer.onSubmit({ text, attachments: [], model: "thinking", autoSearch: false, ...extras });
   return { app, composer, feed, payloads, branchCalls, notices, downloads, printed, converted, shareStates, shareCallbacks, turn, unmount,
@@ -329,6 +331,136 @@ test("feedback on an unconfirmed reply recovers its saved ID before submitting",
   assert.equal(page.rendered().messages.find(m=>m.role==="assistant").unsaved,false);
 });
 
+for (const completed of [false, true]) {
+  test(`Stop preserves ${completed ? "a completed" : "a partial"} answer awaiting its saved acknowledgment`, async t => {
+    const page = await chatPage({ streamChat: async (_token, _payload, cb) => {
+      cb.onConversation({ id: "saved-chat", model: "thinking" });
+      cb.onUserMessage({ id: "saved-user", role: "user", content: "Explain" });
+      cb.onReasoningToken({ delta: "Reasoning received" });
+      cb.onToken({ delta: "Keep this answer" });
+      if (completed) cb.onComplete();
+      await new Promise((resolve, reject) => cb.signal.addEventListener("abort", () => reject(new DOMException("Stopped", "AbortError")), { once: true }));
+    } });
+    t.after(page.unmount);
+    const running = page.turn("Explain");
+    await new Promise(setImmediate);
+    page.composer.onStop();
+    await running;
+    const replies = page.rendered().messages.filter(m => m.role === "assistant");
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].content, "Keep this answer");
+    assert.equal(replies[0].reasoning, "Reasoning received");
+    assert.equal(replies[0].unsaved, true);
+    assert.equal(page.notices.length, 0, "Stopping deliberately must not display a save failure");
+    assert.equal(page.composer.isGenerating, false);
+  });
+}
+
+for (const event of ["visibilitychange", "online"]) {
+  test(`${event} reconciles an unconfirmed saved answer without duplicating it`, async t => {
+    const user = { id: "saved-user", role: "user", content: "Explain" };
+    const reply = { id: "saved-assistant", role: "assistant", content: "A saved answer" };
+    const page = await chatPage({ fetchMessages: async () => ({ messages: [user, reply] }),
+      streamChat: async (_token, _payload, cb) => {
+        cb.onConversation({ id: "saved-chat", model: "thinking" }); cb.onUserMessage(user);
+        cb.onToken({ delta: reply.content }); cb.onError(new Error("Saving delayed"));
+      } });
+    t.after(page.unmount); await page.turn("Explain");
+    Object.defineProperty(page.app.dom.window.document, "hidden", { value: false, configurable: true });
+    const target = event === "online" ? page.app.dom.window : page.app.dom.window.document;
+    target.dispatchEvent(new page.app.dom.window.Event(event));
+    await new Promise(setImmediate);
+    target.dispatchEvent(new page.app.dom.window.Event(event));
+    await new Promise(setImmediate);
+    assert.deepEqual(Array.from(page.rendered().messages, m => m.id), ["saved-user", "saved-assistant"]);
+    assert.equal(page.rendered().messages[1].unsaved, false);
+    assert.equal(page.notices.length, 1, "Recovery must not add or hide the original genuine error");
+  });
+}
+
+test("a late save reconciliation preserves newer local turns", async t => {
+  let finishRead;
+  const user = { id: "first-user", role: "user", content: "First question" };
+  const reply = { id: "first-assistant", role: "assistant", content: "First answer" };
+  const page = await chatPage({ fetchMessages: () => new Promise(resolve => { finishRead = resolve; }),
+    streamChat: async (_token, payload, cb) => {
+      cb.onConversation({ id: "saved-chat", model: "thinking" });
+      if (payload.message === "First question") {
+        cb.onUserMessage(user); cb.onToken({ delta: reply.content }); cb.onError(new Error("Saving delayed"));
+      } else {
+        cb.onUserMessage({ id: "new-user", role: "user", content: payload.message });
+        cb.onToken({ delta: "New answer" });
+        cb.onAssistantMessage({ id: "new-assistant", role: "assistant", content: "New answer" });
+      }
+    } });
+  t.after(page.unmount); await page.turn("First question");
+  page.app.dom.window.dispatchEvent(new page.app.dom.window.Event("online"));
+  await new Promise(setImmediate);
+  assert.equal(typeof finishRead, "function");
+  await page.turn("New question");
+  finishRead({ messages: [user, reply] });
+  await new Promise(setImmediate);
+  assert.deepEqual(Array.from(page.rendered().messages, m => m.id), ["first-user", "first-assistant", "new-user", "new-assistant"]);
+});
+
+test("save reconciliation leaves a different persisted answer unconfirmed", async t => {
+  const user = { id: "saved-user", role: "user", content: "Explain" };
+  const page = await chatPage({ fetchMessages: async () => ({ messages: [user, { id: "other", role: "assistant", content: "A different answer" }] }),
+    streamChat: async (_token, _payload, cb) => {
+      cb.onConversation({ id: "saved-chat", model: "thinking" }); cb.onUserMessage(user);
+      cb.onToken({ delta: "Visible answer" }); cb.onError(new Error("Saving delayed"));
+    } });
+  t.after(page.unmount); await page.turn("Explain");
+  page.app.dom.window.dispatchEvent(new page.app.dom.window.Event("online"));
+  await new Promise(setImmediate);
+  assert.equal(page.rendered().messages[1].content, "Visible answer");
+  assert.equal(page.rendered().messages[1].unsaved, true);
+});
+
+test("a pending save reconciliation cannot overwrite a branched conversation", async t => {
+  let finishRead, turn = 0;
+  const user = { id: "saved-user", role: "user", content: "Explain" };
+  const page = await chatPage({ fetchMessages: () => new Promise(resolve => { finishRead = resolve; }),
+    streamChat: async (_token, payload, cb) => {
+      cb.onConversation({ id: payload.conversation_id || "saved-chat", model: "thinking" });
+      if (++turn === 1) {
+        cb.onUserMessage(user); cb.onToken({ delta: "Original answer" }); cb.onError(new Error("Saving delayed"));
+      } else {
+        cb.onUserMessage({ id: "branch-user", role: "user", content: payload.message });
+        cb.onToken({ delta: "Branched answer" });
+        cb.onAssistantMessage({ id: "branch-assistant", role: "assistant", content: "Branched answer" });
+      }
+    } });
+  t.after(page.unmount); await page.turn("Explain");
+  page.app.dom.window.dispatchEvent(new page.app.dom.window.Event("online"));
+  await new Promise(setImmediate);
+  const pending = page.rendered().messages.find(m => m.unsaved);
+  await page.feed.callbacks.onRetryAssistantMessage(pending);
+  await new Promise(setImmediate);
+  finishRead({ messages: [user, { id: "old-assistant", role: "assistant", content: "Original answer" }] });
+  await new Promise(setImmediate);
+  assert.equal(page.app.dom.window.location.hash, "#/app/chat/branch");
+  assert.deepEqual(Array.from(page.rendered().messages, m => m.id), ["branch-user", "branch-assistant"]);
+});
+
+test("save reconciliation ignores a read that finishes after closing the chat", async () => {
+  let finishRead;
+  const user = { id: "saved-user", role: "user", content: "Explain" };
+  const page = await chatPage({ fetchMessages: () => new Promise(resolve => { finishRead = resolve; }),
+    streamChat: async (_token, _payload, cb) => {
+      cb.onConversation({ id: "saved-chat", model: "thinking" }); cb.onUserMessage(user);
+      cb.onToken({ delta: "Visible answer" }); cb.onError(new Error("Saving delayed"));
+    } });
+  await page.turn("Explain");
+  page.app.dom.window.dispatchEvent(new page.app.dom.window.Event("online"));
+  await new Promise(setImmediate);
+  page.unmount();
+  const renderCount = page.renderStates.length;
+  finishRead({ messages: [user, { id: "saved-assistant", role: "assistant", content: "Visible answer" }] });
+  await new Promise(setImmediate);
+  assert.equal(page.renderStates.length, renderCount);
+});
+
 test("feedback never sends an unconfirmed local ID when saving is still pending",async t=>{
   const page=await chatPage({fetchMessages:async()=>({messages:[]}),streamChat:async(_token,_payload,cb)=>{
     cb.onConversation({id:"saved-chat",model:"thinking"});cb.onUserMessage({id:"user",role:"user",content:"Explain"});
@@ -392,3 +524,135 @@ test("an older sidebar response cannot replace the newly generated title", async
   await new Promise(setImmediate);
   assert.equal(page.app.dom.window.document.querySelector('.chat-topbar-title-text').textContent,"A Helpful Answer");
 });
+
+test('old Stop finalizer preserves the next composer run', async t => {
+  const runs = [];
+  const page = await chatPage({ streamChat: async (_t, _p, cb) => {
+    await new Promise(resolve => runs.push({ cb, resolve }));
+  } }); t.after(page.unmount);
+  const old = page.turn('Old'); await new Promise(setImmediate);
+  page.composer.onStop();
+  const next = page.turn('New'); await new Promise(setImmediate);
+  runs[0].resolve(); await old;
+  assert.equal(page.composer.isGenerating, true);
+  runs[1].cb.onAssistantMessage({ id: 'new', role: 'assistant', content: 'Answer' });
+  runs[1].resolve(); await next;
+});
+
+for (const busy of ['draft', 'voice', 'upload', 'attachment', 'dictation', 'image']) {
+  test(`reload defers during ${busy}`, async t => {
+    const page = await chatPage(); t.after(page.unmount);
+    if (busy === 'draft') page.composer.textarea.value = 'Unsent';
+    if (busy === 'voice') page.composer.onOpenVoiceAssistant();
+    if (busy === 'upload') page.composer.uploadingFiles.push({});
+    if (busy === 'attachment') page.composer.pendingAttachments.push({});
+    if (busy === 'dictation') page.composer.dictation = {};
+    if (busy === 'image') page.composer.isImageGenerating = true;
+    const event = new page.app.dom.window.Event('bmo:before-reload', { cancelable: true });
+    assert.equal(page.app.dom.window.dispatchEvent(event), false);
+    if (busy === 'dictation') page.composer.dictation = null;
+    page.unmount();
+    assert.equal(page.app.dom.window.dispatchEvent(new page.app.dom.window.Event('bmo:before-reload', { cancelable: true })), true);
+  });
+}
+
+
+test('image generation aborts on unmount and ignores a late successful response', async () => {
+  let finish, signal;
+  const page = await chatPage({ generateImage: async (_t, _p, supplied) => {
+    signal = supplied; return new Promise(resolve => { finish = resolve; });
+  } });
+  const pending = page.turn('Draw', { model: 'image' });
+  await new Promise(setImmediate); page.unmount();
+  assert.equal(signal.aborted, true);
+  const count = page.renderStates.length;
+  finish({ conversation: { id: 'late-image' }, assistant_message: { id: 'image', role: 'assistant', content: 'Late image' } });
+  await pending;
+  assert.equal(page.renderStates.length, count);
+  assert.equal(page.app.dom.window.location.hash, '');
+});
+
+for (const close of [false, true]) {
+  test(`image poll never overlaps and ignores a late result after ${close ? 'unmount' : 'conversation reset'}`, async () => {
+    let next = 0, reads = 0, finish, pollSignal;
+    const tasks = new Map();
+    const timers = { setTimeout(fn, ms) { tasks.set(++next, { fn, ms }); return next; }, clearTimeout(id) { tasks.delete(id); },
+      setInterval(fn, ms) { tasks.set(++next, { fn, ms, recurring: true }); return next; }, clearInterval(id) { tasks.delete(id); } };
+    const page = await chatPage({ id: 'image-chat', timers, fetchMessages: async (_token, _id, signal) => {
+      if (++reads === 1) return { conversation: { id: 'image-chat', model: 'image' }, messages: [{ id: 'prompt', role: 'user', content: 'Draw', created_at: new Date().toISOString() }] };
+      pollSignal = signal;
+      return new Promise(resolve => { finish = resolve; });
+    } });
+    const runPoll = () => {
+      const entry = [...tasks].find(([, value]) => value.ms === 3000);
+      if (entry) { if (!entry[1].recurring) tasks.delete(entry[0]); entry[1].fn(); }
+    };
+    runPoll(); await new Promise(setImmediate);
+    assert.equal(reads, 2);
+    runPoll(); await new Promise(setImmediate);
+    assert.equal(reads, 2);
+    if (close) page.unmount(); else page.composer.onOpenVoiceAssistant();
+    assert.equal(pollSignal.aborted, true);
+    assert.equal([...tasks.values()].some(task => task.ms === 120000), false);
+    const count = page.renderStates.length;
+    finish({ messages: [{ id: 'late', role: 'assistant', content: 'Old image' }] });
+    await new Promise(setImmediate);
+    assert.equal(page.renderStates.length, count);
+    assert.equal(page.rendered().messages.some(m => m.id === 'late'), false);
+    if (!close) page.unmount();
+  });
+}
+
+
+test('an obsolete chat cannot mount after a delayed shell resolves', async () => {
+  const controller = new AbortController(); let release;
+  const pending = chatPage({ signal: controller.signal, shellGate: new Promise(resolve => { release = resolve; }) });
+  await new Promise(setImmediate);
+  controller.abort(); release();
+  const page = await pending;
+  assert.equal(page.composer, undefined);
+  assert.equal(page.renderStates.length, 0);
+});
+
+test('a closed chat ignores a late conversation-not-found response', async () => {
+  let reject;
+  const page = await chatPage({ id: 'gone', fetchMessages: () => new Promise((_resolve, fail) => { reject = fail; }) });
+  page.unmount();
+  reject(Object.assign(new Error('Not found'), { status: 404 }));
+  await new Promise(setImmediate);
+  assert.deepEqual(page.notices, []);
+});
+
+for (const outcome of ['timeout', 'success']) {
+  test(`image polling clears its wall-clock deadline on ${outcome}`, async t => {
+    let next = 0, reads = 0, resolveRead, pollSignal;
+    const tasks = new Map();
+    const timers = { setTimeout(fn, ms) { tasks.set(++next, { fn, ms }); return next; }, clearTimeout(id) { tasks.delete(id); } };
+    const page = await chatPage({ id: 'image-chat', timers, fetchMessages: async (_token, _id, signal) => {
+      if (++reads === 1) return { conversation: { id: 'image-chat', model: 'image' }, messages: [{ id: 'prompt', role: 'user', content: 'Draw', created_at: new Date().toISOString() }] };
+      pollSignal = signal;
+      return new Promise(resolve => { resolveRead = resolve; });
+    } }); t.after(page.unmount);
+    const deadline = [...tasks].find(([, task]) => task.ms === 120000);
+    assert.ok(deadline, 'A deadline must exist independently of the pending network response');
+    const tick = [...tasks].find(([, task]) => task.ms === 3000);
+    tasks.delete(tick[0]); tick[1].fn(); await new Promise(setImmediate);
+    assert.equal(page.composer.isImageGenerating, true);
+    if (outcome === 'timeout') {
+      tasks.delete(deadline[0]); deadline[1].fn();
+      assert.equal(pollSignal.aborted, true);
+      assert.equal(page.composer.isImageGenerating, false);
+      const renders = page.renderStates.length;
+      resolveRead({ messages: [{ id: 'late-image', role: 'assistant', content: 'Late' }] });
+      await new Promise(setImmediate);
+      assert.equal(page.renderStates.length, renders);
+      assert.equal(page.rendered().messages.some(m => m.id === 'late-image'), false);
+    } else {
+      resolveRead({ messages: [{ id: 'image', role: 'assistant', content: 'Image ready' }] });
+      await new Promise(setImmediate);
+      assert.equal(page.composer.isImageGenerating, false);
+      assert.equal(page.rendered().messages.at(-1).id, 'image');
+    }
+    assert.equal([...tasks.values()].some(task => task.ms === 120000 || task.ms === 3000), false);
+  });
+}

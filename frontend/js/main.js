@@ -1,40 +1,40 @@
 import { defineRoute, startRouter, navigate, dispatch } from "./router.js";
 import { bootstrap, getAuth, onAuthChange } from "./auth.js";
 import { initThemeSync } from "./prefs.js";
-import * as api from "./api.js?v=32";
+import * as api from "./api.js?v=69";
 import { renderLanding } from "./pages/landing.js?v=53";
-import { renderChat } from "./pages/chat.js?v=203";
-import { renderSettings } from "./pages/settings.js?v=78";
+import { renderChat } from "./pages/chat.js?v=206";
+import { renderSettings } from "./pages/settings.js?v=79";
 import { renderNotFound } from "./pages/not-found.js?v=54";
-import { renderSharedChat } from "./pages/shared-chat.js?v=5";
+import { renderSharedChat } from "./pages/shared-chat.js?v=6";
 import { renderProjects } from "./pages/projects.js";
-import { renderCustomize } from "./pages/customize.js?v=9";
-import { bootVersionGuard } from "./version-guard.js?v=1";
+import { renderCustomize } from "./pages/customize.js?v=11";
+import { bootVersionGuard } from "./version-guard.js?v=2";
 
 
 // ---------- route guards ----------
 
 function requireAuth(handler) {
-  return async (params) => {
+  return async (params, context) => {
     const { auth, bootstrapping } = getAuth();
     if (bootstrapping) return; // wait — onAuthChange will re-dispatch
     if (!auth) {
       navigate("#/", { replace: true });
       return;
     }
-    return handler(params);
+    return handler(params, context);
   };
 }
 
 function publicOnly(handler) {
-  return async (params) => {
+  return async (params, context) => {
     const { auth, bootstrapping } = getAuth();
     if (bootstrapping) return;
     if (auth) {
       navigate("#/app/chat", { replace: true });
       return;
     }
-    return handler(params);
+    return handler(params, context);
   };
 }
 
@@ -42,7 +42,7 @@ function publicOnly(handler) {
 
 defineRoute("#/", publicOnly(renderLanding));
 defineRoute("#/app/chat", requireAuth(renderChat));
-defineRoute("#/app/chat/incognito", requireAuth(() => renderChat({ incognito: true })));
+defineRoute("#/app/chat/incognito", requireAuth((params, context) => renderChat({ incognito: true }, context)));
 defineRoute("#/app/chat/:id", requireAuth(renderChat));
 defineRoute("#/app/projects", requireAuth(renderProjects));
 defineRoute("#/app/projects/:id", requireAuth(renderProjects));
