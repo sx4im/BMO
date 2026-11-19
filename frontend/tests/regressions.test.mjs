@@ -68,6 +68,12 @@ test("Chat and Projects reuse the same shell and teardown clears projects", asyn
   assert.equal(app.dom.window.document.querySelector(".mobile-share-btn").style.display, "none");
   app.dom.window.document.querySelector(".mobile-share-btn").click();
   assert.equal(app.dom.window.document.querySelector(".app-footer").textContent.trim(), "Built by Saim Shafique");
+  const creatorLink = app.dom.window.document.querySelector('.app-footer a[href="https://saimshafique.com"]');
+  assert.ok(creatorLink);
+  assert.equal(creatorLink.getAttribute("style"), null);
+  const styles = await readFile(new URL("../css/styles.css", import.meta.url), "utf8");
+  assert.match(styles, /\.app-footer a\s*\{[^}]*text-decoration:\s*none;/);
+  assert.match(styles, /:root\[data-theme="dark"\] \.app-footer a\s*\{[^}]*color:\s*#ffffff;/);
   await firstModule.loadProjects();
   assert.equal(firstModule.getShellState().projects.length, 1);
   firstModule.tearDownShell();

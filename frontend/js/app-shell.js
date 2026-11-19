@@ -228,7 +228,6 @@ export async function mountAppShell() {
       href: "https://saimshafique.com",
       target: "_blank",
       rel: "noopener noreferrer",
-      style: "color:inherit;text-decoration:underline dotted;text-underline-offset:3px;",
       text: "Saim Shafique",
     }),
   ]);

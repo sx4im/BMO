@@ -1,6 +1,6 @@
 import { el, clear } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=69";
-import { mountAppShell, tearDownShell, getShellState } from "../app-shell.js?v=2";
+import { mountAppShell, tearDownShell, getShellState } from "../app-shell.js?v=3";
 import { getAuth, signOut, setUserDisplayName } from "../auth.js";
 import { getThemePref, setThemePref } from "../prefs.js";
 import { avatar } from "../components/avatar.js?v=30";

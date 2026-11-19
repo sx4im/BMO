@@ -4635,6 +4635,15 @@ button:hover .icon-dislike,
   border-top: none;
 }
 
+.app-footer a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+:root[data-theme="dark"] .app-footer a {
+  color: #ffffff;
+}
+
 /* =============================================================
    Empty chat (New conversation) — Centered Hero Layout (Claude/ChatGPT style)
    ============================================================= */
