@@ -234,51 +234,20 @@ export class Composer {
       },
     });
 
-    // Attachment menu (+)
-    const ATTACH_ITEMS = [
-      { ic: "image", label: "Image", desc: "Upload a photo or picture", open: () => this.imageInput.click() },
-      { ic: "fileText", label: "File", desc: "PDF, DOCX, ZIP, PPTX & more", open: () => this.documentInput.click() },
-      { ic: "camera", label: "Camera", desc: "Take a photo to attach", open: () => this.cameraInput.click() },
-    ];
-    this.attachmentMenu = el("div", { class: "attachment-menu", role: "menu" },
-      ATTACH_ITEMS.map((it) =>
-        el("button", {
-          type: "button",
-          class: "attachment-menu-item",
-          role: "menuitem",
-          onclick: () => { it.open(); this.toggleAttachMenu(false); },
-        }, [
-          el("span", { class: "menu-lead", html: icon(it.ic, { width: 18, height: 18 }) }),
-          el("span", { class: "menu-text" }, [
-            el("span", { class: "menu-title", text: it.label }),
-            el("span", { class: "menu-sub", text: it.desc }),
-          ]),
-        ])
-      )
-    );
+    // Unified (+) menu: attachments + tools
+    this.attachmentMenu = el("div", { class: "attachment-menu", role: "menu" });
     this.attachBtn = el("button", {
       type: "button",
       class: "composer-attach",
-      title: "Attach file",
-      "aria-label": "Attach file",
-      onclick: () => this.toggleAttachMenu(),
-      html: icon("attachFile", { width: 16, height: 16 }),
-    });
-    this.attachWrap = el("div", { class: "composer-attach-wrap" }, [this.attachBtn, this.attachmentMenu]);
-
-    // Tools menu (sliders)
-    this.toolsMenu = el("div", { class: "tools-menu", role: "menu" });
-    this.toolsBtn = el("button", {
-      type: "button",
-      class: "composer-tools-btn",
-      title: "Tools",
-      "aria-label": "Tools",
+      title: "Add files or tools",
+      "aria-label": "Add files or tools",
       "aria-haspopup": "menu",
       "aria-expanded": "false",
-      onclick: () => this.toggleToolsMenu(),
-      html: icon("slidersHorizontal", { width: 18, height: 18 }),
+      onclick: () => this.toggleAttachMenu(),
+      html: icon("plus", { width: 18, height: 18 }),
     });
-    this.toolsWrap = el("div", { class: "composer-tools-wrap" }, [this.toolsBtn, this.toolsMenu]);
+    this.attachWrap = el("div", { class: "composer-attach-wrap" }, [this.attachBtn, this.attachmentMenu]);
+    this.renderAttachMenu();
 
     // Voice input button & recording bar
     this.voiceBtn = el("button", {
@@ -416,7 +385,7 @@ export class Composer {
     });
 
     this.composerToolbar = el("div", { class: "composer-toolbar" }, [
-      el("div", { class: "composer-toolbar-left" }, [this.attachWrap, this.toolsWrap]),
+      el("div", { class: "composer-toolbar-left" }, [this.attachWrap]),
       el("div", { class: "composer-toolbar-actions" }, [
         this.modelBadgeWrap,
         this.effortBadgeWrap,
@@ -455,7 +424,6 @@ export class Composer {
           this.modelDropdownOpen ||
           this.effortDropdownOpen ||
           this.attachmentMenu?.classList.contains("open") ||
-          this.toolsMenu?.classList.contains("open") ||
           (active && (this.composerBox.contains(active) || this.modelDropdown.contains(active) || this.effortDropdown.contains(active)))
         ) {
           return;
@@ -694,35 +662,27 @@ export class Composer {
   toggleAttachMenu(show) {
     const next = show ?? !this.attachmentMenu.classList.contains("open");
     if (next) {
+      this.renderAttachMenu();
       this.positionAttachMenu();
     }
     this.attachmentMenu.classList.toggle("open", next);
+    this.attachBtn.setAttribute("aria-expanded", next ? "true" : "false");
   }
 
-  toggleToolsMenu(show) {
-    const next = show ?? !this.toolsMenu.classList.contains("open");
-    if (next) {
-      this.renderToolsMenu();
-      this.positionToolsMenu();
-    }
-    this.toolsMenu.classList.toggle("open", next);
-    this.toolsBtn.setAttribute("aria-expanded", next ? "true" : "false");
-  }
-
-  renderToolsMenu() {
-    clear(this.toolsMenu);
-    const items = [
-      { kind: "search", ic: "globe", label: "Web search", desc: this.autoSearch ? "Reads web pages when needed" : "Off for this chat", active: this.autoSearch && !this.isImageMode() },
-      { kind: "generate", ic: "imageSparkles", label: "Create image", desc: "Generate an image with Iris", active: this.isImageMode() },
+  renderAttachMenu() {
+    clear(this.attachmentMenu);
+    const attachItems = [
+      { ic: "image", label: "Image", desc: "Upload a photo or picture", open: () => this.imageInput.click() },
+      { ic: "fileText", label: "File", desc: "PDF, DOCX, ZIP, PPTX & more", open: () => this.documentInput.click() },
+      { ic: "camera", label: "Camera", desc: "Take a photo to attach", open: () => this.cameraInput.click() },
     ];
-    for (const it of items) {
-      this.toolsMenu.append(
+    for (const it of attachItems) {
+      this.attachmentMenu.append(
         el("button", {
           type: "button",
-          class: `tools-menu-item${it.active ? " active" : ""}`,
-          role: "menuitemradio",
-          "aria-checked": it.active ? "true" : "false",
-          onclick: () => { this.toggleToolsMenu(false); this.applyTool(it.kind); },
+          class: "attachment-menu-item",
+          role: "menuitem",
+          onclick: () => { it.open(); this.toggleAttachMenu(false); },
         }, [
           el("span", { class: "menu-lead", html: icon(it.ic, { width: 18, height: 18 }) }),
           el("span", { class: "menu-text" }, [
@@ -732,30 +692,28 @@ export class Composer {
         ])
       );
     }
-  }
-
-  positionToolsMenu() {
-    const rect = this.toolsBtn.getBoundingClientRect();
-    const margin = 8;
-    const width = Math.min(215, window.innerWidth - margin * 2);
-    let left = rect.left;
-    const maxLeft = window.innerWidth - width - margin;
-    if (left > maxLeft) left = Math.max(margin, maxLeft);
-    const isPageEmpty = document.querySelector(".chat-page.is-empty") !== null;
-    const isMobile = window.innerWidth <= 768;
-    const openDown = isPageEmpty && !isMobile;
-    this.toolsMenu.style.position = "fixed";
-    if (openDown) {
-      this.toolsMenu.style.top = `${rect.bottom + margin}px`;
-      this.toolsMenu.style.bottom = "auto";
-    } else {
-      this.toolsMenu.style.bottom = `${window.innerHeight - rect.top + margin}px`;
-      this.toolsMenu.style.top = "auto";
+    this.attachmentMenu.append(el("div", { class: "model-dropdown-divider", role: "separator" }));
+    const toolItems = [
+      { kind: "search", ic: "globe", label: "Web search", desc: this.autoSearch ? "Reads web pages when needed" : "Off for this chat", active: this.autoSearch && !this.isImageMode() },
+      { kind: "generate", ic: "imageSparkles", label: "Create image", desc: "Generate an image with Iris", active: this.isImageMode() },
+    ];
+    for (const it of toolItems) {
+      this.attachmentMenu.append(
+        el("button", {
+          type: "button",
+          class: `attachment-menu-item${it.active ? " active" : ""}`,
+          role: "menuitemradio",
+          "aria-checked": it.active ? "true" : "false",
+          onclick: () => { this.toggleAttachMenu(false); this.applyTool(it.kind); },
+        }, [
+          el("span", { class: "menu-lead", html: icon(it.ic, { width: 18, height: 18 }) }),
+          el("span", { class: "menu-text" }, [
+            el("span", { class: "menu-title", text: it.label }),
+            el("span", { class: "menu-sub", text: it.desc }),
+          ]),
+        ])
+      );
     }
-    this.toolsMenu.style.left = `${left}px`;
-    this.toolsMenu.style.right = "auto";
-    this.toolsMenu.style.width = `${width}px`;
-    this.toolsMenu.style.minWidth = "auto";
   }
 
   applyTool(kind) {
@@ -769,7 +727,7 @@ export class Composer {
     }
     this.updateComposerForMode();
     this.renderModelBadge();
-    this.renderToolsMenu();
+    this.renderAttachMenu();
     this.syncSendEnabled();
     this.onToolsChange?.({ autoSearch: this.autoSearch, model: this.currentModel });
   }
@@ -887,7 +845,7 @@ export class Composer {
     this.currentModel = picked;
     this.reasoningEffort = this.getReasoningEffort();
     this.renderModelBadge();
-    this.renderToolsMenu();
+    this.renderAttachMenu();
     this.updateComposerForMode();
     this.syncSendEnabled();
     this.onModelChange?.(picked);
@@ -1367,9 +1325,8 @@ export class Composer {
   _attachGlobalListeners() {
     this._onDocClick = (e) => {
       if (!this.attachWrap.contains(e.target)) this.toggleAttachMenu(false);
-      if (!this.toolsWrap.contains(e.target)) this.toggleToolsMenu(false);
       if (document.activeElement !== this.textarea && !this.modelDropdownOpen && !this.effortDropdownOpen &&
-          !this.attachmentMenu.classList.contains("open") && !this.toolsMenu.classList.contains("open")) {
+          !this.attachmentMenu.classList.contains("open")) {
         this.isEditing = false;
         this.syncCompactState();
       }
@@ -1381,7 +1338,7 @@ export class Composer {
       setTimeout(() => {
         this._pressing = false;
         if (document.activeElement !== this.textarea && !this.modelDropdownOpen && !this.effortDropdownOpen &&
-            !this.attachmentMenu.classList.contains("open") && !this.toolsMenu.classList.contains("open")) {
+            !this.attachmentMenu.classList.contains("open")) {
           this.isEditing = false;
           this.syncCompactState();
         }

@@ -16,7 +16,7 @@ import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=3
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=69";
 import * as api from "../api.js?v=69";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=41";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=42";
 import { MessageFeed } from "../chat/message-feed.js?v=50";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=16";
 import {
@@ -670,7 +670,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       return;
     }
     if (lastPointerType !== "mouse" || messageFeed.element.contains(e.target)) return;
-    if (e.target?.closest?.("button, a, input, select, textarea, [role='menu'], [role='option'], .model-dropdown, .tools-menu, .attachment-menu")) {
+    if (e.target?.closest?.("button, a, input, select, textarea, [role='menu'], [role='option'], .model-dropdown, .attachment-menu")) {
       return;
     }
     attemptFocus();

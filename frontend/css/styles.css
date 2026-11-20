@@ -172,7 +172,6 @@
 
 /* Opaque floaters — must cover the content behind them. */
 :root[data-theme="dark"] .model-dropdown,
-:root[data-theme="dark"] .tools-menu,
 :root[data-theme="dark"] .attachment-menu,
 :root[data-theme="dark"] .effort-dropdown,
 :root[data-theme="dark"] .sidebar-convo-menu,
@@ -2377,86 +2376,11 @@ button:hover .icon-settings,
   transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.composer-attach:hover .icon-attachFile,
-.composer-attach:hover .icon-attach-file,
-.composer-attach:focus-visible .icon-attachFile,
-.composer-attach:focus-visible .icon-attach-file,
 button:hover .icon-attachFile,
 button:hover .icon-attach-file,
 .icon-attachFile:hover,
 .icon-attach-file:hover {
   transform: rotate(-16deg) scale(1.08);
-}
-
-/* Sliders Horizontal (Preferences / Tools) */
-.icon-slidersHorizontal .slider-thumb-1,
-.icon-sliders .slider-thumb-1,
-.icon-slidersHorizontal .slider-thumb-2,
-.icon-sliders .slider-thumb-2,
-.icon-slidersHorizontal .slider-thumb-3,
-.icon-sliders .slider-thumb-3 {
-  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.composer-tools-btn:hover .slider-thumb-1,
-.composer-tools-btn:focus-visible .slider-thumb-1,
-button:hover .icon-slidersHorizontal .slider-thumb-1,
-button:hover .icon-sliders .slider-thumb-1,
-.icon-slidersHorizontal:hover .slider-thumb-1,
-.icon-sliders:hover .slider-thumb-1 {
-  transform: translateX(-4px);
-}
-
-.composer-tools-btn:hover .slider-thumb-2,
-.composer-tools-btn:focus-visible .slider-thumb-2,
-button:hover .icon-slidersHorizontal .slider-thumb-2,
-button:hover .icon-sliders .slider-thumb-2,
-.icon-slidersHorizontal:hover .slider-thumb-2,
-.icon-sliders:hover .slider-thumb-2 {
-  transform: translateX(4px);
-}
-
-.composer-tools-btn:hover .slider-thumb-3,
-.composer-tools-btn:focus-visible .slider-thumb-3,
-button:hover .icon-slidersHorizontal .slider-thumb-3,
-button:hover .icon-sliders .slider-thumb-3,
-.icon-slidersHorizontal:hover .slider-thumb-3,
-.icon-sliders:hover .slider-thumb-3 {
-  transform: translateX(-4px);
-}
-
-/* Mic */
-@keyframes micCapsuleBob {
-  0% {
-    transform: translateY(0);
-  }
-
-  25% {
-    transform: translateY(-3px);
-  }
-
-  50% {
-    transform: translateY(0);
-  }
-
-  75% {
-    transform: translateY(-1.5px);
-  }
-
-  100% {
-    transform: translateY(0);
-  }
-}
-
-.icon-mic .mic-capsule {
-  transform-origin: center;
-}
-
-.composer-voice:hover .mic-capsule,
-.composer-voice:focus-visible .mic-capsule,
-button:hover .icon-mic .mic-capsule,
-.icon-mic:hover .mic-capsule {
-  animation: micCapsuleBob 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* Audio Lines (Voice Assistant) */
@@ -4693,11 +4617,9 @@ button:hover .icon-dislike,
   width: 100%;
 }
 
-/* In upper/empty state: attachment and tools menus open downwards instead of upwards */
+/* In upper/empty state: attachment menu opens downwards instead of upwards */
 body:has(.chat-page.is-empty) .attachment-menu,
-.chat-page.is-empty .attachment-menu,
-body:has(.chat-page.is-empty) .tools-menu,
-.chat-page.is-empty .tools-menu {
+.chat-page.is-empty .attachment-menu {
   bottom: auto;
   top: calc(100% + 8px);
 }
@@ -4769,49 +4691,44 @@ body:has(.chat-page.is-empty) .tools-menu,
   transition: border-color 180ms ease, height 180ms cubic-bezier(0.16, 1, 0.3, 1), padding 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.composer.is-compact .composer-box {
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  padding: 6px 14px;
-  cursor: text;
-}
+@media (min-width: 769px) {
+  .composer.is-compact .composer-box {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 6px 14px;
+    cursor: text;
+  }
 
-.composer.is-compact .composer-toolbar {
-  display: contents;
-}
+  .composer.is-compact .composer-toolbar {
+    display: contents;
+  }
 
-.composer.is-compact .composer-toolbar-left {
-  order: 1;
-}
+  .composer.is-compact .composer-toolbar-left {
+    order: 1;
+  }
 
-.composer.is-compact .composer-input-row {
-  order: 2;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
+  .composer.is-compact .composer-input-row {
+    order: 2;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+  }
 
-.composer.is-compact .composer-toolbar-actions {
-  order: 3;
-  flex-shrink: 0;
-}
+  .composer.is-compact .composer-toolbar-actions {
+    order: 3;
+    flex-shrink: 0;
+  }
 
-.composer.is-compact textarea {
-  height: 36px;
-  min-height: 36px;
-  padding: 6px 4px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-@media (max-width: 600px) {
-  .composer.is-compact .composer-tools-wrap,
-  .composer.is-compact .model-badge-wrap {
-    display: none;
+  .composer.is-compact textarea {
+    height: 36px;
+    min-height: 36px;
+    padding: 6px 4px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 }
 
@@ -5063,48 +4980,6 @@ body:has(.chat-page.is-empty) .tools-menu,
   align-items: center;
   gap: 4px;
   min-width: 0;
-}
-
-/* Tools trigger — icon-only button matching the attach (+) button. */
-.composer-tools-btn {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  color: var(--muted);
-  cursor: pointer;
-  border-radius: var(--r-sm);
-  align-self: center;
-  flex-shrink: 0;
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.composer-tools-btn:hover {
-  color: var(--ink);
-  background: var(--surface-soft);
-}
-
-.composer-tools-btn[aria-expanded="true"] {
-  color: var(--primary);
-  background: var(--primary-soft);
-}
-
-.composer-tools-wrap {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-  align-self: center;
-}
-
-.tools-menu {
-  position: fixed;
-  z-index: 50;
-  min-width: 215px;
-  width: 215px;
 }
 
 /* Spinner shown in the send slot while an image is generating. */
@@ -8208,11 +8083,6 @@ body:has(.chat-page.is-empty) .tools-menu,
     padding: 6px 8px;
   }
 
-  .composer.is-compact .composer-box {
-    gap: 4px;
-    padding: 5px 8px;
-  }
-
   .composer .hints {
     font-size: 11px;
   }
@@ -8243,8 +8113,8 @@ body:has(.chat-page.is-empty) .tools-menu,
   }
 
   .composer-attach svg {
-    width: 17px;
-    height: 17px;
+    width: 18px;
+    height: 18px;
   }
 
   .composer-voice svg {
@@ -8283,12 +8153,6 @@ body:has(.chat-page.is-empty) .tools-menu,
     height: 40px;
     min-height: 40px;
     max-height: 160px;
-  }
-
-  .composer.is-compact textarea {
-    height: 36px;
-    min-height: 36px;
-    padding: 5px 4px;
   }
 
   .composer-backdrop {
@@ -8334,20 +8198,10 @@ body:has(.chat-page.is-empty) .tools-menu,
     height: 16px;
   }
 
-  /* Composer toolbar on phones — keep the relocated model picker + tools
-     button compact so attach / tools / model / mic / send fit one row. */
+  /* Composer toolbar on phones — keep the relocated model picker compact so
+     attach / model / mic / send fit one row. */
   .composer-toolbar {
     gap: 2px;
-  }
-
-  .composer-tools-btn {
-    width: 38px;
-    height: 38px;
-  }
-
-  .composer-tools-btn svg {
-    width: 18px;
-    height: 18px;
   }
 
   .model-badge.model-badge-button {
@@ -9703,6 +9557,18 @@ em {
   background: var(--surface-soft);
 }
 
+.composer-attach[aria-expanded="true"] {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.composer-attach .icon-plus,
+.composer-attach:hover .icon-plus,
+.composer-attach:focus-visible .icon-plus {
+  transform: none;
+  transition: none;
+}
+
 .composer-attach-wrap {
   position: relative;
   display: inline-flex;
@@ -9715,6 +9581,8 @@ em {
   z-index: 50;
   min-width: 215px;
   width: 215px;
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
 }
 
 .message-attachments {
@@ -9864,39 +9732,38 @@ em {
 }
 
 .model-dropdown-item.active,
-.tools-menu-item.active,
+.attachment-menu-item.active,
 .effort-dropdown-item.active {
   background: var(--primary-soft);
 }
 
 .model-dropdown-item.active .menu-title,
-.tools-menu-item.active .menu-title,
+.attachment-menu-item.active .menu-title,
 .effort-dropdown-item.active .menu-title {
   color: var(--primary);
   font-weight: 600;
 }
 
 :root[data-theme="dark"] .model-dropdown-item.active,
-:root[data-theme="dark"] .tools-menu-item.active,
+:root[data-theme="dark"] .attachment-menu-item.active,
 :root[data-theme="dark"] .effort-dropdown-item.active {
   background: rgba(217, 119, 87, 0.22);
 }
 
 :root[data-theme="dark"] .model-dropdown-item.active .menu-title,
-:root[data-theme="dark"] .tools-menu-item.active .menu-title,
+:root[data-theme="dark"] .attachment-menu-item.active .menu-title,
 :root[data-theme="dark"] .effort-dropdown-item.active .menu-title {
   color: #f28b6d;
 }
 
 /* =============================================================
    Composer dropdown menus — ONE shared anatomy for the model,
-   tools, attachment, and effort menus. Same surface (canvas card,
+   attachment, and effort menus. Same surface (canvas card,
    12px radius, soft shadow) and the same item skeleton:
      [lead icon] · [title + sub] · [check when selected]
    Each menu's own block above only handles positioning.
    ============================================================= */
 .model-dropdown,
-.tools-menu,
 .attachment-menu,
 .effort-dropdown {
   z-index: 200;
@@ -9914,7 +9781,6 @@ em {
 }
 
 .model-dropdown.open,
-.tools-menu.open,
 .attachment-menu.open,
 .effort-dropdown.open {
   display: flex;
@@ -9923,7 +9789,6 @@ em {
 }
 
 .model-dropdown-item,
-.tools-menu-item,
 .attachment-menu-item,
 .effort-dropdown-item {
   appearance: none;
@@ -9946,14 +9811,12 @@ em {
 }
 
 .model-dropdown-item:hover,
-.tools-menu-item:hover,
 .attachment-menu-item:hover,
 .effort-dropdown-item:hover {
   background: var(--surface-soft);
 }
 
 .model-dropdown-item.active,
-.tools-menu-item.active,
 .attachment-menu-item.active,
 .effort-dropdown-item.active {
   background: var(--primary-soft);
@@ -9976,7 +9839,7 @@ em {
   height: 17px;
 }
 
-.tools-menu-item.active .menu-lead {
+.attachment-menu-item.active .menu-lead {
   color: var(--primary);
 }
 
@@ -10554,7 +10417,7 @@ body.voice-open { overflow: hidden; }
   border: none;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 150ms ease, transform 120ms ease;
+  transition: background 150ms ease;
 }
 
 .voice-lang-wrap {
@@ -10626,6 +10489,7 @@ body.voice-open { overflow: hidden; }
 .voice-close {
   background: var(--ink);
   color: var(--canvas);
+  transition: background 150ms ease, transform 120ms ease;
 }
 
 .voice-close:hover {
@@ -10641,10 +10505,6 @@ body.voice-open { overflow: hidden; }
   background: var(--primary);
   color: #fff;
   border-color: var(--primary);
-}
-
-.voice-mic:active {
-  transform: scale(0.94);
 }
 
 .voice-lang-btn:focus-visible,

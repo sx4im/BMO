@@ -458,7 +458,14 @@ def test_system_prompt_allows_document_generation_and_web_access():
     assert DEFAULT_SYSTEM_PROMPT.startswith("IMAGE CREATION")
     assert "Never say you cannot generate images" in DEFAULT_SYSTEM_PROMPT
     assert "Create image" in DEFAULT_SYSTEM_PROMPT
-    from app.prompts import image_settings_reply
+    assert "+ button" in DEFAULT_SYSTEM_PROMPT
+    assert "tap Tools" not in DEFAULT_SYSTEM_PROMPT and "sliders" not in DEFAULT_SYSTEM_PROMPT
+    from app.prompts import AEON_SYSTEM_PROMPT, IMAGE_SETTINGS_REPLY, WHATSAPP_SYSTEM_PROMPT, image_settings_reply
+    assert "+ button" in IMAGE_SETTINGS_REPLY
+    assert "tap the plus button" in AEON_SYSTEM_PROMPT
+    for prompt_text in (DEFAULT_SYSTEM_PROMPT, VISION_SYSTEM_PROMPT, WHATSAPP_SYSTEM_PROMPT, AEON_SYSTEM_PROMPT, IMAGE_SETTINGS_REPLY):
+        assert "tap Tools" not in prompt_text
+        assert "sliders" not in prompt_text
     assert "change the setting" in image_settings_reply("Can you generate images")
     assert image_settings_reply("can you share images")
     assert image_settings_reply("explain photosynthesis") == ""

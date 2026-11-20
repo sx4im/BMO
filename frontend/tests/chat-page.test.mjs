@@ -214,13 +214,15 @@ test("web search off does not fetch pasted URLs", async t => {
   assert.equal(page.payloads[0].auto_search, false);
 });
 
-test("Tools offers web search and image creation with working mode transitions", async t => {
+test("unified + button offers attachments, web search, and image creation with working mode transitions", async t => {
   const page = await chatPage();
   t.after(page.unmount);
   const { composer } = page;
-  composer.renderToolsMenu();
-  assert.deepEqual(Array.from(composer.toolsMenu.querySelectorAll('.menu-title'), node => node.textContent),
-    ['Web search', 'Create image']);
+  assert.equal(composer.element.querySelector('.composer-tools-btn'), null);
+  assert.ok(composer.attachBtn.querySelector('.icon-plus'));
+  composer.renderAttachMenu();
+  assert.deepEqual(Array.from(composer.attachmentMenu.querySelectorAll('.menu-title'), node => node.textContent),
+    ['Image', 'File', 'Camera', 'Web search', 'Create image']);
   composer.applyTool('generate');
   assert.equal(composer.isImageMode(), true);
   assert.match(composer.textarea.placeholder, /Describe an image/);
@@ -757,4 +759,13 @@ test("opening an existing conversation starts composer compact without autofocus
   t.after(page.unmount);
   assert.equal(page.composer.composer.classList.contains("is-compact"), true);
   assert.notEqual(page.app.dom.window.document.activeElement, page.composer.textarea);
+});
+
+test("compact composer is desktop-only and plus/mic buttons stay static in CSS", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const styles = await readFile(new URL("../css/styles.css", import.meta.url), "utf8");
+  assert.match(styles, /@media\s*\(min-width:\s*769px\)\s*\{\s*\.composer\.is-compact\s+\.composer-box/);
+  assert.equal(styles.includes("micCapsuleBob"), false);
+  assert.equal(/\.voice-mic:active\s*\{[^}]*transform/.test(styles), false);
+  assert.match(styles, /\.composer-attach:hover\s+\.icon-plus[^{]*\{[^}]*transform:\s*none;/);
 });
