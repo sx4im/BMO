@@ -223,7 +223,8 @@ test("unified + button offers attachments, web search, and image creation with w
   assert.ok(composer.attachBtn.querySelector('.icon-plus'));
   composer.renderAttachMenu();
   assert.deepEqual(Array.from(composer.attachmentMenu.querySelectorAll('.menu-title'), node => node.textContent),
-    ['Image', 'File', 'Camera', 'Web search', 'Create image']);
+    ['Attach image', 'Upload file', 'Take a snap', 'Web search', 'Create image']);
+  assert.equal(composer.attachmentMenu.querySelectorAll('.menu-sub').length, 0);
   composer.applyTool('generate');
   assert.equal(composer.isImageMode(), true);
   assert.match(composer.textarea.placeholder, /Describe an image/);

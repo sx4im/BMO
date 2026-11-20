@@ -9839,6 +9839,16 @@ em {
   background: var(--surface-soft);
 }
 
+.attachment-menu-item {
+  align-items: center;
+  padding: 7px 9px;
+}
+
+.attachment-menu-item .menu-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .model-dropdown-item.active,
 .attachment-menu-item.active,
 .effort-dropdown-item.active {

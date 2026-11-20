@@ -706,9 +706,9 @@ export class Composer {
   renderAttachMenu() {
     clear(this.attachmentMenu);
     const attachItems = [
-      { ic: "image", label: "Image", desc: "Upload a photo or picture", open: () => this.imageInput.click() },
-      { ic: "fileText", label: "File", desc: "PDF, DOCX, ZIP, PPTX & more", open: () => this.documentInput.click() },
-      { ic: "camera", label: "Camera", desc: "Take a photo to attach", open: () => this.cameraInput.click() },
+      { ic: "image", label: "Attach image", open: () => this.imageInput.click() },
+      { ic: "fileText", label: "Upload file", open: () => this.documentInput.click() },
+      { ic: "camera", label: "Take a snap", open: () => this.cameraInput.click() },
     ];
     for (const it of attachItems) {
       this.attachmentMenu.append(
@@ -721,15 +721,14 @@ export class Composer {
           el("span", { class: "menu-lead", html: icon(it.ic, { width: 18, height: 18 }) }),
           el("span", { class: "menu-text" }, [
             el("span", { class: "menu-title", text: it.label }),
-            el("span", { class: "menu-sub", text: it.desc }),
           ]),
         ])
       );
     }
     this.attachmentMenu.append(el("div", { class: "model-dropdown-divider", role: "separator" }));
     const toolItems = [
-      { kind: "search", ic: "globe", label: "Web search", desc: this.autoSearch ? "Reads web pages when needed" : "Off for this chat", active: this.autoSearch && !this.isImageMode() },
-      { kind: "generate", ic: "imageSparkles", label: "Create image", desc: "Generate an image with Iris", active: this.isImageMode() },
+      { kind: "search", ic: "globe", label: "Web search", active: this.autoSearch && !this.isImageMode() },
+      { kind: "generate", ic: "imageSparkles", label: "Create image", active: this.isImageMode() },
     ];
     for (const it of toolItems) {
       this.attachmentMenu.append(
@@ -743,7 +742,6 @@ export class Composer {
           el("span", { class: "menu-lead", html: icon(it.ic, { width: 18, height: 18 }) }),
           el("span", { class: "menu-text" }, [
             el("span", { class: "menu-title", text: it.label }),
-            el("span", { class: "menu-sub", text: it.desc }),
           ]),
         ])
       );
