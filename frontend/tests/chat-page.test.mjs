@@ -43,6 +43,7 @@ async function chatPage({ incognito = false, messages = [], id, skills = [], act
       callbacks.onAssistantMessage({ id: `assistant-${turn}`, role: "assistant", content: `Answer ${turn}` });
     },
     submitFeedback: async (_token,payload)=>{feedbackCalls.push(payload);return payload;},
+    updateConversation: async (_token, conversationId, patch) => ({ id: conversationId, ...patch }),
     cancelChat: async () => {},
     generateImage,
     scrapeUrl,
@@ -702,21 +703,25 @@ test("composer starts expanded on empty chat, compacts after first message, and 
   const { composer } = page;
   const form = composer.composer;
 
-  // State A: initial empty chat stays expanded
+  // State A: initial empty chat stays expanded and keeps greeting placeholder
   assert.equal(form.classList.contains("is-compact"), false);
+  assert.notEqual(composer.textarea.placeholder, "Write a message...");
+  assert.ok(composer.textarea.placeholder.length > 0);
 
-  // Send first message via form submit -> State B: compact single-row
+  // Send first message via form submit -> State B: compact single-row and standard placeholder
   composer.textarea.value = "First message";
   composer.textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
   form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
   await new Promise(setImmediate);
   assert.equal(composer.textarea.value, "");
   assert.equal(form.classList.contains("is-compact"), true);
+  assert.equal(composer.textarea.placeholder, "Write a message...");
 
   // Immediate typing after submit expands smoothly without losing focus (State E)
   composer.textarea.value = "N";
   composer.textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
   assert.equal(form.classList.contains("is-compact"), false);
+  assert.equal(composer.textarea.placeholder, "Write a message...");
 
   // Clearing draft & blurring returns to compact (State D)
   composer.textarea.value = "";
@@ -725,10 +730,18 @@ test("composer starts expanded on empty chat, compacts after first message, and 
   await new Promise(setImmediate);
   assert.equal(form.classList.contains("is-compact"), true);
 
-  // Clicking compact composer expands & focuses textarea (State C)
+  // Clicking compact composer expands & focuses textarea (State C), preserving active-chat placeholder
   composer.composerBox.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   assert.equal(form.classList.contains("is-compact"), false);
   assert.equal(window.document.activeElement, composer.textarea);
+  assert.equal(composer.textarea.placeholder, "Write a message...");
+
+  // Mode toggle back from image mode restores "Write a message..." in active chat
+  composer.applyTool("generate");
+  assert.match(composer.textarea.placeholder, /Describe an image/);
+  composer.selectModelFromDropdown("thinking");
+  assert.equal(composer.isImageMode(), false);
+  assert.equal(composer.textarea.placeholder, "Write a message...");
 
   // Multiline draft survives blur without collapsing (State D)
   composer.textarea.value = "Line 1\nLine 2";
@@ -743,6 +756,7 @@ test("composer starts expanded on empty chat, compacts after first message, and 
   await new Promise(setImmediate);
   assert.equal(composer.textarea.value, "");
   assert.equal(form.classList.contains("is-compact"), true);
+  assert.equal(composer.textarea.placeholder, "Write a message...");
 
   // Failed submission (empty image mode) stays expanded and keeps draft/state
   composer.composerBox.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -751,20 +765,56 @@ test("composer starts expanded on empty chat, compacts after first message, and 
   assert.equal(form.classList.contains("is-compact"), false);
 });
 
-test("opening an existing conversation starts composer compact without autofocus", async t => {
+test("opening an existing conversation starts composer compact without autofocus and uses standard placeholder", async t => {
   const page = await chatPage({
     id: "saved-chat",
     messages: [{ id: "m1", role: "user", content: "Hi" }, { id: "m2", role: "assistant", content: "Hello!" }],
   });
   t.after(page.unmount);
   assert.equal(page.composer.composer.classList.contains("is-compact"), true);
+  assert.equal(page.composer.textarea.placeholder, "Write a message...");
   assert.notEqual(page.app.dom.window.document.activeElement, page.composer.textarea);
 });
 
-test("compact composer is desktop-only and plus/mic buttons stay static in CSS", async () => {
+test("syncSkillLayout does not abort an active expand transition unless textarea height actually grows", async t => {
+  const page = await chatPage({
+    id: "saved-chat",
+    messages: [{ id: "m1", role: "user", content: "Hi" }, { id: "m2", role: "assistant", content: "Hello!" }],
+  });
+  t.after(page.unmount);
+  const { composer } = page;
+  let scrollHeight = 38;
+  Object.defineProperty(composer.textarea, "scrollHeight", { get: () => scrollHeight });
+  composer.composerBox.getBoundingClientRect = () => ({
+    height: composer.composer.classList.contains("is-compact") ? 50 : 102,
+  });
+
+  composer.composerBox.dispatchEvent(new page.app.dom.window.MouseEvent("click", { bubbles: true }));
+  assert.equal(composer.composerBox.classList.contains("is-resizing"), true);
+  assert.equal(composer.composerBox.style.blockSize, "102px");
+
+  // ResizeObserver firing syncSkillLayout with unchanged height must preserve transition
+  composer.syncSkillLayout();
+  assert.equal(composer.composerBox.classList.contains("is-resizing"), true);
+  assert.equal(composer.composerBox.style.blockSize, "102px");
+
+  // Growing the textarea mid-transition releases the pinned fallback blockSize
+  scrollHeight = 76;
+  composer.textarea.value = "Line 1\nLine 2";
+  composer.textarea.dispatchEvent(new page.app.dom.window.Event("input", { bubbles: true }));
+  assert.equal(composer.composerBox.classList.contains("is-resizing"), false);
+  assert.equal(composer.composerBox.style.blockSize, "");
+});
+
+test("compact composer is desktop-only, aligns edge icons, animates intrinsic size, and keeps plus/mic static in CSS", async () => {
   const { readFile } = await import("node:fs/promises");
   const styles = await readFile(new URL("../css/styles.css", import.meta.url), "utf8");
+  assert.match(styles, /:root\s*\{[^}]*interpolate-size:\s*allow-keywords;/);
   assert.match(styles, /@media\s*\(min-width:\s*769px\)\s*\{\s*\.composer\.is-compact\s+\.composer-box/);
+  assert.match(styles, /\.composer\.is-compact\s+\.composer-box\s*\{[^}]*block-size:\s*50px;[^}]*padding:\s*6px 6px;/);
+  assert.match(styles, /\.composer\.is-compact\s+\.composer-toolbar-actions\s*\{[^}]*gap:\s*2px;/);
+  assert.match(styles, /\.composer\.is-compact\s+\.composer-attach,\s*\.composer\.is-compact\s+\.composer-voice,\s*\.composer\.is-compact\s+\.voice-assistant-btn\s*\{[^}]*width:\s*36px;\s*height:\s*36px;\s*border-radius:\s*10px;/);
+  assert.match(styles, /@media\s*\(prefers-reduced-motion:\s*no-preference\)\s*\{\s*\.composer-box\s*\{[^}]*block-size\s+280ms/);
   assert.equal(styles.includes("micCapsuleBob"), false);
   assert.equal(/\.voice-mic:active\s*\{[^}]*transform/.test(styles), false);
   assert.match(styles, /\.composer-attach:hover\s+\.icon-plus[^{]*\{[^}]*transform:\s*none;/);

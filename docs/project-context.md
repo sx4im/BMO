@@ -1,6 +1,6 @@
 # BMO project context
 
-Updated 2026-11-17. Use this as an entry point; confirm implementation details
+Updated 2026-11-20. Use this as an entry point; confirm implementation details
 through Graft and the current source before editing.
 
 ## Architecture and deployment
@@ -15,6 +15,22 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Desktop compact composer (`min-width: 769px`, `.composer.is-compact`) uses
+  concentric 6px horizontal/vertical padding, 36×36px edge buttons (`+`, mic,
+  voice assistant), and a 2px action gap so `+` sits at the left end and
+  mic/voice sit at the right end. Expanding/compacting animates smoothly over
+  280ms via `:root { interpolate-size: allow-keywords }` (`block-size: 50px` ↔
+  `auto`) inside `@media (prefers-reduced-motion: no-preference)`, with a
+  measured `blockSize` fallback for browsers without `interpolate-size` and
+  an `autoSize()` guard so `ResizeObserver` layout sync does not abort active
+  transitions. Time-of-day greeting placeholders now appear only in empty/new
+  chats; once messages exist, the composer switches to `"Write a message..."`.
+  Verification: 231 frontend tests passed (`npm run test:run`) and headless
+  Chromium verified edge insets (6px/6px/2px), `CSSTransition` on `height`
+  (50px → 102px across 280ms), and placeholder switching; Firefox/Safari
+  measured fallback was exercised in jsdom rather than native browsers. Frontend
+  cache versions (`styles.css?v=256`, `composer.js?v=43`, `chat.js?v=213`,
+  `main.js?v=258`, `bmo-build`) bumped.
 - Voice Auto now verifies complete recorded turns with the configured Whisper
   transcription provider and applies its detected language to the final transcript,
   reply and TTS voice. Live Nova captions remain provisional. This covers Urdu,

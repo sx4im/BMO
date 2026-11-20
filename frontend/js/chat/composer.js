@@ -137,6 +137,7 @@ export class Composer {
     this.isEditing = false;
     this._pressing = false;
     this._heightTimer = null;
+    this._heightTransitionToken = 0;
 
 
     // Menus open state
@@ -536,11 +537,14 @@ export class Composer {
   }
 
   _clearHeightTransition() {
+    this._heightTransitionToken += 1;
     if (this._heightTimer) {
       clearTimeout(this._heightTimer);
       this._heightTimer = null;
     }
     if (this.composerBox) {
+      this.composerBox.classList.remove("is-resizing");
+      this.composerBox.style.blockSize = "";
       this.composerBox.style.height = "";
       this.composerBox.style.overflow = "";
     }
@@ -548,6 +552,7 @@ export class Composer {
 
   setConversationActive(active) {
     this.hasMessages = Boolean(active);
+    this.updateComposerForMode();
     this.syncCompactState();
   }
 
@@ -557,22 +562,49 @@ export class Composer {
     const wasCompact = this.composer.classList.contains("is-compact");
     if (compact === wasCompact) return;
 
+    const before = this.composerBox.getBoundingClientRect().height;
     this._clearHeightTransition();
     const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-    const before = this.composerBox.getBoundingClientRect().height;
+    const supportsInterpolate = typeof CSS !== "undefined" && Boolean(CSS.supports?.("interpolate-size", "allow-keywords"));
     this.composer.classList.toggle("is-compact", compact);
     if (compact) this.textarea.style.height = "";
     else this.autoSize(this.textarea);
 
-    if (!reduced && before > 0) {
-      const after = this.composerBox.getBoundingClientRect().height;
-      if (Math.abs(after - before) > 1) {
-        this.composerBox.style.height = `${before}px`;
-        this.composerBox.style.overflow = "hidden";
-        void this.composerBox.offsetHeight;
-        this.composerBox.style.height = `${after}px`;
-        this._heightTimer = setTimeout(() => this._clearHeightTransition(), 190);
+    if (reduced || before <= 0) return;
+
+    if (supportsInterpolate) {
+      this.composerBox.classList.add("is-resizing");
+      void this.composerBox.offsetHeight;
+      const transitions = typeof this.composerBox.getAnimations === "function"
+        ? this.composerBox.getAnimations().filter(
+            (a) => typeof CSSTransition !== "undefined" && a instanceof CSSTransition &&
+              (a.transitionProperty === "block-size" || a.transitionProperty === "height")
+          )
+        : [];
+      if (!transitions.length) {
+        this.composerBox.classList.remove("is-resizing");
+        return;
       }
+      const token = this._heightTransitionToken;
+      this._heightTimer = setTimeout(() => {
+        if (token === this._heightTransitionToken) this._clearHeightTransition();
+      }, 340);
+      Promise.allSettled(transitions.map((t) => t.finished)).then(() => {
+        if (token === this._heightTransitionToken) this._clearHeightTransition();
+      });
+      return;
+    }
+
+    const after = this.composerBox.getBoundingClientRect().height;
+    if (Math.abs(after - before) > 1) {
+      this.composerBox.classList.add("is-resizing");
+      this.composerBox.style.blockSize = `${before}px`;
+      void this.composerBox.offsetHeight;
+      this.composerBox.style.blockSize = `${after}px`;
+      const token = this._heightTransitionToken;
+      this._heightTimer = setTimeout(() => {
+        if (token === this._heightTransitionToken) this._clearHeightTransition();
+      }, 310);
     }
   }
 
@@ -581,12 +613,14 @@ export class Composer {
       node.style.height = "";
       return;
     }
-    if (node === this.textarea && this._heightTimer) {
-      this._clearHeightTransition();
-    }
+    const prevHeight = node.style.height;
     const prevScrollTop = node.scrollTop;
     node.style.height = "auto";
-    node.style.height = `${node.scrollHeight}px`;
+    const nextHeight = `${node.scrollHeight}px`;
+    node.style.height = nextHeight;
+    if (node === this.textarea && this._heightTimer && this.composerBox?.style.blockSize && prevHeight && nextHeight !== prevHeight) {
+      this._clearHeightTransition();
+    }
     if (prevScrollTop && node.scrollTop !== prevScrollTop) {
       node.scrollTop = prevScrollTop;
     }
@@ -738,7 +772,7 @@ export class Composer {
     } else if (this.isImageMode()) {
       this.textarea.placeholder = "Describe an image to create…";
     } else {
-      this.textarea.placeholder = greetingPlaceholder();
+      this.textarea.placeholder = this.hasMessages ? "Write a message..." : greetingPlaceholder();
     }
   }
 

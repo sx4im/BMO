@@ -16,7 +16,7 @@ import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=3
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=69";
 import * as api from "../api.js?v=69";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=42";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=43";
 import { MessageFeed } from "../chat/message-feed.js?v=50";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=16";
 import {
@@ -711,15 +711,16 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       return;
     }
 
+    const isEmpty = messages.length === 0 && !composer.isGenerating && !searching && !imageGenerating && !streamHandler.isStreaming;
+    page.classList.toggle("is-empty", isEmpty);
+    composer.setConversationActive(!isEmpty);
+
     messageFeed.stream.style.display = "";
     composer.element.style.display = "";
     header.style.display = "";
     updateTopBarTitle();
     const spinner = page.querySelector(".blade-spinner");
     if (spinner) spinner.remove();
-    const isEmpty = messages.length === 0 && !composer.isGenerating && !searching && !imageGenerating && !streamHandler.isStreaming;
-    page.classList.toggle("is-empty", isEmpty);
-    composer.setConversationActive(!isEmpty);
 
     if (isEmpty) {
       attemptFocus();

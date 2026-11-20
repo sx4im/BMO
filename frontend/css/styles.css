@@ -77,6 +77,7 @@
   --starter-border-hover: rgba(20, 20, 19, 0.16);
 
   color-scheme: light;
+  interpolate-size: allow-keywords;
 }
 
 /* =============================================================
@@ -4684,11 +4685,16 @@ body:has(.chat-page.is-empty) .attachment-menu,
   flex-direction: column;
   justify-content: flex-end;
   gap: 4px;
+  block-size: auto;
   padding: 10px 14px 10px;
   border-radius: 16px;
   background: var(--input-bar);
   border: 1px solid var(--composer-border);
-  transition: border-color 180ms ease, height 180ms cubic-bezier(0.16, 1, 0.3, 1), padding 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color 180ms ease;
+}
+
+.composer-box.is-resizing {
+  overflow: hidden;
 }
 
 @media (min-width: 769px) {
@@ -4696,8 +4702,9 @@ body:has(.chat-page.is-empty) .attachment-menu,
     flex-direction: row;
     align-items: center;
     justify-content: flex-start;
-    gap: 6px;
-    padding: 6px 14px;
+    gap: 4px;
+    block-size: 50px;
+    padding: 6px 6px;
     cursor: text;
   }
 
@@ -4720,6 +4727,15 @@ body:has(.chat-page.is-empty) .attachment-menu,
   .composer.is-compact .composer-toolbar-actions {
     order: 3;
     flex-shrink: 0;
+    gap: 2px;
+  }
+
+  .composer.is-compact .composer-attach,
+  .composer.is-compact .composer-voice,
+  .composer.is-compact .voice-assistant-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
   }
 
   .composer.is-compact textarea {
@@ -4729,12 +4745,6 @@ body:has(.chat-page.is-empty) .attachment-menu,
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .composer-box {
-    transition: none;
   }
 }
 
@@ -4751,6 +4761,19 @@ body:has(.chat-page.is-empty) .attachment-menu,
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .composer-box {
+    transition:
+      border-color 180ms ease,
+      block-size 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      padding 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .composer-toolbar-actions {
+    transition: gap 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
 }
 
 .composer-box:focus-within {
