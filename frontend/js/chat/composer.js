@@ -133,6 +133,10 @@ export class Composer {
     this.isGenerating = false;
     this.isImageGenerating = false;
     this.isRecording = false;
+    this.hasMessages = false;
+    this.isEditing = false;
+    this._pressing = false;
+    this._heightTimer = null;
 
 
     // Menus open state
@@ -325,11 +329,12 @@ export class Composer {
       rows: 1,
       placeholder: greetingPlaceholder(),
       "aria-label": "Message",
-      autofocus: "",
       oninput: (e) => {
+        this.isEditing = document.activeElement === this.textarea;
         this.autoSize(e.target);
         this.syncSendEnabled();
         this.syncUrlHighlight();
+        this.syncCompactState();
       },
       onscroll: () => {
         this.inputRow.style.setProperty("--composer-scroll-top", `${this.textarea.scrollTop}px`);
@@ -356,9 +361,11 @@ export class Composer {
         }
         if (!files.length) {
           setTimeout(() => {
+            this.isEditing = true;
             this.autoSize(this.textarea);
             this.syncSendEnabled();
             this.syncUrlHighlight();
+            this.syncCompactState();
           }, 0);
           return;
         }
@@ -427,6 +434,47 @@ export class Composer {
       this.composerToolbar,
     ]);
 
+    this.composerBox.addEventListener("pointerdown", () => {
+      this._pressing = true;
+    });
+    this.composerBox.addEventListener("focusin", (e) => {
+      if (e.target === this.textarea) {
+        this.isEditing = true;
+        this.syncCompactState();
+      }
+    });
+    this.composerBox.addEventListener("focusout", (e) => {
+      const next = e.relatedTarget;
+      if (this._pressing || (next && (this.composerBox.contains(next) || this.modelDropdown.contains(next) || this.effortDropdown.contains(next)))) {
+        return;
+      }
+      Promise.resolve().then(() => {
+        const active = document.activeElement;
+        if (
+          this._pressing ||
+          this.modelDropdownOpen ||
+          this.effortDropdownOpen ||
+          this.attachmentMenu?.classList.contains("open") ||
+          this.toolsMenu?.classList.contains("open") ||
+          (active && (this.composerBox.contains(active) || this.modelDropdown.contains(active) || this.effortDropdown.contains(active)))
+        ) {
+          return;
+        }
+        this.isEditing = false;
+        this.syncCompactState();
+      });
+    });
+    this.composerBox.addEventListener("click", (e) => {
+      if (e.target.closest("button, a, [role='menu'], [role='menuitem'], [role='option'], .composer-skill-chips, .skill-popup, .skill-description-preview, .composer-attachments")) {
+        return;
+      }
+      this.isEditing = true;
+      if (document.activeElement !== this.textarea) {
+        this.textarea.focus();
+      }
+      this.syncCompactState();
+    });
+
     this.composerBox.addEventListener("dragover", (e) => {
       e.preventDefault();
       this.composerBox.classList.add("drag-over");
@@ -459,6 +507,7 @@ export class Composer {
         }
         if (!text && this.pendingAttachments.length === 0) return;
         this.textarea.value = "";
+        this.isEditing = false;
         this.skillPicker.close();
         this.autoSize(this.textarea);
         this.syncSendEnabled();
@@ -473,6 +522,7 @@ export class Composer {
         });
         this.pendingAttachments = [];
         this.renderAttachmentsBar();
+        this.syncCompactState();
       },
     }, [
       this.imageInput,
@@ -505,7 +555,67 @@ export class Composer {
     return "low";
   }
 
+  _isCompact() {
+    return Boolean(
+      this.hasMessages &&
+      !this.isEditing &&
+      !this.isRecording &&
+      !this.textarea.value.length &&
+      !this.pendingAttachments.length &&
+      !this.uploadingFiles.length &&
+      !this.skillPicker?.selectedIds?.length
+    );
+  }
+
+  _clearHeightTransition() {
+    if (this._heightTimer) {
+      clearTimeout(this._heightTimer);
+      this._heightTimer = null;
+    }
+    if (this.composerBox) {
+      this.composerBox.style.height = "";
+      this.composerBox.style.overflow = "";
+    }
+  }
+
+  setConversationActive(active) {
+    this.hasMessages = Boolean(active);
+    this.syncCompactState();
+  }
+
+  syncCompactState() {
+    if (!this.composer || !this.composerBox || !this.textarea) return;
+    const compact = this._isCompact();
+    const wasCompact = this.composer.classList.contains("is-compact");
+    if (compact === wasCompact) return;
+
+    this._clearHeightTransition();
+    const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const before = this.composerBox.getBoundingClientRect().height;
+    this.composer.classList.toggle("is-compact", compact);
+    if (compact) this.textarea.style.height = "";
+    else this.autoSize(this.textarea);
+
+    if (!reduced && before > 0) {
+      const after = this.composerBox.getBoundingClientRect().height;
+      if (Math.abs(after - before) > 1) {
+        this.composerBox.style.height = `${before}px`;
+        this.composerBox.style.overflow = "hidden";
+        void this.composerBox.offsetHeight;
+        this.composerBox.style.height = `${after}px`;
+        this._heightTimer = setTimeout(() => this._clearHeightTransition(), 190);
+      }
+    }
+  }
+
   autoSize(node) {
+    if (node === this.textarea && this.composer?.classList.contains("is-compact")) {
+      node.style.height = "";
+      return;
+    }
+    if (node === this.textarea && this._heightTimer) {
+      this._clearHeightTransition();
+    }
     const prevScrollTop = node.scrollTop;
     node.style.height = "auto";
     node.style.height = `${node.scrollHeight}px`;
@@ -525,6 +635,7 @@ export class Composer {
     this.inputRow.classList.toggle("skills-stacked", width > 0 && !inline);
     this.inputRow.style.setProperty("--skill-indent", `${inline ? width : 0}px`);
     this.autoSize(this.textarea);
+    this.syncCompactState();
   }
 
   syncUrlHighlight() {
@@ -547,10 +658,13 @@ export class Composer {
     this.autoSize(this.textarea);
     this.syncSendEnabled();
     this.syncUrlHighlight();
+    this.syncCompactState();
   }
 
   focus() {
+    this.isEditing = true;
     this.textarea.focus();
+    this.syncCompactState();
   }
 
   positionAttachMenu() {
@@ -761,6 +875,10 @@ export class Composer {
     this.modelDropdownOpen = false;
     this.modelDropdown.classList.remove("open");
     this.modelBadge.setAttribute("aria-expanded", "false");
+    if (document.activeElement !== this.textarea) {
+      this.isEditing = false;
+      this.syncCompactState();
+    }
   }
 
   selectModelFromDropdown(picked) {
@@ -830,6 +948,10 @@ export class Composer {
     this.effortDropdownOpen = false;
     this.effortDropdown.classList.remove("open");
     this.effortBadge.setAttribute("aria-expanded", "false");
+    if (document.activeElement !== this.textarea) {
+      this.isEditing = false;
+      this.syncCompactState();
+    }
   }
 
   selectEffortFromDropdown(value) {
@@ -928,6 +1050,7 @@ export class Composer {
       );
       this.attachmentsBar.append(el("div", { class: "composer-attachment-chip" }, children));
     }
+    this.syncCompactState?.();
   }
 
   async uploadAndAttach(file) {
@@ -1037,6 +1160,7 @@ export class Composer {
     this.recordingBar.setAttribute("aria-hidden", on ? "false" : "true");
     this.voiceBtn.classList.toggle("recording", on);
     this.voiceBtn.setAttribute("aria-label", on ? "Stop voice input" : "Start voice input");
+    this.syncCompactState?.();
   }
 
   startRecordTimer() {
@@ -1131,6 +1255,7 @@ export class Composer {
     this.autoSize(this.textarea);
     this.syncSendEnabled();
     this.syncUrlHighlight();
+    this.syncCompactState?.();
   }
 
   releaseDictation(session) {
@@ -1243,8 +1368,27 @@ export class Composer {
     this._onDocClick = (e) => {
       if (!this.attachWrap.contains(e.target)) this.toggleAttachMenu(false);
       if (!this.toolsWrap.contains(e.target)) this.toggleToolsMenu(false);
+      if (document.activeElement !== this.textarea && !this.modelDropdownOpen && !this.effortDropdownOpen &&
+          !this.attachmentMenu.classList.contains("open") && !this.toolsMenu.classList.contains("open")) {
+        this.isEditing = false;
+        this.syncCompactState();
+      }
     };
     document.addEventListener("click", this._onDocClick);
+
+    this._onDocPointerEnd = () => {
+      if (!this._pressing) return;
+      setTimeout(() => {
+        this._pressing = false;
+        if (document.activeElement !== this.textarea && !this.modelDropdownOpen && !this.effortDropdownOpen &&
+            !this.attachmentMenu.classList.contains("open") && !this.toolsMenu.classList.contains("open")) {
+          this.isEditing = false;
+          this.syncCompactState();
+        }
+      }, 0);
+    };
+    document.addEventListener("pointerup", this._onDocPointerEnd, true);
+    document.addEventListener("pointercancel", this._onDocPointerEnd, true);
 
     this._onGlobalPaste = (e) => {
       if (document.activeElement === this.textarea) return;
@@ -1258,7 +1402,7 @@ export class Composer {
       }
       if (!files.length) return;
       e.preventDefault();
-      this.textarea.focus();
+      this.focus();
       if (files.length > 3) {
         toast("Max 3 files", { tone: "error" });
       }
@@ -1278,12 +1422,15 @@ export class Composer {
   }
 
   destroy() {
+    this._clearHeightTransition();
     this.skillLayoutObserver?.disconnect();
     this.skillPicker.destroy();
     this.stopRecordTimer();
     this.stopWaveMeter();
     this.discardRecording();
     document.removeEventListener("click", this._onDocClick);
+    document.removeEventListener("pointerup", this._onDocPointerEnd, true);
+    document.removeEventListener("pointercancel", this._onDocPointerEnd, true);
     document.removeEventListener("paste", this._onGlobalPaste);
     document.removeEventListener("pointerdown", this._onPointerDown, true);
   }

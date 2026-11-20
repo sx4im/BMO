@@ -4760,12 +4760,65 @@ body:has(.chat-page.is-empty) .tools-menu,
   /* Vertical stack: textarea on top, fixed action toolbar underneath. This is
      what pins the +/send positions while the textarea grows. */
   flex-direction: column;
+  justify-content: flex-end;
   gap: 4px;
   padding: 10px 14px 10px;
   border-radius: 16px;
   background: var(--input-bar);
   border: 1px solid var(--composer-border);
-  transition: border-color 180ms ease;
+  transition: border-color 180ms ease, height 180ms cubic-bezier(0.16, 1, 0.3, 1), padding 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.composer.is-compact .composer-box {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 6px 14px;
+  cursor: text;
+}
+
+.composer.is-compact .composer-toolbar {
+  display: contents;
+}
+
+.composer.is-compact .composer-toolbar-left {
+  order: 1;
+}
+
+.composer.is-compact .composer-input-row {
+  order: 2;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.composer.is-compact .composer-toolbar-actions {
+  order: 3;
+  flex-shrink: 0;
+}
+
+.composer.is-compact textarea {
+  height: 36px;
+  min-height: 36px;
+  padding: 6px 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 600px) {
+  .composer.is-compact .composer-tools-wrap,
+  .composer.is-compact .model-badge-wrap {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-box {
+    transition: none;
+  }
 }
 
 /* Bottom action row — left: attach; right: search / voice / send. Stays put
@@ -8155,6 +8208,11 @@ body:has(.chat-page.is-empty) .tools-menu,
     padding: 6px 8px;
   }
 
+  .composer.is-compact .composer-box {
+    gap: 4px;
+    padding: 5px 8px;
+  }
+
   .composer .hints {
     font-size: 11px;
   }
@@ -8225,6 +8283,12 @@ body:has(.chat-page.is-empty) .tools-menu,
     height: 40px;
     min-height: 40px;
     max-height: 160px;
+  }
+
+  .composer.is-compact textarea {
+    height: 36px;
+    min-height: 36px;
+    padding: 5px 4px;
   }
 
   .composer-backdrop {
@@ -9285,8 +9349,8 @@ em {
   position: absolute;
   left: 50%;
   bottom: 150px;
-  width: 44px;
-  height: 44px;
+  width: 35px;
+  height: 35px;
   padding: 0;
   border-radius: 50%;
   display: grid;

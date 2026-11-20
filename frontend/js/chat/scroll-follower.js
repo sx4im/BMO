@@ -75,12 +75,21 @@ export class ScrollFollower {
     if (this._mounted) return;
     this._mounted = true;
     this.scroller.addEventListener("scroll", this._onScroll, { passive: true });
+    if (typeof ResizeObserver !== "undefined" && this.scroller) {
+      this._resizeObserver = new ResizeObserver(() => {
+        if (this.pinned) this.chase();
+        this._lastViewport = this.scroller.clientHeight;
+      });
+      this._resizeObserver.observe(this.scroller);
+    }
   }
 
   unmount() {
     if (!this._mounted) return;
     this._mounted = false;
     this.scroller.removeEventListener("scroll", this._onScroll);
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = null;
     this.removeButton();
   }
 
@@ -131,8 +140,8 @@ export class ScrollFollower {
     b.className = "stream-jump-pill";
     b.setAttribute("aria-label", "Jump to latest");
     b.innerHTML =
-      `<span class="pill-ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" ` +
-      `viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ` +
+      `<span class="pill-ic"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" ` +
+      `viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ` +
       `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
       `<path d="m6 9 6 6 6-6"/></svg></span>`;
     b.addEventListener("click", () => this.jumpToBottom());

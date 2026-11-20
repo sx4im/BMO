@@ -21,7 +21,7 @@ import { messageBubble, reasoningDetails } from "../components/message.js?v=79";
 import { EXPORT_FORMATS, downloadBlob } from "../export.js?v=5";
 import { StreamingRenderer } from "./stream-renderer.js?v=15";
 import { stripStrayCursors } from "./caret.js?v=1";
-import { ScrollFollower } from "./scroll-follower.js?v=6";
+import { ScrollFollower } from "./scroll-follower.js?v=7";
 import { getGreeting, getRandomGreetingTemplate, getPageGreetingTemplate, getFirstName } from "./greetings.js?v=4";
 
 export function emptyStreamView({ incognito, user, template } = {}) {

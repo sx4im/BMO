@@ -692,3 +692,69 @@ test("clicking empty chat chrome still focuses the composer", async t => {
   page.app.dom.window.document.querySelector(".chat-page").click();
   assert.equal(page.app.dom.window.document.activeElement, page.composer.textarea);
 });
+
+test("composer starts expanded on empty chat, compacts after first message, and expands on interaction or draft", async t => {
+  const page = await chatPage();
+  t.after(page.unmount);
+  const { window } = page.app.dom;
+  const { composer } = page;
+  const form = composer.composer;
+
+  // State A: initial empty chat stays expanded
+  assert.equal(form.classList.contains("is-compact"), false);
+
+  // Send first message via form submit -> State B: compact single-row
+  composer.textarea.value = "First message";
+  composer.textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+  form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await new Promise(setImmediate);
+  assert.equal(composer.textarea.value, "");
+  assert.equal(form.classList.contains("is-compact"), true);
+
+  // Immediate typing after submit expands smoothly without losing focus (State E)
+  composer.textarea.value = "N";
+  composer.textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(form.classList.contains("is-compact"), false);
+
+  // Clearing draft & blurring returns to compact (State D)
+  composer.textarea.value = "";
+  composer.textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+  composer.textarea.blur();
+  await new Promise(setImmediate);
+  assert.equal(form.classList.contains("is-compact"), true);
+
+  // Clicking compact composer expands & focuses textarea (State C)
+  composer.composerBox.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  assert.equal(form.classList.contains("is-compact"), false);
+  assert.equal(window.document.activeElement, composer.textarea);
+
+  // Multiline draft survives blur without collapsing (State D)
+  composer.textarea.value = "Line 1\nLine 2";
+  composer.textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+  composer.textarea.blur();
+  await new Promise(setImmediate);
+  assert.equal(form.classList.contains("is-compact"), false);
+  assert.equal(composer.textarea.value, "Line 1\nLine 2");
+
+  // Sending multiline message returns to compact
+  form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await new Promise(setImmediate);
+  assert.equal(composer.textarea.value, "");
+  assert.equal(form.classList.contains("is-compact"), true);
+
+  // Failed submission (empty image mode) stays expanded and keeps draft/state
+  composer.composerBox.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  composer.currentModel = "image";
+  form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  assert.equal(form.classList.contains("is-compact"), false);
+});
+
+test("opening an existing conversation starts composer compact without autofocus", async t => {
+  const page = await chatPage({
+    id: "saved-chat",
+    messages: [{ id: "m1", role: "user", content: "Hi" }, { id: "m2", role: "assistant", content: "Hello!" }],
+  });
+  t.after(page.unmount);
+  assert.equal(page.composer.composer.classList.contains("is-compact"), true);
+  assert.notEqual(page.app.dom.window.document.activeElement, page.composer.textarea);
+});

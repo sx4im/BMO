@@ -16,8 +16,8 @@ import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=3
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=69";
 import * as api from "../api.js?v=69";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=40";
-import { MessageFeed } from "../chat/message-feed.js?v=49";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=41";
+import { MessageFeed } from "../chat/message-feed.js?v=50";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=16";
 import {
   detectExportIntent,
@@ -78,7 +78,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   // State
   let conversation = null;
   let messages = [];
-  let loading = false;
+  let loading = Boolean(id);
   let availableModels = DEFAULT_AVAILABLE_MODELS;
   let defaultModel = "thinking";
   let searchingLabel = "Reading webpage…";
@@ -640,7 +640,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   // Focus the composer only while the user is not selecting text or using
   // another editable control. Startup retries and window focus obey this too.
   const attemptFocus = () => {
-    if (unmounted || window.getSelection()?.isCollapsed === false) return;
+    if (unmounted || loading || messages.length > 0 || window.getSelection()?.isCollapsed === false) return;
     const active = document.activeElement;
     if (active === composer.textarea || active?.matches("input, textarea, select, [contenteditable='true']")) return;
     try {
@@ -719,8 +719,9 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     if (spinner) spinner.remove();
     const isEmpty = messages.length === 0 && !composer.isGenerating && !searching && !imageGenerating && !streamHandler.isStreaming;
     page.classList.toggle("is-empty", isEmpty);
+    composer.setConversationActive(!isEmpty);
 
-    if (isEmpty || initial) {
+    if (isEmpty) {
       attemptFocus();
     }
 
