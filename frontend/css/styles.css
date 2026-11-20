@@ -9764,6 +9764,10 @@ em {
 .attachment-menu-item.active .menu-title,
 .effort-dropdown-item.active .menu-title {
   color: var(--primary);
+}
+
+.model-dropdown-item.active .menu-title,
+.effort-dropdown-item.active .menu-title {
   font-weight: 600;
 }
 
@@ -9845,8 +9849,9 @@ em {
 }
 
 .attachment-menu-item .menu-title {
-  font-size: 14.3px;
-  font-weight: 500;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .model-dropdown-item.active,
