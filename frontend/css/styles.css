@@ -2236,22 +2236,14 @@ button:hover .icon-search,
 .sidebar-nav a:hover .icon-galleryVerticalEnd .gallery-line-1,
 .sidebar-nav a:hover .icon-projects .gallery-line-1,
 .sidebar-nav a:focus-visible .icon-galleryVerticalEnd .gallery-line-1,
-.sidebar-nav a:focus-visible .icon-projects .gallery-line-1,
-button:hover .icon-galleryVerticalEnd .gallery-line-1,
-button:hover .icon-projects .gallery-line-1,
-.icon-galleryVerticalEnd:hover .gallery-line-1,
-.icon-projects:hover .gallery-line-1 {
+.sidebar-nav a:focus-visible .icon-projects .gallery-line-1 {
   animation: galleryLine1Anim 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) 0.12s both;
 }
 
 .sidebar-nav a:hover .icon-galleryVerticalEnd .gallery-line-2,
 .sidebar-nav a:hover .icon-projects .gallery-line-2,
 .sidebar-nav a:focus-visible .icon-galleryVerticalEnd .gallery-line-2,
-.sidebar-nav a:focus-visible .icon-projects .gallery-line-2,
-button:hover .icon-galleryVerticalEnd .gallery-line-2,
-button:hover .icon-projects .gallery-line-2,
-.icon-galleryVerticalEnd:hover .gallery-line-2,
-.icon-projects:hover .gallery-line-2 {
+.sidebar-nav a:focus-visible .icon-projects .gallery-line-2 {
   animation: galleryLine2Anim 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) 0s both;
 }
 
@@ -9613,6 +9605,12 @@ em {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+
+.message.user .message-attachments {
+  margin-top: 0;
+  margin-bottom: 6px;
+  justify-content: flex-end;
 }
 
 .message-attachments img {

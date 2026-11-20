@@ -201,6 +201,7 @@ export function messageBubble({
   // only — replies loaded from history have no search to show.
   if (isAssistant && message.search) bodyChildren.push(searchCard(message.search));
   if (reasoningNode) bodyChildren.push(reasoningNode);
+  if (!isAssistant && attachmentsPreview) bodyChildren.push(attachmentsPreview);
   if (bubbleNodes.length) bodyChildren.push(...bubbleNodes);
 
   // Long user prompts collapse behind a "Show more" toggle (assistant replies
@@ -217,7 +218,7 @@ export function messageBubble({
     bodyChildren.push(showMore);
   }
 
-  if (attachmentsPreview) bodyChildren.push(attachmentsPreview);
+  if (isAssistant && attachmentsPreview) bodyChildren.push(attachmentsPreview);
   if (actionButtons.length) bodyChildren.push(el("div", { class: "actions" }, actionButtons));
 
   const body = el("div", { class: "body" }, bodyChildren);

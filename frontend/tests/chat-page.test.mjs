@@ -820,3 +820,43 @@ test("compact composer is desktop-only, aligns edge icons, animates intrinsic si
   assert.equal(/\.voice-mic:active\s*\{[^}]*transform/.test(styles), false);
   assert.match(styles, /\.composer-attach:hover\s+\.icon-plus[^{]*\{[^}]*transform:\s*none;/);
 });
+
+test("user message attachments render above the text bubble while assistant attachments stay below", async () => {
+  const { moduleLoader } = await import("./modules.mjs");
+  const app = moduleLoader({
+    "markdown.js": { renderMarkdown: text => text },
+    "image-modal.js": { openImageModal() {} },
+  }, { globals: { HTMLElement: class {} } });
+  const { messageBubble } = await app.load("js/components/message.js");
+  const userEl = messageBubble({
+    message: {
+      id: "u1",
+      role: "user",
+      content: "whats that",
+      attachments: [{ filename: "notes.pdf", content_type: "application/pdf", path: "p/notes.pdf" }],
+    },
+  });
+  const userKids = Array.from(userEl.querySelector(".body").children);
+  assert.ok(userKids.findIndex(n => n.classList.contains("message-attachments")) < userKids.findIndex(n => n.classList.contains("bubble")));
+
+  const assistantEl = messageBubble({
+    message: {
+      id: "a1",
+      role: "assistant",
+      content: "Here is the image",
+      attachments: [{ filename: "out.png", content_type: "image/png", url: "https://example.invalid/out.png" }],
+    },
+  });
+  const assistantKids = Array.from(assistantEl.querySelector(".body").children);
+  assert.ok(assistantKids.findIndex(n => n.classList.contains("bubble")) < assistantKids.findIndex(n => n.classList.contains("message-attachments")));
+});
+
+test("project icon animation is scoped to sidebar nav links and static in chat menu buttons", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const styles = await readFile(new URL("../css/styles.css", import.meta.url), "utf8");
+  assert.equal(styles.includes("button:hover .icon-galleryVerticalEnd"), false);
+  assert.equal(styles.includes("button:hover .icon-projects"), false);
+  assert.equal(styles.includes(".icon-galleryVerticalEnd:hover"), false);
+  assert.equal(styles.includes(".icon-projects:hover"), false);
+  assert.match(styles, /\.sidebar-nav a:hover \.icon-projects \.gallery-line-1/);
+});
