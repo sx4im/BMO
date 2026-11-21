@@ -4,6 +4,28 @@ import { moduleLoader } from './modules.mjs';
 
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; }
 
+test('a chat with no model output stops waiting and reports a retryable connection error', async () => {
+  let timeout, signal;
+  const errors = [];
+  const app = moduleLoader({ 'api.js': { streamChat: async (_t, _p, callbacks) => {
+    signal = callbacks.signal;
+    await new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  } } }, { globals: {
+    setTimeout: fn => { timeout = fn; return 1; }, clearTimeout() {},
+    setInterval: () => 1, clearInterval() {},
+  } });
+  const { StreamHandler } = await app.load('js/chat/stream-handler.js');
+  const handler = new StreamHandler({ getAuthToken: () => 'token', onError: error => errors.push(error) });
+  const waiting = handler.executeStream({ payload: {}, streamId: 'waiting' });
+  assert.equal(typeof timeout, 'function');
+  timeout();
+  await assert.rejects(waiting, { name: 'AbortError' });
+  assert.equal(signal.aborted, true);
+  assert.equal(handler.isStreaming, false);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].retryable, true);
+});
+
 test('cancelled stream callbacks and finalizer cannot touch a newer run', async () => {
   const runs = [], tokens = [], errors = [];
   const app = moduleLoader({ 'api.js': { cancelChat: async () => {}, streamChat: async (_t, _p, cb) => {

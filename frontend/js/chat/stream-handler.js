@@ -179,6 +179,12 @@ export class StreamHandler {
       this.cleanup();
       this.onError(err, partial);
     };
+    const firstOutputTimer = setTimeout(() => {
+      if (!ownsRun()) return;
+      controller.abort();
+      reportError(Object.assign(new Error("Chat did not respond. Try sending again."), { retryable: true }));
+    }, 90_000);
+    const receivedOutput = () => clearTimeout(firstOutputTimer);
 
     try {
       await api.streamChat(
@@ -211,6 +217,7 @@ export class StreamHandler {
           },
           onReasoningToken: ({ delta }) => {
             if (!ownsRun()) return;
+            receivedOutput();
             if (this.isSearching) this.startStatusRotation();
             this.endSearch();
             this.streamingReasoning += delta;
@@ -228,6 +235,7 @@ export class StreamHandler {
           },
           onToken: ({ delta }) => {
             if (!ownsRun()) return;
+            receivedOutput();
             this.stopStatusRotation();
             this.endSearch();
             this.streamingText += delta;
@@ -249,11 +257,13 @@ export class StreamHandler {
           },
           onComplete: () => {
             if (!ownsRun()) return;
+            receivedOutput();
             this.stopStatusRotation();
             this.onComplete();
           },
           onAssistantMessage: (msg) => {
             if (!ownsRun()) return;
+            receivedOutput();
             receivedAssistant = true;
             if (this.lastReasoningSeconds != null) {
               msg.reasoning_seconds = this.lastReasoningSeconds;
@@ -274,6 +284,7 @@ export class StreamHandler {
       if (err?.name !== "AbortError") reportError(err);
       throw err;
     } finally {
+      clearTimeout(firstOutputTimer);
       if (ownsRun()) this.cleanup();
     }
   }

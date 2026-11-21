@@ -128,6 +128,8 @@ export class Composer {
 
     this.pendingAttachments = [];
     this.uploadingFiles = [];
+    this.attachmentOrder = new WeakMap();
+    this.nextAttachmentOrder = 0;
     this.availableModels = DEFAULT_AVAILABLE_MODELS;
     this.currentModel = "thinking";
     this.defaultModel = "thinking";
@@ -965,23 +967,24 @@ export class Composer {
   }
 
   renderAttachmentsBar() {
-    clear(this.attachmentsBar);
+    const scrollLeft = this.attachmentsBar.scrollLeft;
+    const tiles = [];
     for (const f of this.uploadingFiles) {
-      const isImg = f.file?.type?.startsWith("image/") || (f.name && /\.(png|jpe?g|webp|gif|svg)$/i.test(f.name));
+      const isImg = isImageAttachment(f.name, f.file?.type);
       const children = [];
-      if (isImg && f.previewUrl) {
-        children.push(el("img", { src: f.previewUrl, alt: f.name || "uploading image" }));
+      if (isImg) {
+        children.push(el("span", { class: "sr-only", role: "status", text: `Uploading ${f.name}` }));
       } else {
         const uploadExt = (f.name || "").split(".").pop() || "";
         children.push(el("span", { class: "ic", html: FileIcon(uploadExt, 36) }));
+        children.push(el("span", { class: "attachment-info" }, [
+          el("span", { class: "name", text: f.name || "File", title: f.name || "File" }),
+          el("span", { class: "attachment-status", role: "status" }, [
+            el("span", { class: "spinner", html: icon("loader", { width: 11, height: 11 }) }),
+            "Uploading…",
+          ]),
+        ]));
       }
-      children.push(el("span", { class: "attachment-info" }, [
-        el("span", { class: "name", text: f.name || "File", title: f.name || "File" }),
-        el("span", { class: "attachment-status", role: "status" }, [
-          el("span", { class: "spinner", html: icon("loader", { width: 11, height: 11 }) }),
-          "Uploading…",
-        ]),
-      ]));
       children.push(
         el("button", {
           type: "button",
@@ -996,31 +999,37 @@ export class Composer {
           html: icon("x", { width: 12, height: 12 }),
         })
       );
-      this.attachmentsBar.append(
-        el("div", { class: "composer-attachment-chip loading", "aria-busy": "true" }, children)
-      );
+      tiles.push([this.attachmentOrder.get(f) ?? 0,
+        el("div", {
+          class: `composer-attachment-chip loading${isImg ? " composer-image-attachment" : ""}`,
+          "aria-busy": "true",
+        }, children)
+      ]);
     }
 
     for (const a of this.pendingAttachments) {
       const isImage = isImageAttachment(a.filename, a.content_type);
       const children = [];
       if (isImage && a.url) {
-        children.push(el("img", {
-          src: a.url,
-          alt: a.filename || "attachment",
-          title: "Click to view",
-          style: "cursor: zoom-in;",
+        const name = a.filename || "image";
+        children.push(el("button", {
+          type: "button",
+          class: "attachment-preview",
+          "aria-label": `Preview ${name}`,
+          title: name,
           onclick: () => openImageModal(a.url, a.filename),
-        }));
+        }, [el("img", { src: a.url, alt: name })]));
       } else {
         const ext = (a.filename || "").split(".").pop()?.toLowerCase();
         children.push(el("span", { class: "ic", html: FileIcon(ext, 36) }));
       }
-      const fileType = (a.filename || "").split(".").pop()?.toUpperCase() || "FILE";
-      children.push(el("span", { class: "attachment-info" }, [
-        el("span", { class: "name", text: a.filename || "Attachment", title: a.filename || "Attachment" }),
-        el("span", { class: "attachment-status", text: `${fileType} · Ready` }),
-      ]));
+      if (!isImage) {
+        const fileType = (a.filename || "").split(".").pop()?.toUpperCase() || "FILE";
+        children.push(el("span", { class: "attachment-info" }, [
+          el("span", { class: "name", text: a.filename || "Attachment", title: a.filename || "Attachment" }),
+          el("span", { class: "attachment-status", text: `${fileType} · Ready` }),
+        ]));
+      }
       children.push(
         el("button", {
           type: "button",
@@ -1034,8 +1043,13 @@ export class Composer {
           html: icon("x", { width: 12, height: 12 }),
         })
       );
-      this.attachmentsBar.append(el("div", { class: "composer-attachment-chip" }, children));
+      tiles.push([this.attachmentOrder.get(a) ?? 0, el("div", {
+        class: `composer-attachment-chip${isImage ? " composer-image-attachment" : ""}`,
+      }, children)]);
     }
+    tiles.sort(([a], [b]) => a - b);
+    this.attachmentsBar.replaceChildren(...tiles.map(([, tile]) => tile));
+    this.attachmentsBar.scrollLeft = scrollLeft;
     this.syncCompactState?.();
   }
 
@@ -1066,28 +1080,24 @@ export class Composer {
       return;
     }
 
-    const isImg = isImageAttachment(file.name, file.type);
-    let previewUrl = null;
-    if (isImg) {
-      try { previewUrl = URL.createObjectURL(file); } catch {}
-    }
-
     const controller = new AbortController();
-    const uploadEntry = { file, name: file.name, previewUrl, controller };
+    const uploadEntry = { file, name: file.name, controller };
+    this.attachmentOrder.set(uploadEntry, this.nextAttachmentOrder++);
     this.uploadingFiles.push(uploadEntry);
     this.renderAttachmentsBar();
     this.syncSendEnabled();
 
     try {
       const attachment = await api.uploadAttachment(token, file, controller.signal);
-      if (!controller.signal.aborted) this.pendingAttachments.push(attachment);
+      if (!controller.signal.aborted) {
+        this.attachmentOrder.set(attachment, this.attachmentOrder.get(uploadEntry));
+        this.pendingAttachments.push(attachment);
+        this.pendingAttachments.sort((a, b) => (this.attachmentOrder.get(a) ?? 0) - (this.attachmentOrder.get(b) ?? 0));
+      }
     } catch (err) {
       if (!controller.signal.aborted) toast(err.message || "Upload failed", { tone: "error" });
     } finally {
       this.uploadingFiles = this.uploadingFiles.filter((x) => x !== uploadEntry);
-      if (previewUrl) {
-        try { URL.revokeObjectURL(previewUrl); } catch {}
-      }
       this.renderAttachmentsBar();
       this.syncSendEnabled();
     }

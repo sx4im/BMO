@@ -29,6 +29,13 @@ through Graft and the current source before editing.
   limit. Documents keep their own upload limits. Mixed image/PDF turns batch
   rendered pages around the uploaded images to stay within eight image parts
   per model request. Verified with 631 backend and 234 frontend tests.
+- Composer image previews replace same-size loading tiles in selection order.
+  The image strip scrolls horizontally once it overflows, while document
+  tiles retain their file labels. The chat composer surfaces a retryable
+  error after 90 seconds without model output. Background image descriptions
+  honor the provider retry delay within a bounded window and get one final
+  minute-scale retry on rate limits. Verified with 632 backend and 236
+  frontend tests plus Chromium attachment geometry and interaction checks.
 - NVIDIA serves Iris image generation only. The chat transport, diagnostic
   route, and Riva dependency were removed. Deepgram still serves microphone
   and live Voice transcription, while Voice Auto retains its existing

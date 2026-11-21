@@ -204,14 +204,20 @@ def _image_part(a: dict, user_id: str) -> dict | None:
 
 
 def _describe_with_retry(image_part: dict) -> str:
-    for delay in (0, 2.0, 5.0):
-        time.sleep(delay)
+    for delay in (2.0, 5.0, 60.0, None):
         try:
             return nvidia_client.describe_image(image_part)
         except Exception as exc:  # noqa: BLE001
             if not is_transient_model_error(exc):
                 raise
-            logger.warning("chat: image description busy, retrying: %s", exc)
+            details = model_error_details(exc)
+            # Give per-minute rate limits a fresh window without extending
+            # retries for other provider failures.
+            if delay is None or (delay == 60.0 and details["code"] != "rate_limited"):
+                break
+            wait = max(delay, min(details.get("retry_after", 0), 60.0))
+            logger.warning("chat: image description busy, retrying in %ss: %s", wait, exc)
+            time.sleep(wait)
     return ""
 
 

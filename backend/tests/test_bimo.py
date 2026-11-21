@@ -2202,6 +2202,25 @@ def test_background_description_is_saved_on_the_message(monkeypatch):
     assert "text_context" not in attachments[0]
 
 
+def test_image_description_retries_past_a_brief_provider_rate_limit(monkeypatch):
+    from app.routes import chat_routes
+
+    delays = []
+    calls = 0
+
+    def describe(part):
+        nonlocal calls
+        calls += 1
+        if calls <= 3:
+            raise RuntimeError("Mistral rate limit exceeded (429)")
+        return "A red diagram."
+
+    monkeypatch.setattr(chat_routes.time, "sleep", delays.append)
+    monkeypatch.setattr(chat_routes.nvidia_client, "describe_image", describe)
+    assert chat_routes._describe_with_retry({"type": "image_url"}) == "A red diagram."
+    assert delays == [2.0, 5.0, 60.0]
+
+
 @pytest.mark.parametrize("endpoint", ["/chat", "/chat/incognito"])
 def test_chat_rejects_a_seventh_image_before_loading_or_saving(client, monkeypatch, endpoint):
     from app import store

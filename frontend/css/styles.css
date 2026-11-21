@@ -9418,6 +9418,19 @@ em {
   display: none !important;
 }
 
+.composer-attachments:has(.composer-image-attachment) {
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) transparent;
+}
+
+.composer-attachments:has(.composer-image-attachment) > * {
+  flex-shrink: 0;
+}
+
 .composer-box.drag-over {
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 2px var(--primary-soft) !important;
@@ -9440,14 +9453,6 @@ em {
 :root[data-theme="dark"] .composer-attachment-chip {
   background: var(--input-bar);
   border-color: var(--hairline-strong);
-}
-
-.composer-attachment-chip img {
-  width: 36px;
-  height: 36px;
-  object-fit: cover;
-  border-radius: var(--r-sm);
-  flex-shrink: 0;
 }
 
 .composer-attachment-chip .ic {
@@ -9528,6 +9533,60 @@ em {
   animation: spin 1s linear infinite;
 }
 
+.composer-attachment-chip.composer-image-attachment {
+  position: relative;
+  width: clamp(5.5rem, 18vw, 7.5rem);
+  min-height: 0;
+  aspect-ratio: 1;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+}
+
+.composer-image-attachment.loading::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 20%, var(--hairline-strong) 50%, transparent 80%);
+  background-size: 220% 100%;
+  animation: composer-attachment-shimmer 1.7s ease-in-out infinite;
+}
+
+@keyframes composer-attachment-shimmer {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
+}
+
+.composer-image-attachment .attachment-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.composer-image-attachment .attachment-preview:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
+}
+
+.composer-image-attachment img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.composer-image-attachment .x {
+  position: absolute;
+  inset: 5px 5px auto auto;
+  border-radius: 50%;
+  background: var(--input-bar);
+  color: var(--ink);
+}
+
 @media (max-width: 480px) {
   .composer-attachment-chip {
     width: 100%;
@@ -9535,7 +9594,8 @@ em {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .composer-attachment-chip.loading .spinner svg {
+  .composer-attachment-chip.loading .spinner svg,
+  .composer-image-attachment.loading::before {
     animation: none;
   }
 }

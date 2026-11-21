@@ -19,6 +19,7 @@ async function composerWithUpload(uploadAttachment) {
   const composer = Object.create(Composer.prototype);
   Object.assign(composer, {
     uploadingFiles: [], pendingAttachments: [],
+    attachmentOrder: new WeakMap(), nextAttachmentOrder: 0,
     attachmentsBar: dom.window.document.createElement("div"),
     getAuthToken: () => "test", syncSendEnabled() {},
   });
@@ -85,8 +86,10 @@ test("a draft accepts six images across pending selections and keeps document sl
   const second = composer.uploadFiles([...images.slice(4), { name: "notes.pdf", size: 20 }]);
   assert.deepEqual(inFlight.map(({ file }) => file.name), [...images.slice(0, 6).map(file => file.name), "notes.pdf"]);
   assert.deepEqual(notifications, ["You can attach up to 6 images per message"]);
-  inFlight.forEach(({ finish }) => finish());
+  inFlight.slice().reverse().forEach(({ finish }) => finish());
   await Promise.all([first, second]);
+  assert.deepEqual(Array.from(composer.pendingAttachments, a => a.filename),
+    [...images.slice(0, 6).map(file => file.name), "notes.pdf"]);
 
   await composer.uploadFiles(images.slice(6));
   assert.equal(inFlight.length, 7);
@@ -95,6 +98,24 @@ test("a draft accepts six images across pending selections and keeps document sl
   inFlight.at(-1).finish();
   await replacement;
   assert.equal(composer.pendingAttachments.length, 7);
+});
+
+test("image uploads use a square loading tile and an accessible preview without document labels", async () => {
+  let finishUpload;
+  const { composer } = await composerWithUpload(() => new Promise(resolve => { finishUpload = resolve; }));
+  const upload = composer.uploadAndAttach({ name: "diagram.png", type: "image/png", size: 20 });
+  const loading = composer.attachmentsBar.firstElementChild;
+  assert.equal(loading.matches(".composer-image-attachment.loading[aria-busy=true]"), true);
+  assert.equal(loading.querySelector(".attachment-info"), null);
+  assert.match(loading.querySelector("[role=status]").textContent, /Uploading diagram.png/);
+  finishUpload({ filename: "diagram.png", content_type: "image/png", url: "https://example.invalid/diagram.png" });
+  await upload;
+  const ready = composer.attachmentsBar.firstElementChild;
+  assert.equal(ready.matches(".composer-image-attachment:not(.loading)"), true);
+  assert.equal(ready.querySelector(".attachment-info"), null);
+  assert.equal(ready.querySelector("button[aria-label='Preview diagram.png'] img").alt, "diagram.png");
+  ready.querySelector("[aria-label='Remove attachment']").click();
+  assert.equal(composer.attachmentsBar.childElementCount, 0);
 });
 
 test("flat icons stay identical in both themes, with safe accessible labels", () => {
