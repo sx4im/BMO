@@ -12,7 +12,7 @@ import requests
 from flask import Blueprint, Response, jsonify, request
 from flask_sock import Sock
 
-from .. import deepgram_tts, image_safety, nvidia_client, riva_transcribe, search_router, store, voice_turns
+from .. import deepgram_tts, image_safety, nvidia_client, search_router, store, voice_turns
 from ..auth import require_user, user_from_token
 from ..config import (
     IMAGE_MODEL_ID,
@@ -301,19 +301,7 @@ def transcribe(user):  # noqa: ARG001
             logger.warning("Deepgram recorded transcription failed")
             return bad_request("Could not transcribe the recording with Deepgram. Please try again.", 502)
 
-    if not automatic and riva_transcribe.riva_available():
-        try:
-            text = riva_transcribe.transcribe_wav(audio_bytes, "en" if language == "multi" else language)
-            return jsonify({"text": text})
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Riva transcription failed, trying REST fallback: %s", exc)
-
     if not base_url:
-        if os.getenv("NVIDIA_API_KEY"):
-            return bad_request(
-                "Voice transcription via NVIDIA Riva failed. Check server logs or set GROQ_API_KEY.",
-                502,
-            )
         return bad_request("Server-side voice transcription is not configured.", 503)
 
     transcription_options = {"model": model, "response_format": "verbose_json" if automatic else "json"}

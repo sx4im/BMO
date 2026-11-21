@@ -29,6 +29,8 @@ from openai import (
     RateLimitError,
 )
 
+from .config import get_vision_model
+
 logger = logging.getLogger("bmo.mistral")
 
 DEFAULT_MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
@@ -108,6 +110,7 @@ def is_mistral_model(model_name: Optional[str]) -> bool:
         or "pixtral" in m
         or "ministral" in m
         or m == default_model().lower()
+        or m == get_vision_model().lower()
     )
 
 
@@ -179,6 +182,13 @@ def iter_response(
             continue
         if role == "system":
             has_system = True
+        if isinstance(content, list):
+            content = [
+                {**part, "image_url": part["image_url"]["url"]}
+                if part.get("type") == "image_url" and isinstance(part.get("image_url"), dict)
+                else part
+                for part in content
+            ]
         cleaned_messages.append({"role": role, "content": content})
 
     # For codestral and ministral, default to 0.2 temperature for faster, low-divergence decoding

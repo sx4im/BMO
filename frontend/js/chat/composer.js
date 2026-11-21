@@ -14,6 +14,13 @@ import { getAuth } from "../auth.js";
 import * as api from "../api.js?v=66";
 import { SkillPicker } from "./skill-picker.js?v=6";
 
+const MAX_IMAGES_PER_MESSAGE = 6;
+
+function isImageAttachment(name, mime) {
+  return mime?.toLowerCase().startsWith("image/") ||
+    ((!mime || mime === "application/octet-stream") && /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(name || ""));
+}
+
 export const URL_REGEX = /(?:https?:\/\/|www\.)[^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’]))|\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?::\d+)?(?:[\/?#][^\s()<>]+(?:\([\w\d]+\)|(?:[^\s`!()\[\]{};:\x27".,<>?«»“”‘’])))?/gi;
 
 export function extractUrls(text) {
@@ -197,13 +204,9 @@ export class Composer {
       multiple: true,
       style: "display:none",
       onchange: async (e) => {
-        let files = [...(e.target.files || [])];
+        const files = [...(e.target.files || [])];
         e.target.value = "";
-        if (files.length > 3) {
-          toast("Max 3 images", { tone: "error" });
-          files = files.slice(0, 3);
-        }
-        for (const file of files) await this.uploadAndAttach(file);
+        await this.uploadFiles(files);
       },
     });
 
@@ -231,7 +234,7 @@ export class Composer {
       onchange: async (e) => {
         const files = [...(e.target.files || [])];
         e.target.value = "";
-        for (const file of files) await this.uploadAndAttach(file);
+        await this.uploadFiles(files);
       },
     });
 
@@ -340,10 +343,7 @@ export class Composer {
           return;
         }
         e.preventDefault();
-        if (files.length > 3) {
-          toast("Max 3 files", { tone: "error" });
-        }
-        for (const file of files.slice(0, 3)) this.uploadAndAttach(file);
+        this.uploadFiles(files);
       },
     });
     this.skillPicker = new SkillPicker(this.textarea, {
@@ -457,11 +457,7 @@ export class Composer {
       e.preventDefault();
       this.composerBox.classList.remove("drag-over");
       const files = [...(e.dataTransfer?.files || [])];
-      if (!files.length) return;
-      if (files.length > 3) {
-        toast("Max 3 files", { tone: "error" });
-      }
-      for (const file of files.slice(0, 3)) this.uploadAndAttach(file);
+      this.uploadFiles(files);
     });
 
     this.composer = el("form", {
@@ -1006,7 +1002,7 @@ export class Composer {
     }
 
     for (const a of this.pendingAttachments) {
-      const isImage = (a.content_type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif|svg)$/i.test(a.filename || "");
+      const isImage = isImageAttachment(a.filename, a.content_type);
       const children = [];
       if (isImage && a.url) {
         children.push(el("img", {
@@ -1043,6 +1039,21 @@ export class Composer {
     this.syncCompactState?.();
   }
 
+  async uploadFiles(files) {
+    let imageCount = this.pendingAttachments.filter(a => isImageAttachment(a.filename, a.content_type)).length;
+    imageCount += this.uploadingFiles.filter(({ file }) => isImageAttachment(file.name, file.type)).length;
+    let documentCount = 0;
+    const accepted = files.filter(file => {
+      if (isImageAttachment(file.name, file.type)) return ++imageCount <= MAX_IMAGES_PER_MESSAGE;
+      return ++documentCount <= 3;
+    });
+    if (imageCount > MAX_IMAGES_PER_MESSAGE) {
+      toast(`You can attach up to ${MAX_IMAGES_PER_MESSAGE} images per message`, { tone: "error" });
+    }
+    if (documentCount > 3) toast("Max 3 files", { tone: "error" });
+    await Promise.all(accepted.map(file => this.uploadAndAttach(file)));
+  }
+
   async uploadAndAttach(file) {
     if (!file) return;
     if (file.size > 50 * 1024 * 1024) {
@@ -1055,7 +1066,7 @@ export class Composer {
       return;
     }
 
-    const isImg = file.type?.startsWith("image/") || /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name);
+    const isImg = isImageAttachment(file.name, file.type);
     let previewUrl = null;
     if (isImg) {
       try { previewUrl = URL.createObjectURL(file); } catch {}
@@ -1392,10 +1403,7 @@ export class Composer {
       if (!files.length) return;
       e.preventDefault();
       this.focus();
-      if (files.length > 3) {
-        toast("Max 3 files", { tone: "error" });
-      }
-      for (const file of files.slice(0, 3)) this.uploadAndAttach(file);
+      this.uploadFiles(files);
     };
     document.addEventListener("paste", this._onGlobalPaste);
 

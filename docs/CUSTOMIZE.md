@@ -53,7 +53,7 @@ Text-only skills export as `SKILL.md`, ready to reupload. Existing skills with p
 ## Verification
 
 ```bash
-PYTHON_DOTENV_DISABLED=1 NVIDIA_TIMEOUT=0.1 NVIDIA_MAX_RETRIES=0 RATELIMIT_ENABLED=0 \
+PYTHON_DOTENV_DISABLED=1 RATELIMIT_ENABLED=0 \
   WHATSAPP_DB_PATH=/tmp/bimo-test-whatsapp.db BMO_STATE_DIR=/tmp/bimo-test-streams \
   backend/.venv/bin/python -m pytest -q -c backend/pytest.ini backend/tests
 npm --prefix frontend run test:run

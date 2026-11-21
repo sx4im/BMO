@@ -113,21 +113,3 @@ def analytics_chart(user):
         mimetype="image/png",
         download_name="rating_distribution.png",
     )
-
-
-# ---------- Diagnostics ----------
-
-@analytics_bp.get("/nvidia-debug")
-def nvidia_debug():
-    if os.environ.get("DEBUG_AUTH") != "1":
-        return jsonify({"detail": "nvidia debug disabled"}), 404
-    result = {
-        "base_url": nvidia_client.base_url(),
-        "default_model": nvidia_client.default_model(),
-        "key": nvidia_client.api_key_fingerprint(),
-    }
-    if result["key"].get("configured"):
-        result["test"] = nvidia_client.test_call()
-    else:
-        result["test"] = {"ok": False, "skipped": "key not configured"}
-    return jsonify(result)

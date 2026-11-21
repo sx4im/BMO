@@ -732,7 +732,7 @@ def refresh_attachment_urls(messages: list[dict], user_id: str) -> list[dict]:
 def download_attachment(path: str, user_id: str) -> bytes:
     """Pull an attachment's raw bytes back out of Supabase Storage.
 
-    Used by /chat to inline images as base64 so NVIDIA's vision model
+    Used by /chat to inline images as base64 so the vision provider
     doesn't have to fetch our signed URL from its own outbound network.
     Always requires user_id and rejects paths outside that user's prefix.
     """

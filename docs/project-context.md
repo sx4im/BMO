@@ -1,6 +1,6 @@
 # BMO project context
 
-Updated 2026-11-20. Use this as an entry point; confirm implementation details
+Updated 2026-11-21. Use this as an entry point; confirm implementation details
 through Graft and the current source before editing.
 
 ## Architecture and deployment
@@ -15,6 +15,28 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Nexos 3.0 (`deep`) now uses Groq `openai/gpt-oss-120b`. It retains
+  streamed reasoning, bounded continuation, and the existing first-output
+  fallback to Stanza. `GROQ_NEXOS_MODEL` sets the upstream model.
+- Chat attachment turns and background image descriptions use Mistral
+  `ministral-8b-2512` via `MISTRAL_VISION_MODEL`. Existing file extraction,
+  PDF page rendering and batching, and saved attachment context are reused.
+  Regular chat follow-ups use saved text and the selected chat model once
+  descriptions are available. Unsupported or oversized chat images are
+  converted to a bounded PNG for inference, with the original kept in storage.
+- A chat message accepts up to six uploaded images. The composer counts ready
+  and in-flight images across selections, and both chat endpoints enforce the
+  limit. Documents keep their own upload limits. Mixed image/PDF turns batch
+  rendered pages around the uploaded images to stay within eight image parts
+  per model request. Verified with 631 backend and 234 frontend tests.
+- NVIDIA serves Iris image generation only. The chat transport, diagnostic
+  route, and Riva dependency were removed. Deepgram still serves microphone
+  and live Voice transcription, while Voice Auto retains its existing
+  recorded Whisper check for language detection. Verification covered 629
+  backend and 233 frontend tests, including mixed image/PDF batching,
+  Mistral context persistence, a Groq follow-up with no image bytes, and
+  locally simulated provider HTTP streams. Live inference requires provider
+  credentials and was not exercised.
 - Desktop compact composer (`min-width: 769px`, `.composer.is-compact`) uses
   concentric 6px horizontal/vertical padding, 36×36px edge buttons (`+`, mic,
   voice assistant), and a 2px action gap so `+` sits at the left end and
@@ -87,8 +109,8 @@ through Graft and the current source before editing.
 - State-machine inventory: `docs/verification/state-machines-2026-11-17.md`.
   Stability evidence and limits: `docs/verification/stability-2026-11-17.md`.
 - Stanza 2.5 (`thinking`) is back on Mistral `ministral-8b-2512`, ending
-  the temporary Groq/Qwen experiment. `MISTRAL_MODEL` selects its upstream model;
-  legacy `NVIDIA_STANZA_MODEL` is ignored. WhatsApp Aeon, search classification,
+  the temporary Groq/Qwen experiment. `MISTRAL_MODEL` selects its upstream model.
+  WhatsApp Aeon, search classification,
   and semantic Voice checks retain their existing Groq routing. Titles use the
   Stanza provider with the existing independent eight-second budget. Mistral
   streams now retain finish reasons, usage, upstream inference metadata, and

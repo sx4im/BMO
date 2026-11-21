@@ -30,7 +30,6 @@ def client(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-jwt-secret")
     monkeypatch.setenv("SUPABASE_STORAGE_BUCKET", "bimo-attachments")
     monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
-    monkeypatch.setenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
     monkeypatch.setenv("CORS_ORIGINS", "*")
 
     main = importlib.import_module("app.main")

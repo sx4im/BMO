@@ -36,12 +36,6 @@ def friendly_error(exc: Exception) -> str:
         )
     if "jwt expired" in lower or "jwt is invalid" in lower:
         return f"Supabase JWT verification failed: {msg}"
-    if "degraded function cannot be invoked" in lower:
-        return (
-            "The Nexos model is temporarily unavailable on NVIDIA's servers "
-            "(DEGRADED). In Render → Environment, change NVIDIA_NEXOS_MODEL to a "
-            "working model such as deepseek-ai/deepseek-v4-flash, or try again later."
-        )
     return msg
 
 

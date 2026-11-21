@@ -22,30 +22,6 @@ services:
         value: bimo-attachments
       - key: NVIDIA_API_KEY
         sync: false
-      - key: NVIDIA_BASE_URL
-        value: https://integrate.api.nvidia.com/v1
-      - key: NVIDIA_MODEL
-        value: meta/llama-3.3-70b-instruct
-      # NVIDIA model IDs for Nexos and vision. Stanza uses Mistral below.
-      # Redeploy after editing.
-      - key: NVIDIA_NEXOS_MODEL
-        sync: false
-      - key: NVIDIA_VISION_MODEL
-        value: google/diffusiongemma-26b-a4b-it
-      # Per-reply output cap. Higher = longer answers / full code builds
-      # without mid-stream truncation. At ~40 tok/s, 8192 ≈ 3.5 min.
-      - key: NVIDIA_MAX_TOKENS
-        value: "8192"
-      # Client read timeout (seconds). Must comfortably exceed the time to
-      # generate NVIDIA_MAX_TOKENS at the model's speed, and stay under the
-      # gunicorn --timeout above so a slow build isn't cut as an "API error".
-      - key: NVIDIA_TIMEOUT
-        value: "540"
-      # Retry budget for transient NVIDIA failures. The free tier caps each
-      # model at 40 requests/minute and returns 429 + Retry-After when hit;
-      # the SDK backs off and honours that header within this budget.
-      - key: NVIDIA_MAX_RETRIES
-        value: "3"
       # Image generation (Iris). Served via NVIDIA's GenAI endpoint. The model
       # (FLUX 3 Klein, 50 steps) is fixed in code; NVIDIA_IMAGE_MODEL is ignored.
       - key: NVIDIA_IMAGE_BASE_URL
@@ -70,17 +46,21 @@ services:
         value: bimo_whatsapp_verify_token_2026
       - key: WHATSAPP_APP_SECRET
         sync: false
-      # Groq AI for WhatsApp Aeon
+      # Groq AI for Nexos and Aeon
       - key: GROQ_API_KEY
         sync: false
+      - key: GROQ_NEXOS_MODEL
+        value: openai/gpt-oss-120b
       - key: GROQ_AEON_MODEL
         value: qwen/qwen3.8-27b
       - key: GROQ_MAX_TOKENS
         value: "16384"
-      # Mistral AI for Stanza 2.5
+      # Mistral AI for Stanza and attachment analysis
       - key: MISTRAL_API_KEY
         sync: false
       - key: MISTRAL_MODEL
+        value: ministral-8b-2512
+      - key: MISTRAL_VISION_MODEL
         value: ministral-8b-2512
       # Web Search & Scraping (TinyFish)
       - key: TINYFISH_API_KEY

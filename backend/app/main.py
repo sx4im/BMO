@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from . import groq_client, nvidia_client, store, supabase_client, whatsapp
+from . import groq_client, mistral_client, store, supabase_client, whatsapp
 from .auth import prewarm_jwks
 from .config import (
     DEFAULT_IMAGE_MODEL,
@@ -139,20 +139,18 @@ if supabase_client.is_configured():
 if groq_client.is_configured():
     logger.info("Groq key fingerprint: %s (model=%s)", groq_client.api_key_fingerprint(), groq_client.default_model())
 
-if nvidia_client.is_configured():
-    logger.info("NVIDIA key fingerprint: %s", nvidia_client.api_key_fingerprint())
+if mistral_client.is_configured():
+    logger.info("Mistral key fingerprint: %s (model=%s)", mistral_client.api_key_fingerprint(), mistral_client.default_model())
 
 # Operators can opt into an explicit probe. Default boot/readiness never spends
 # completion quota or blocks a cold start on a slow/decommissioned model.
 if os.environ.get("BMO_MODEL_STARTUP_PROBE") == "1":
     try:
-        test_result = nvidia_client.test_call()
+        test_result = mistral_client.test_call()
         if test_result.get("ok"):
             logger.info("Startup API test OK — responding model: %s", test_result["model"])
         else:
             logger.warning("Startup API test failed: %s", test_result)
-        all_models = nvidia_client.list_models()
-        logger.info("Full model catalogue (%d models): %s", len(all_models), [m.get("id") for m in all_models])
     except Exception as exc:
         logger.warning("Startup API test exception: %s", exc)
 

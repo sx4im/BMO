@@ -6,11 +6,11 @@ from unittest.mock import MagicMock
 import pytest
 from flask import Flask
 
-from app import groq_client, nvidia_client
+from app import groq_client, mistral_client, nvidia_client
 from app.routes.analytics_routes import analytics_bp
 
 
-@pytest.fixture(params=[("groq", groq_client), ("nvidia", nvidia_client)])
+@pytest.fixture(params=[("groq", groq_client), ("mistral", mistral_client)])
 def provider(request, monkeypatch):
     name, adapter = request.param
     client = MagicMock()
@@ -108,16 +108,20 @@ def test_metadata_does_not_prevent_fallback_on_error_before_first_token(monkeypa
 
 def test_metadata_keeps_reasoning_separate_from_answer(monkeypatch):
     client = MagicMock()
-    monkeypatch.setattr(nvidia_client, "_client", lambda *args: client)
+    monkeypatch.setattr(groq_client, "_client", lambda: client)
     client.chat.completions.create.return_value = [SimpleNamespace(
         id="completion-456", model="reported-model", choices=[SimpleNamespace(
-            delta=SimpleNamespace(content="Answer", reasoning_content="Reasoning"),
+            delta=SimpleNamespace(content="Answer", reasoning="Reasoning"),
             finish_reason="stop",
         )],
     )]
 
-    events = list(nvidia_client.iter_response([], model="requested-model"))
+    events = list(nvidia_client.iter_response([], model="openai/gpt-oss-120b", reasoning_effort="max"))
 
+    request = client.chat.completions.create.call_args.kwargs
+    assert request["reasoning_effort"] == "high"
+    assert request["extra_body"] == {"include_reasoning": True}
+    assert request["max_completion_tokens"] == 16384
     assert [event["type"] for event in events] == ["inference", "reasoning_delta", "delta", "done"]
     assert events[1]["data"] == "Reasoning"
     assert events[2]["data"] == "Answer"

@@ -2,7 +2,7 @@
 
 <h1><img src=".github/assets/logo.svg" alt="Bmo" width="120" align="absmiddle" /></h1>
 
-A streaming AI chat workspace and agent built with vanilla JavaScript on the frontend and a lightweight Flask backend that routes inference to NVIDIA, Mistral, and Groq and stores data in Supabase. Chat on the web, talk to Bmo by voice, or connect via WhatsApp.
+A streaming AI chat workspace built with vanilla JavaScript, Flask, and Supabase. Mistral and Groq power chat, and NVIDIA powers Iris image generation. Chat on the web, talk to Bmo by voice, or connect via WhatsApp.
 
 [![Live demo](https://img.shields.io/badge/Live_demo-bimo.qzz.io-d97757?style=flat-square)](https://bimo.qzz.io)
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg?style=flat-square)](LICENSE)
@@ -22,7 +22,7 @@ A streaming AI chat workspace and agent built with vanilla JavaScript on the fro
 
 Bmo is a fast, full-featured AI workspace and agent. It streams responses token by token via Server-Sent Events, renders live Markdown, code blocks with syntax highlighting, and math expressions, and supports image generation, document parsing, and bidirectional voice interaction.
 
-The client is built with clean, dependency-free HTML, CSS, and modern ES modules—no bundlers or build steps required. The backend is an efficient Flask gateway that validates Supabase user tokens, enforces rate limits, and routes inference to NVIDIA, Mistral, and Groq, and proxies search and speech providers.
+The frontend runs directly in the browser with HTML, CSS, and ES modules. The Flask gateway validates Supabase user tokens, enforces rate limits, and routes chat, image generation, search, and speech requests.
 
 ## Explainer video
 
@@ -34,7 +34,7 @@ The client is built with clean, dependency-free HTML, CSS, and modern ES modules
 
 - **Passwordless authentication**: Sign in with Google through Supabase OAuth. Tokens are verified using ES256 JWTs against project JWKS keys.
 - **Live streaming**: Responses stream using Server-Sent Events with inline Markdown, syntax-highlighted code blocks, and KaTeX rendering.
-- **Model routing**: Switch between all-round help (Stanza 2.5, Mistral), deep reasoning with optional extended thinking (Nexos 3.0, NVIDIA), and image generation (Iris 2.0, FLUX).
+- **Model routing**: Switch between all-round help (Stanza 2.5, Mistral), deep reasoning with optional extended thinking (Nexos 3.0, Groq), and image generation (Iris 2.0, FLUX).
 - **Projects and Customize**: Group chats with project instructions and knowledge files, set global instructions, and add text-only skills with `@` mentions in the composer.
 - **Sharing and export**: Share a read-only snapshot of a chat, branch a conversation, pin chats, and export answers to DOCX or PDF.
 - **WhatsApp**: Chat with Bmo (Aeon on Groq Qwen) through the Meta WhatsApp Cloud API.
@@ -64,9 +64,9 @@ The client is built with clean, dependency-free HTML, CSS, and modern ES modules
    │          │            │            │           │
    ▼          ▼            ▼            ▼           ▼
 Supabase  Supabase      NVIDIA       Mistral      Groq
-Postgres  Storage       Nexos 3.0    Stanza 2.5   Aeon (WhatsApp, Voice,
-(RLS)     (Signed URLs) Vision       (chat)       search classifier,
-                        Iris images               titles)
+Postgres  Storage       Iris images  Stanza 2.5   Nexos 3.0, Aeon,
+(RLS)     (Signed URLs)              attachments  search and Voice checks,
+                                     and titles   Whisper for Voice Auto
 
 Also: TinyFish (search/scrape), Deepgram (STT/TTS), Meta WhatsApp Cloud API
 ```
@@ -76,16 +76,16 @@ Model lanes:
 | Lane | Id | Provider | Default model |
 |---|---|---|---|
 | Stanza 2.5 | `thinking` | Mistral | `ministral-8b-2512` |
-| Nexos 3.0 | `deep` | NVIDIA | `z-ai/glm-5.3-flash` |
+| Nexos 3.0 | `deep` | Groq | `openai/gpt-oss-120b` |
 | Bmo Voice / WhatsApp | `aeon` | Groq | `qwen/qwen3.8-27b` |
-| Vision | n/a | NVIDIA | `google/diffusiongemma-26b-a4b-it` |
+| Attachment analysis | n/a | Mistral | `ministral-8b-2512` |
 | Iris 2.0 | `image` | NVIDIA | `black-forest-labs/flux-3-image-klein` |
 
 
 ## Quick start
 
 ### Prerequisites
-Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (Stanza 2.5), a [Groq API key](https://console.groq.com/keys) (Aeon: WhatsApp, Voice, search routing, titles), an NVIDIA API key (Nexos 3.0, Vision, image generation), and optionally TinyFish (web search) and Deepgram (voice) keys.
+Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (Stanza 2.5 and attachments), a [Groq API key](https://console.groq.com/keys) (Nexos, Aeon, search routing, and Voice Auto transcription), an NVIDIA API key (Iris image generation), and optionally TinyFish (web search) and Deepgram (voice) keys.
 
 ### 1. Database setup
 Run these forward migrations from `backend/migrations/` in order inside your Supabase project SQL editor. Files ending in `_down.sql` undo migrations; use them only for an intentional rollback.
@@ -126,9 +126,11 @@ Open `http://localhost:5500` in your browser. Configure your Supabase URL and ba
 
 ### Model configuration
 - **Stanza 2.5**: `MISTRAL_API_KEY`; override with `MISTRAL_MODEL` and `MISTRAL_BASE_URL`.
-- **Nexos 3.0**: `NVIDIA_API_KEY` and `NVIDIA_NEXOS_MODEL`. Use NVIDIA's dotted id `z-ai/glm-5.3-flash`.
-- **Aeon**: `GROQ_API_KEY` with `GROQ_AEON_MODEL` (then `GROQ_MODEL`, legacy `NVIDIA_AEON_MODEL`, or the default).
-- Provider errors surface directly. Without Groq, search falls back to rules and semantic Voice checks report unavailable. Legacy `NVIDIA_STANZA_MODEL` is ignored.
+- **Nexos 3.0** uses `GROQ_API_KEY` and `GROQ_NEXOS_MODEL`. Its default is `openai/gpt-oss-120b`.
+- **Attachments** use `MISTRAL_API_KEY` and `MISTRAL_VISION_MODEL`. Each chat message accepts up to six images. Bmo saves descriptions in regular chats and reuses them in follow-up turns.
+- **Iris** uses `NVIDIA_API_KEY` for FLUX image generation.
+- **Aeon**: `GROQ_API_KEY` with `GROQ_AEON_MODEL` (then `GROQ_MODEL`, or the default).
+- Provider errors surface directly. Without Groq, search falls back to rules and semantic Voice checks report unavailable.
 - See `backend/.env.example` for every variable and `render.yaml` for the deployed set.
 
 ## Project structure
@@ -145,13 +147,12 @@ Bmo/
 │   │   ├── chat_generation.py     Completion and bounded continuation
 │   │   ├── chat_persistence.py    Durable turn writer
 │   │   ├── search_router.py       Search decision (rules + classifier) and TinyFish
-│   │   ├── nvidia_client.py       Nexos, vision, and image inference
-│   │   ├── mistral_client.py      Stanza inference
-│   │   ├── groq_client.py         Aeon inference
+│   │   ├── nvidia_client.py       Chat routing, message formatting, and Iris image generation
+│   │   ├── mistral_client.py      Stanza and attachment inference
+│   │   ├── groq_client.py         Nexos and Aeon inference
 │   │   ├── whatsapp.py            WhatsApp Cloud API webhook
 │   │   ├── voice_turns.py         Voice turn handling
 │   │   ├── deepgram_tts.py        Streaming text-to-speech
-│   │   ├── riva_transcribe.py     Speech-to-text fallback providers
 │   │   ├── document_processor.py  PDF, DOCX, XLSX, PPTX, ZIP parsing
 │   │   ├── skill_service.py       Skills and prompt assembly
 │   │   └── project_service.py     Project knowledge handling

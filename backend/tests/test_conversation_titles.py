@@ -1,6 +1,5 @@
 """Generated conversation titles respect user edits and bounded provider calls."""
 from types import SimpleNamespace
-from unittest.mock import Mock
 
 import pytest
 
@@ -36,11 +35,10 @@ def test_title_request_has_a_short_independent_budget(monkeypatch, legacy_overri
     monkeypatch.delenv("GROQ_AEON_MODEL", raising=False)
     monkeypatch.delenv("GROQ_MODEL", raising=False)
     model = "qwen/qwen3-32b" if legacy_override else "qwen/qwen3.8-27b"
-    monkeypatch.setenv("NVIDIA_AEON_MODEL" if legacy_override else "GROQ_AEON_MODEL", model)
+    monkeypatch.setenv("GROQ_MODEL" if legacy_override else "GROQ_AEON_MODEL", model)
     monkeypatch.setattr(nvidia_client.groq_client, "_client", lambda: Client())
     monkeypatch.setattr(nvidia_client, "get_stanza_model", lambda: "ministral-8b-2512" if legacy_override == "mistral" else model)
     monkeypatch.setattr(nvidia_client.mistral_client, "_client", lambda: Client())
-    monkeypatch.setattr(nvidia_client, "_client", Mock(side_effect=AssertionError("wrong provider")))
     assert nvidia_client.generate_title("Explain sorting", "An explanation") == "Sorting Algorithms"
     assert options == [{"timeout": 8.0, "max_retries": 0}]
     assert requests[0]["messages"][-1]["content"].startswith("User message:\nExplain sorting")

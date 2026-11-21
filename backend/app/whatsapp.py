@@ -304,9 +304,9 @@ def _process_and_reply_async(sender_phone: str, user_prompt: str) -> None:
                 if raw_reply:
                     logger.info("Successfully generated reply via Groq (%d chars)", len(raw_reply))
             except Exception as exc:
-                logger.warning("Groq inference failed for WhatsApp (%s), falling back to NVIDIA: %s", model_id, exc)
+                logger.warning("Groq completion failed for WhatsApp (%s), trying streaming: %s", model_id, exc)
         else:
-            logger.info("GROQ_API_KEY not set, falling back to NVIDIA for WhatsApp")
+            logger.info("GROQ_API_KEY not set for WhatsApp")
 
         if not raw_reply:
             response_chunks = []

@@ -73,6 +73,30 @@ test("failed uploads clear the loading tile and display an error", async () => {
   assert.deepEqual(notifications, ["Upload unavailable"]);
 });
 
+test("a draft accepts six images across pending selections and keeps document slots separate", async () => {
+  const inFlight = [];
+  const { composer, notifications } = await composerWithUpload((_token, file) => new Promise(resolve => {
+    inFlight.push({ file, finish: () => resolve({ filename: file.name, content_type: file.type }) });
+  }));
+  const images = Array.from({ length: 7 }, (_, i) => ({
+    name: `image-${i}.bmp`, type: "application/octet-stream", size: 20,
+  }));
+  const first = composer.uploadFiles(images.slice(0, 4));
+  const second = composer.uploadFiles([...images.slice(4), { name: "notes.pdf", size: 20 }]);
+  assert.deepEqual(inFlight.map(({ file }) => file.name), [...images.slice(0, 6).map(file => file.name), "notes.pdf"]);
+  assert.deepEqual(notifications, ["You can attach up to 6 images per message"]);
+  inFlight.forEach(({ finish }) => finish());
+  await Promise.all([first, second]);
+
+  await composer.uploadFiles(images.slice(6));
+  assert.equal(inFlight.length, 7);
+  composer.attachmentsBar.querySelector("[aria-label='Remove attachment']").click();
+  const replacement = composer.uploadFiles(images.slice(6));
+  inFlight.at(-1).finish();
+  await replacement;
+  assert.equal(composer.pendingAttachments.length, 7);
+});
+
 test("flat icons stay identical in both themes, with safe accessible labels", () => {
   const dom = new JSDOM();
   const colors = new Set();

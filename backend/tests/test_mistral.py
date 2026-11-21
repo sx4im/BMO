@@ -201,28 +201,10 @@ def test_mistral_error_handling(monkeypatch):
 def test_nvidia_dispatcher_routes_mistral(monkeypatch, model):
     provider = MagicMock(return_value=iter([{"type": "done", "content": "Mistral answer", "finish_reason": "stop"}]))
     monkeypatch.setattr(mistral_client, "iter_response", provider)
-    monkeypatch.setattr(nvidia_client, "_client", MagicMock(side_effect=AssertionError("must not call NVIDIA")))
+    monkeypatch.setattr(nvidia_client.groq_client, "iter_response", MagicMock(side_effect=AssertionError("must not call Groq")))
     assert list(nvidia_client.iter_response([], model=model))[-1]["content"] == "Mistral answer"
     provider.assert_called_once_with([], model=model, temperature=0.7, max_tokens=None, reasoning_effort=None)
 
-
-def test_nvidia_dispatcher_preserves_nvidia_models(monkeypatch):
-    """NVIDIA models continue to route through NVIDIA OpenAI client."""
-    mock_openai_client = MagicMock()
-    mock_choice = types.SimpleNamespace(
-        delta=types.SimpleNamespace(content="from nvidia"),
-        finish_reason="stop",
-    )
-    mock_openai_client.chat.completions.create.return_value = [
-        types.SimpleNamespace(choices=[mock_choice])
-    ]
-
-    monkeypatch.setattr(nvidia_client, "_client", lambda model: mock_openai_client)
-    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test-key")
-
-    messages = [{"role": "user", "content": "hello"}]
-    events = list(nvidia_client.iter_response(messages, model="openai/gpt-oss-120b"))
-
-    assert any(ev.get("data") == "from nvidia" for ev in events)
-    mock_openai_client.chat.completions.create.assert_called_once()
-    assert mock_openai_client.chat.completions.create.call_args.kwargs["model"] == "openai/gpt-oss-120b"
+def test_chat_dispatch_rejects_retired_provider_models():
+    with pytest.raises(RuntimeError, match="No chat provider configured"):
+        list(nvidia_client.iter_response([], model="nvidia/nemotron-3-super-120b-a12b"))

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
+import mimetypes
 import os
 import queue
 import re
@@ -13,6 +15,7 @@ import time
 import uuid
 
 from flask import Blueprint, Response, request, stream_with_context
+from PIL import Image
 
 from .. import document_processor, nvidia_client, search_router, skill_service, store
 from ..chat_persistence import TurnWriter
@@ -54,6 +57,8 @@ logger = logging.getLogger("bmo.routes.chat")
 
 chat_bp = Blueprint("chat_routes", __name__)
 SSE_HEARTBEAT_SECONDS = 15.0
+MAX_IMAGES_PER_MESSAGE = 6
+_MAX_VISION_IMAGES_PER_REQUEST = 8
 
 # ---------- PDF batching helpers ----------
 
@@ -68,22 +73,15 @@ def _estimate_payload_size(parts: list[dict]) -> int:
     return total
 
 
-def _split_doc_parts_into_batches(doc_parts: list[dict], pages_per_batch: int = 5) -> list[list[dict]]:
-    if not doc_parts:
-        return []
-
+def _split_doc_parts_into_batches(
+    doc_parts: list[dict], pages_per_batch: int, *, first_batch_pages: int,
+) -> list[list[dict]]:
     text_parts = [p for p in doc_parts if p.get("type") == "text"]
     image_parts = [p for p in doc_parts if p.get("type") == "image_url"]
 
-    if not text_parts or not image_parts:
-        return [doc_parts] if doc_parts else []
-
-    full_text = text_parts[0].get("text", "")
+    full_text = text_parts[0].get("text", "") if text_parts else ""
     matches = list(re.finditer(r"--- Page (\d+) ---\n", full_text))
-    if not matches:
-        return [doc_parts]
-
-    header = full_text[:matches[0].start()].strip() if matches[0].start() > 0 else ""
+    header = full_text[:matches[0].start()].strip() if matches else ""
 
     page_texts: dict[int, str] = {}
     for i, match in enumerate(matches):
@@ -95,8 +93,10 @@ def _split_doc_parts_into_batches(doc_parts: list[dict], pages_per_batch: int = 
     total_pages = len(image_parts)
     batches: list[list[dict]] = []
 
-    for batch_start in range(0, total_pages, pages_per_batch):
-        batch_end = min(batch_start + pages_per_batch, total_pages)
+    batch_start = 0
+    while batch_start < total_pages:
+        page_limit = pages_per_batch if batch_start else first_batch_pages
+        batch_end = min(batch_start + page_limit, total_pages)
         batch_page_nums = list(range(batch_start + 1, batch_end + 1))
 
         batch_texts: list[str] = []
@@ -106,41 +106,36 @@ def _split_doc_parts_into_batches(doc_parts: list[dict], pages_per_batch: int = 
             if pn in page_texts:
                 batch_texts.append(f"--- Page {pn} ---\n{page_texts[pn]}")
 
-        batch_parts: list[dict] = []
+        batch_parts = (text_parts[1:] if matches else text_parts[:]) if not batch_start else []
         if batch_texts:
             batch_parts.append({"type": "text", "text": "\n\n".join(batch_texts)})
         batch_parts.extend(image_parts[batch_start:batch_end])
         batches.append(batch_parts)
+        batch_start = batch_end
 
     return batches
-
-
-def _recent_history_images(history: list[dict]) -> list[dict]:
-    for m in reversed(history):
-        if m.get("role") != "user":
-            continue
-        imgs = [
-            a for a in (m.get("attachments") or [])
-            if isinstance(a, dict)
-            and (a.get("content_type") or "").startswith("image/")
-            and a.get("path")
-        ]
-        if imgs:
-            return imgs
-    return []
 
 
 # Text stand-in saved on each attachment so later turns can run on the
 # user's text model instead of the vision model.
 TEXT_CONTEXT_KEY = "text_context"
 MAX_DOC_CONTEXT_CHARS = 8000
+_VISION_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+_VISION_IMAGE_LIMIT = 20_000_000
 _ATTACHMENT_TAG_RE = re.compile(r"^<attachment_data[^>]*>\n|\n</attachment_data>$")
 _describing: set[str] = set()
 _describing_lock = threading.Lock()
 
 
+def _image_mime(a: dict) -> str:
+    mime = str(a.get("content_type") or "").lower().split(";", 1)[0].strip()
+    if not mime or mime == "application/octet-stream":
+        mime = mimetypes.guess_type(str(a.get("filename") or a.get("path") or ""))[0] or ""
+    return mime
+
+
 def _is_image(a: dict) -> bool:
-    return (a.get("content_type") or "").startswith("image/")
+    return _image_mime(a).startswith("image/")
 
 
 def _latest_attachment_message(history: list[dict]) -> dict | None:
@@ -189,7 +184,15 @@ def _image_part(a: dict, user_id: str) -> dict | None:
     if path:
         try:
             img_bytes = store.download_attachment(path, user_id=user_id)
-            mime = a.get("content_type") or "image/png"
+            mime = _image_mime(a)
+            if mime not in _VISION_IMAGE_TYPES or len(img_bytes) > _VISION_IMAGE_LIMIT:
+                # Keep the stored original and send a bounded, lossless PNG of
+                # the first frame when Mistral cannot accept the original.
+                with Image.open(io.BytesIO(img_bytes)) as img, io.BytesIO() as encoded:
+                    img.thumbnail((2048, 2048))
+                    img.convert("RGBA").save(encoded, format="PNG")
+                    img_bytes = encoded.getvalue()
+                mime = "image/png"
             b64 = base64.b64encode(img_bytes).decode("ascii")
             return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
         except Exception as exc:  # noqa: BLE001
@@ -283,6 +286,9 @@ def chat(user):
         return bad_request("stream_id must be a short string", 422)
     if not isinstance(attachments, list) or not all(isinstance(a, dict) for a in attachments):
         return bad_request("attachments must be a list", 422)
+    image_attachments = [a for a in attachments if _is_image(a)]
+    if len(image_attachments) > MAX_IMAGES_PER_MESSAGE:
+        return bad_request(f"You can attach up to {MAX_IMAGES_PER_MESSAGE} images per message.", 422)
     try:
         store.validate_attachment_paths(attachments, user.id)
     except ValueError as exc:
@@ -429,13 +435,8 @@ def chat(user):
 
     model_text = augmented_message or message_text
 
-    image_attachments = [
-        a for a in attachments
-        if (a.get("content_type") or "").startswith("image/")
-    ]
     has_image_attachment = bool(image_attachments)
     has_any_attachment = bool(attachments)
-    images_with_url = [a for a in image_attachments if a.get("url")]
 
     # A turn that brings attachments goes to the vision model. Later turns use
     # the user's text model with saved text versions of those attachments,
@@ -448,24 +449,12 @@ def chat(user):
                     attachment, lambda path: store.download_attachment(path, user_id=user.id)
                 )
                 attachment[TEXT_CONTEXT_KEY] = _doc_text_context(attachment.get("filename") or "file", parts)
-    followup_needs_vision = bool(
-        latest_attachment_msg and _images_missing_context(latest_attachment_msg.get("attachments"))
-    )
+    pending_images = _images_missing_context(latest_attachment_msg.get("attachments")) if latest_attachment_msg else []
+    followup_needs_vision = bool(pending_images)
     conversation_is_visual = has_any_attachment or followup_needs_vision
     model_history = _history_with_attachment_context(history)
 
-    if conversation_is_visual and not images_with_url:
-        carried = _recent_history_images(history)
-        if carried:
-            images_with_url = carried
-
-    if has_image_attachment and not images_with_url:
-        return bad_request("Image upload returned no URL. Try re-attaching the image.", 500)
-
-    non_image_files = [
-        a for a in attachments
-        if not (a.get("content_type") or "").startswith("image/")
-    ]
+    non_image_files = [a for a in attachments if not _is_image(a)]
 
     def _scoped_download(path: str) -> bytes:
         if not user_owns_path(user.id, path):
@@ -488,14 +477,15 @@ def chat(user):
         file_note = "\n\n[Attached files — metadata:]\n" + "\n".join(f"- {name}" for name in failed_files)
         model_text = (model_text or "") + file_note
 
-    content_parts: list[dict] = []
-    content_parts.extend(doc_parts)
-
-    for a in images_with_url:
+    attachment_image_parts: list[dict] = []
+    for a in image_attachments or pending_images[:MAX_IMAGES_PER_MESSAGE]:
         part = _image_part(a, user.id)
         if part:
-            content_parts.append(part)
+            attachment_image_parts.append(part)
+        elif has_image_attachment:
+            return bad_request("Could not load an attached image. Try re-attaching it.", 500)
 
+    content_parts = [*doc_parts, *attachment_image_parts]
     # Held as a reference so an auto-search can prepend live results to the
     # user's turn after streaming has already started (see generate()).
     user_text_part: dict | None = None
@@ -507,16 +497,15 @@ def chat(user):
     PAGES_PER_BATCH = 5
 
     doc_img_count = sum(1 for p in doc_parts if p.get("type") == "image_url")
-    use_batches = doc_img_count > PAGES_PER_BATCH
+    first_batch_pages = min(PAGES_PER_BATCH, _MAX_VISION_IMAGES_PER_REQUEST - len(attachment_image_parts))
 
     batches: list[list[dict]] = []
-    if use_batches:
-        pdf_batches = _split_doc_parts_into_batches(doc_parts, pages_per_batch=PAGES_PER_BATCH)
-        non_pdf_parts = [p for p in content_parts if p not in doc_parts and p.get("type") != "text"]
+    if doc_img_count > first_batch_pages:
+        pdf_batches = _split_doc_parts_into_batches(doc_parts, PAGES_PER_BATCH, first_batch_pages=first_batch_pages)
         for idx, batch in enumerate(pdf_batches):
             batch_content: list[dict] = []
             if idx == 0:
-                batch_content.extend(non_pdf_parts)
+                batch_content.extend(attachment_image_parts)
             batch_content.extend(batch)
             if user_text_part:
                 batch_content.append(user_text_part)
@@ -526,7 +515,7 @@ def chat(user):
                 batch_img_parts = batch_img_parts[: max(1, len(batch_img_parts) // 2)]
                 batch_content = []
                 if idx == 0:
-                    batch_content.extend(non_pdf_parts)
+                    batch_content.extend(attachment_image_parts)
                 batch_content.extend(batch_text_parts)
                 batch_content.extend(batch_img_parts)
                 if user_text_part:
@@ -537,7 +526,7 @@ def chat(user):
 
     chosen_friendly = convo.get("model") or model or "thinking"
     real_id_map = get_real_id_map()
-    chosen_model = real_id_map.get(chosen_friendly, nvidia_client.default_model())
+    chosen_model = real_id_map.get(chosen_friendly, real_id_map["thinking"])
     if conversation_is_visual:
         chosen_model = get_vision_model()
 
@@ -561,8 +550,8 @@ def chat(user):
 
     # Fetched pages are grounding, but may still need current facts elsewhere.
     search_allowed = auto_search or force_search
-    # Chat cannot draw. Answer image asks here so the model cannot refuse them.
-    settings_reply = "" if chosen_friendly == "image" else image_settings_reply(message_text)
+    # Offer the image mode shortcut on text-only requests to create an image.
+    settings_reply = "" if chosen_friendly == "image" or has_image_attachment else image_settings_reply(message_text)
     if settings_reply:
         search_allowed = False
 
@@ -714,6 +703,7 @@ def chat(user):
                 full_reply = settings_reply
                 checkpoint()
                 yield sse_event({"type": "token", "data": {"delta": settings_reply}})
+            pdf_pages_analyzed = 0
             for batch_idx, batch_content in enumerate(batches):
                 if settings_reply:
                     break
@@ -752,14 +742,13 @@ def chat(user):
                         model_history, batch_content, system_prompt=assembled_base,
                     )
 
-                if use_batches and len(batches) > 1:
+                if len(batches) > 1:
                     batch_imgs = sum(1 for p in batch_content if p.get("type") == "image_url")
-                    prev_imgs = sum(
-                        1 for b in batches[:batch_idx] for p in b if p.get("type") == "image_url"
-                    )
-                    start_page = prev_imgs + 1
-                    end_page = prev_imgs + batch_imgs
-                    header = f"\n\n--- Analyzing pages {start_page}-{end_page} ---\n\n"
+                    if is_first_batch:
+                        batch_imgs -= len(attachment_image_parts)
+                    start_page = pdf_pages_analyzed + 1
+                    pdf_pages_analyzed += batch_imgs
+                    header = f"\n\n--- Analyzing pages {start_page}-{pdf_pages_analyzed} ---\n\n"
                     full_reply += header
                     checkpoint()
                     yield sse_event({"type": "token", "data": {"delta": header}})

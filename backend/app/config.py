@@ -9,8 +9,8 @@ from __future__ import annotations
 import os
 
 # Default foundation models
-DEFAULT_NEXOS_MODEL = "nvidia/nemotron-3-super-120b-a12b"
-DEFAULT_VISION_MODEL = "google/diffusiongemma-26b-a4b-it"
+DEFAULT_NEXOS_MODEL = "openai/gpt-oss-120b"
+DEFAULT_VISION_MODEL = "ministral-8b-2512"
 DEFAULT_AEON_MODEL = "qwen/qwen3.8-27b"
 DEFAULT_STANZA_MODEL = "ministral-8b-2512"
 DEFAULT_IMAGE_MODEL = "black-forest-labs/flux-3-image-klein"
@@ -18,12 +18,10 @@ DEFAULT_IMAGE_MODEL = "black-forest-labs/flux-3-image-klein"
 IMAGE_STEPS = 50
 DEFAULT_DEEPGRAM_TTS_MODEL = "flux-hannah-en"
 DEFAULT_DEEPGRAM_WS_URL = "wss://api.deepgram.com/v2/speak"
-DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_IMAGE_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 DEFAULT_MISTRAL_MODEL = "ministral-8b-2512"
-DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
 # Internal model catalog
 IMAGE_MODEL_ID = "image"
@@ -45,18 +43,17 @@ def get_stanza_model() -> str:
 
 
 def get_nexos_model() -> str:
-    return os.getenv("NVIDIA_NEXOS_MODEL", DEFAULT_NEXOS_MODEL).strip()
+    return os.getenv("GROQ_NEXOS_MODEL", "").strip() or DEFAULT_NEXOS_MODEL
 
 
 def get_vision_model() -> str:
-    return os.getenv("NVIDIA_VISION_MODEL", DEFAULT_VISION_MODEL).strip()
+    return os.getenv("MISTRAL_VISION_MODEL", "").strip() or DEFAULT_VISION_MODEL
 
 
 def get_aeon_model() -> str:
     return (
         os.getenv("GROQ_AEON_MODEL")
         or os.getenv("GROQ_MODEL")
-        or os.getenv("NVIDIA_AEON_MODEL")
         or DEFAULT_AEON_MODEL
     ).strip()
 

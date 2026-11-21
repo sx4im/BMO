@@ -42,7 +42,7 @@ def test_is_groq_model():
     # Explicit NVIDIA prefixed models should not be routed to Groq
     assert groq_client.is_groq_model("nvidia/qwen3-next-80b-a3b-instruct") is False
     assert groq_client.is_groq_model("mistral-small-2603") is False
-    assert groq_client.is_groq_model("openai/gpt-oss-120b") is False
+    assert groq_client.is_groq_model("openai/gpt-oss-120b") is True
 
 
 def test_clean_key_defensive():
@@ -182,16 +182,16 @@ def test_search_classifier_uses_only_groq_when_both_keys_exist(monkeypatch):
     assert [name for name, _, _ in search_router._classifier_backends()] == ["groq"]
 
 
-def test_groq_legacy_aeon_override_drives_default_and_dispatch(monkeypatch):
+def test_groq_aeon_override_drives_default_and_dispatch(monkeypatch):
     monkeypatch.delenv("GROQ_AEON_MODEL", raising=False)
     monkeypatch.delenv("GROQ_MODEL", raising=False)
-    monkeypatch.setenv("NVIDIA_AEON_MODEL", "qwen/qwen3-32b")
+    monkeypatch.setenv("GROQ_MODEL", "qwen/qwen3-32b")
     stream = MagicMock(return_value=iter([{"type": "done", "content": "Groq answer"}]))
-    wrong_provider = MagicMock(side_effect=AssertionError("must not call NVIDIA"))
+    wrong_provider = MagicMock(side_effect=AssertionError("must not call Mistral"))
     monkeypatch.setattr(groq_client, "iter_response", stream)
-    monkeypatch.setattr(nvidia_client, "_client", wrong_provider)
+    monkeypatch.setattr(mistral_client, "iter_response", wrong_provider)
     events = list(nvidia_client.iter_response([], model=config.get_aeon_model()))
     assert events == [{"type": "done", "content": "Groq answer"}]
     assert groq_client.default_model() == config.get_aeon_model() == "qwen/qwen3-32b"
-    stream.assert_called_once_with([], model="qwen/qwen3-32b", temperature=0.7, max_tokens=None)
+    stream.assert_called_once_with([], model="qwen/qwen3-32b", temperature=0.7, max_tokens=None, reasoning_effort=None, thinking=True)
     wrong_provider.assert_not_called()

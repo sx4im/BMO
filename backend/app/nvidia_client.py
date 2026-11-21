@@ -1,19 +1,4 @@
-"""NVIDIA AI Foundation client for Bmo.
-
-Bmo talks to NVIDIA's OpenAI-compatible chat-completions endpoint
-(https://integrate.api.nvidia.com/v1) via the **official OpenAI Python SDK**,
-which NVIDIA's own documentation specifies as the supported client. Using
-the SDK rather than hand-rolled ``requests`` calls eliminates whole classes
-of subtle bugs (SSE chunk boundary parsing, header negotiation, retry on
-transient HTTP/2 stream resets) and gives us typed errors so we can tell a
-real authentication failure apart from a model-permission issue.
-
-Streaming is the default: ``iter_response`` yields ``{"type": "delta", ...}``
-events as tokens arrive, then a final ``{"type": "done", "content": "..."}``
-event with the assembled text. Vision / multimodal payloads are supported
-by passing OpenAI-style image-bearing message content (a list of content
-parts) — the SDK forwards them unchanged.
-"""
+"""Chat provider routing, message formatting, and Iris image generation."""
 
 from __future__ import annotations
 
@@ -35,24 +20,10 @@ try:
 except ImportError:
     Image = None
 
-from openai import (
-    APIConnectionError,
-    APIStatusError,
-    APITimeoutError,
-    AuthenticationError,
-    BadRequestError,
-    NotFoundError,
-    OpenAI,
-    PermissionDeniedError,
-    RateLimitError,
-)
-
 from . import groq_client, mistral_client
 from .config import (
-    DEFAULT_BASE_URL,
     DEFAULT_IMAGE_BASE_URL,
     DEFAULT_IMAGE_MODEL,
-    DEFAULT_MODEL,
     IMAGE_STEPS,
     get_nexos_model,
     get_stanza_model,
@@ -66,25 +37,7 @@ from .prompts import (
     VISION_SYSTEM_PROMPT,
 )
 
-logger = logging.getLogger("bmo.nvidia")
-
-
-def base_url(model: Optional[str] = None) -> str:
-    if model:
-        if groq_client.is_groq_model(model):
-            return groq_client.base_url()
-        if mistral_client.is_mistral_model(model):
-            return mistral_client.base_url()
-        m = model.lower()
-        if "inkling" in m or "nexos" in m or "nemotron" in m:
-            nexos_url = os.environ.get("NVIDIA_NEXOS_BASE_URL") or os.environ.get("TINKER_BASE_URL")
-            if nexos_url:
-                return nexos_url.rstrip("/")
-    return os.getenv("NVIDIA_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
-
-
-def default_model() -> str:
-    return os.getenv("NVIDIA_MODEL", DEFAULT_MODEL)
+logger = logging.getLogger(__name__)
 
 
 # Characters that look like whitespace but survive a naive ``.strip()``:
@@ -101,21 +54,8 @@ def _clean_key(raw: str) -> str:
     return cleaned
 
 
-def _read_api_key(model: Optional[str] = None) -> str:
-    """Read API_KEY from the environment defensively.
-    Supports model-specific overrides like NVIDIA_NEXOS_KEY, TINKER_API_KEY, GROQ_API_KEY, or MISTRAL_API_KEY.
-    """
-    if model:
-        if groq_client.is_groq_model(model):
-            return groq_client._read_api_key()
-        if mistral_client.is_mistral_model(model):
-            return mistral_client._read_api_key()
-        m = model.lower()
-        if "inkling" in m or "nexos" in m or "nemotron" in m:
-            nexos_key = os.environ.get("NVIDIA_NEXOS_KEY") or os.environ.get("TINKER_API_KEY")
-            if nexos_key:
-                return _clean_key(nexos_key)
-
+def _read_api_key() -> str:
+    """Read the key used for Iris image generation."""
     raw = os.environ.get("NVIDIA_API_KEY")
     if not raw:
         raise RuntimeError(
@@ -128,27 +68,8 @@ def _read_api_key(model: Optional[str] = None) -> str:
     return cleaned
 
 
-def api_key_fingerprint() -> dict:
-    """Return a safe, obfuscated description of the configured key for logs.
-
-    Never logs the full key. Shows length, first 8 / last 4 chars, and
-    whether the format matches NVIDIA's ``nvapi-...`` prefix so the user
-    can sanity-check Render config without exposing the secret.
-    """
-    try:
-        key = _read_api_key()
-    except RuntimeError as exc:
-        return {"configured": False, "error": str(exc)}
-    return {
-        "configured": True,
-        "length": len(key),
-        "preview": f"{key[:8]}…{key[-4:]}" if len(key) > 14 else "(too short)",
-        "nvapi_prefix": key.startswith("nvapi-"),
-    }
-
-
 def is_configured() -> bool:
-    return bool(os.environ.get("NVIDIA_API_KEY")) or groq_client.is_configured() or mistral_client.is_configured()
+    return groq_client.is_configured() or mistral_client.is_configured()
 
 
 # ---------------------------------------------------------------------------
@@ -300,119 +221,6 @@ def generate_image(
         "The image service returned a blank image (its safety filter may have "
         "flagged the result). Try rephrasing your prompt."
     )
-
-
-def _max_retries() -> int:
-    try:
-        return max(0, int(os.getenv("NVIDIA_MAX_RETRIES", "3")))
-    except (TypeError, ValueError):
-        return 3
-
-
-_client_cache: dict[str, object] = {}
-
-
-def _client(model: Optional[str] = None) -> OpenAI:
-    """Return a cached OpenAI client pointed at the target model's API endpoint."""
-    try:
-        timeout = float(os.getenv("NVIDIA_TIMEOUT", "300"))
-    except (TypeError, ValueError):
-        timeout = 300.0
-    key = _read_api_key(model)
-    target_base = base_url(model)
-    retries = _max_retries()
-    signature = f"{target_base}::{key}::{timeout}::{retries}"
-    cached = _client_cache.get(signature)
-    if cached is not None:
-        return cached  # type: ignore[return-value]
-    client = OpenAI(base_url=target_base, api_key=key, timeout=timeout, max_retries=retries)
-    _client_cache[signature] = client
-    return client
-
-
-def max_output_tokens() -> int:
-    try:
-        return int(os.getenv("NVIDIA_MAX_TOKENS", "16384"))
-    except (TypeError, ValueError):
-        return 16384
-
-
-def _format_api_error(exc: APIStatusError) -> str:
-    body = getattr(exc, "body", None)
-    detail = None
-    if isinstance(body, dict):
-        detail = body.get("detail")
-        if not detail and isinstance(body.get("error"), dict):
-            detail = body["error"].get("message")
-        if not detail:
-            detail = body.get("message")
-    detail = detail or getattr(exc, "message", None) or str(exc)
-    return f"NVIDIA {exc.status_code}: {detail}"
-
-
-def list_models() -> list[dict]:
-    """Fetch the full model catalogue from NVIDIA."""
-    try:
-        client = _client()
-        page = client.models.list()
-        models = [{"id": m.id} for m in page.data]
-        logger.info(
-            "Available models on API (%d total): %s",
-            len(models), [m["id"] for m in models],
-        )
-        return models
-    except APIStatusError as exc:
-        logger.warning("list_models non-200: status=%s body=%s", exc.status_code, exc.body)
-        return []
-    except Exception as exc:
-        logger.warning("Could not list models: %s", exc)
-        return []
-
-
-def test_call() -> dict:
-    """Minimal chat completion to verify the key + the configured model."""
-    try:
-        model_to_test = default_model() or get_stanza_model() or DEFAULT_MODEL
-        client = _client(model_to_test)
-        completion = client.chat.completions.create(
-            model=model_to_test,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Say 'API test OK' and nothing else."},
-            ],
-            max_tokens=20,
-            temperature=0.0,
-        )
-        model = completion.model
-        logger.info("API test call OK — responding model: %s", model)
-        return {"ok": True, "model": model}
-    except AuthenticationError as exc:
-        logger.warning("API test call auth failure: %s", exc)
-        return {"ok": False, "error_kind": "auth", "status": 401, "detail": _format_api_error(exc)}
-    except PermissionDeniedError as exc:
-        logger.warning("API test call permission denied: %s", exc)
-        return {"ok": False, "error_kind": "permission", "status": 403, "detail": _format_api_error(exc)}
-    except NotFoundError as exc:
-        logger.warning("API test call model not found: %s", exc)
-        return {"ok": False, "error_kind": "not_found", "status": 404, "detail": _format_api_error(exc)}
-    except BadRequestError as exc:
-        logger.warning("API test call bad request: %s", exc)
-        return {"ok": False, "error_kind": "bad_request", "status": 400, "detail": _format_api_error(exc)}
-    except RateLimitError as exc:
-        logger.warning("API test call rate limited: %s", exc)
-        return {"ok": False, "error_kind": "rate_limit", "status": 429, "detail": _format_api_error(exc)}
-    except APIStatusError as exc:
-        logger.warning("API test call non-200: status=%s body=%s", exc.status_code, exc.body)
-        return {"ok": False, "error_kind": "http", "status": exc.status_code, "detail": _format_api_error(exc)}
-    except (APIConnectionError, APITimeoutError) as exc:
-        logger.warning("API test call network error: %s", exc)
-        return {"ok": False, "error_kind": "network", "detail": str(exc)}
-    except RuntimeError as exc:
-        logger.warning("API test call config error: %s", exc)
-        return {"ok": False, "error_kind": "config", "detail": str(exc)}
-    except Exception as exc:
-        logger.warning("API test call failed: %s", exc)
-        return {"ok": False, "error_kind": "unknown", "detail": str(exc)}
 
 
 def _merge_content(a, b):
@@ -598,23 +406,6 @@ def build_messages(
     return _coerce_alternating(out)
 
 
-_NEMOTRON_REASONING_ON = "detailed thinking on"
-_NEMOTRON_REASONING_OFF = "detailed thinking off"
-
-
-def _nemotron_set_reasoning(messages: list[dict], on: bool) -> list[dict]:
-    directive = _NEMOTRON_REASONING_ON if on else _NEMOTRON_REASONING_OFF
-    out = [dict(m) for m in messages]
-    for m in out:
-        if m.get("role") == "system":
-            content = m.get("content")
-            if isinstance(content, str) and directive not in content.lower():
-                m["content"] = f"{directive}\n\n{content}"
-            return out
-    out.insert(0, {"role": "system", "content": directive})
-    return out
-
-
 def iter_response(
     messages: list[dict],
     *,
@@ -624,14 +415,8 @@ def iter_response(
     reasoning_effort: Optional[str] = None,
     thinking: bool = True,
 ) -> Iterator[dict]:
-    """Stream text chunks from the selected model via NVIDIA API.
-
-    Yields:
-        {"type": "delta", "data": str} for answer tokens
-        {"type": "reasoning_delta", "data": str} for reasoning tokens
-        {"type": "usage", "data": dict} at the end if provided
-    """
-    chosen_model = (model or default_model()).strip()
+    """Stream a completion from the provider of the configured chat model."""
+    chosen_model = (model or get_stanza_model()).strip()
     if mistral_client.is_mistral_model(chosen_model):
         yield from mistral_client.iter_response(
             messages, model=chosen_model, temperature=temperature,
@@ -640,299 +425,13 @@ def iter_response(
         return
 
     if groq_client.is_groq_model(chosen_model):
-        # A Groq provider error must not retry itself or
-        # splice another provider's answer onto a partially emitted response.
         yield from groq_client.iter_response(
-            messages,
-            model=chosen_model,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            messages, model=chosen_model, temperature=temperature,
+            max_tokens=max_tokens, reasoning_effort=reasoning_effort, thinking=thinking,
         )
         return
 
-    kwargs = {}
-
-    if any(k in chosen_model.lower() for k in ("deepseek", "inkling", "thinking", "gpt-oss", "oss", "nexos", "gemma", "diffusiongemma", "google")):
-        if max_tokens is None:
-            max_tokens = 16384
-        if thinking:
-            effort = reasoning_effort or "low"
-            kwargs["reasoning_effort"] = effort
-            kwargs["extra_body"] = {
-                "chat_template_kwargs": {
-                    "thinking": True,
-                    "enable_thinking": True,
-                    "reasoning_effort": effort,
-                }
-            }
-        else:
-            kwargs["extra_body"] = {
-                "chat_template_kwargs": {
-                    "thinking": False,
-                    "enable_thinking": False,
-                }
-            }
-    elif "minimax" in chosen_model.lower():
-        if max_tokens is None:
-            max_tokens = 16384
-        temperature = 1.0
-        kwargs["top_p"] = 0.95
-        if thinking:
-            effort = reasoning_effort or "high"
-            kwargs["reasoning_effort"] = effort
-            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True, "reasoning_effort": effort}}
-        else:
-            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": False}}
-    elif "nemotron" in chosen_model.lower():
-        if max_tokens is None:
-            max_tokens = 16384
-        effort = reasoning_effort or "low"
-        is_super = "super" in chosen_model.lower()
-        # On Nemotron Super, low effort means fast concise thinking without long 'detailed thinking' prefix
-        if thinking:
-            if not is_super or effort in ("high", "max"):
-                messages = _nemotron_set_reasoning(messages, True)
-        else:
-            messages = _nemotron_set_reasoning(messages, False)
-
-        # Official NVIDIA NIM recommendation for Nemotron 3 Super: temperature=1.0, top_p=0.95
-        if is_super:
-            temperature = 1.0
-            kwargs["top_p"] = 0.95
-
-        if thinking:
-            chat_template_kwargs = {
-                "thinking": True,
-                "enable_thinking": True,
-                "reasoning_effort": effort,
-            }
-            if effort == "low":
-                chat_template_kwargs["low_effort"] = True
-            kwargs["reasoning_effort"] = effort
-            kwargs["extra_body"] = {
-                "chat_template_kwargs": chat_template_kwargs,
-            }
-        else:
-            kwargs["extra_body"] = {
-                "chat_template_kwargs": {
-                    "thinking": False,
-                    "enable_thinking": False,
-                }
-            }
-    elif any(k in chosen_model.lower() for k in ("muse", "stanza")):
-        if max_tokens is None:
-            max_tokens = 16384
-        if thinking:
-            effort = reasoning_effort or "low"
-            kwargs["reasoning_effort"] = effort
-            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True, "reasoning_effort": effort}}
-        else:
-            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": False}}
-    elif "qwen" in chosen_model.lower():
-        if max_tokens is None:
-            max_tokens = 16384
-        if thinking and reasoning_effort:
-            kwargs["reasoning_effort"] = reasoning_effort
-            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True, "reasoning_effort": reasoning_effort}}
-    elif "step" in chosen_model.lower():
-        if max_tokens is None:
-            max_tokens = 16384
-        if thinking and reasoning_effort:
-            kwargs["reasoning_effort"] = reasoning_effort
-            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True, "reasoning_effort": reasoning_effort}}
-    elif "llama" in chosen_model.lower():
-        if max_tokens is None:
-            max_tokens = 4096
-    else:
-        if max_tokens is None:
-            max_tokens = max_output_tokens()
-        if thinking and reasoning_effort:
-            kwargs["reasoning_effort"] = reasoning_effort
-            kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True, "reasoning_effort": reasoning_effort}}
-
-    t_sdk_start = time.time()
-    try:
-        client = _client(chosen_model)
-        t_client = time.time()
-        stream = client.chat.completions.create(
-            model=chosen_model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            stream_options={"include_usage": True},
-            **kwargs
-        )
-        t_stream_obj = time.time()
-        logger.info(
-            "nvidia: sdk_setup=%.3fs (client=%.3fs create=%.3fs) model=%s msgs=%d",
-            t_stream_obj - t_sdk_start,
-            t_client - t_sdk_start,
-            t_stream_obj - t_client,
-            chosen_model,
-            len(messages),
-        )
-    except AuthenticationError as exc:
-        raise RuntimeError(_format_api_error(exc)) from exc
-    except PermissionDeniedError as exc:
-        raise RuntimeError(_format_api_error(exc)) from exc
-    except NotFoundError as exc:
-        raise RuntimeError(
-            f"Model '{chosen_model}' was not found on NVIDIA. "
-            f"Check NVIDIA_MODEL in Render. ({_format_api_error(exc)})"
-        ) from exc
-    except BadRequestError as exc:
-        raise RuntimeError(_format_api_error(exc)) from exc
-    except RateLimitError as exc:
-        raise RuntimeError(_format_api_error(exc)) from exc
-    except APIStatusError as exc:
-        raise RuntimeError(_format_api_error(exc)) from exc
-    except (APIConnectionError, APITimeoutError) as exc:
-        raise RuntimeError(f"Network error reaching NVIDIA: {exc}") from exc
-    except Exception as exc:
-        msg = str(exc).strip() or exc.__class__.__name__
-        raise RuntimeError(
-            f"NVIDIA request failed: {msg}. If this is a large PDF, "
-            "the image payload may have exceeded the API size limit."
-        ) from exc
-
-    in_think_tag = False
-    in_channel_thought = False
-    full: list[str] = []
-    reasoning_full: list[str] = []
-    chunk_count = 0
-    finish_reason = None
-    usage = None
-    show_thought_ui = True
-
-    try:
-        for chunk in stream:
-            chunk_count += 1
-            if chunk_count == 1:
-                yield {
-                    "type": "inference",
-                    "provider": "nvidia",
-                    "requested_model": chosen_model,
-                    "reported_model": getattr(chunk, "model", None),
-                    "request_id": getattr(chunk, "id", None),
-                }
-            chunk_usage = getattr(chunk, "usage", None)
-            if chunk_usage is not None:
-                usage = chunk_usage if isinstance(chunk_usage, dict) else chunk_usage.model_dump()
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
-            
-            reasoning = (
-                getattr(choice.delta, "reasoning", None) or getattr(choice.delta, "reasoning_content", None)
-            )
-            delta = getattr(choice.delta, "content", None) if choice.delta else None
-            
-            if reasoning:
-                clean_reasoning = _clean_stream_text(reasoning)
-                if clean_reasoning:
-                    reasoning_full.append(clean_reasoning)
-                    if show_thought_ui:
-                        yield {"type": "reasoning_delta", "data": clean_reasoning}
-                
-            if delta:
-                if "<|channel|>thought" in delta:
-                    parts = delta.split("<|channel|>thought", 1)
-                    if parts[0]:
-                        p0 = _clean_stream_text(parts[0])
-                        if p0:
-                            full.append(p0)
-                            yield {"type": "delta", "data": p0}
-                    in_channel_thought = True
-                    delta = parts[1]
-
-                if in_channel_thought and delta:
-                    if "<|channel|>" in delta:
-                        think_part, content_part = delta.split("<|channel|>", 1)
-                        if think_part:
-                            tp = _clean_stream_text(think_part)
-                            if tp:
-                                reasoning_full.append(tp)
-                                if show_thought_ui:
-                                    yield {"type": "reasoning_delta", "data": tp}
-                        in_channel_thought = False
-                        delta = content_part
-                    else:
-                        tp = _clean_stream_text(delta)
-                        if tp:
-                            reasoning_full.append(tp)
-                            if show_thought_ui:
-                                yield {"type": "reasoning_delta", "data": tp}
-                        delta = None
-
-                if delta and "<think>" in delta:
-                    parts = delta.split("<think>", 1)
-                    if parts[0]:
-                        p0 = _clean_stream_text(parts[0])
-                        if p0:
-                            full.append(p0)
-                            yield {"type": "delta", "data": p0}
-                    in_think_tag = True
-                    delta = parts[1]
-
-                if in_think_tag and delta:
-                    if "</think>" in delta:
-                        think_part, content_part = delta.split("</think>", 1)
-                        if think_part:
-                            tp = _clean_stream_text(think_part)
-                            if tp:
-                                reasoning_full.append(tp)
-                                if show_thought_ui:
-                                    yield {"type": "reasoning_delta", "data": tp}
-                        in_think_tag = False
-                        delta = content_part
-                    else:
-                        tp = _clean_stream_text(delta)
-                        if tp:
-                            reasoning_full.append(tp)
-                            if show_thought_ui:
-                                yield {"type": "reasoning_delta", "data": tp}
-                        delta = None
-
-            if delta:
-                delta = _clean_stream_text(delta)
-                if delta:
-                    full.append(delta)
-                    yield {"type": "delta", "data": delta}
-                
-            if choice.finish_reason:
-                finish_reason = choice.finish_reason
-                logger.info(
-                    "nvidia: finish_reason=%s chunks=%d chars=%d model=%s",
-                    choice.finish_reason, chunk_count, len("".join(full)), chosen_model,
-                )
-    except APIStatusError as exc:
-        raise RuntimeError(_format_api_error(exc)) from exc
-    except (APIConnectionError, APITimeoutError) as exc:
-        raise RuntimeError(f"Stream interrupted: {exc}") from exc
-    except Exception as exc:
-        msg = str(exc).strip() or exc.__class__.__name__
-        raise RuntimeError(f"Stream interrupted: {msg}") from exc
-
-    finally:
-        close = getattr(stream, "close", None)
-        if callable(close):
-            close()
-
-    if finish_reason is None:
-        raise RuntimeError("NVIDIA stream ended before a finish reason was received.")
-    content = "".join(full)
-    if not content.strip():
-        logger.warning(
-            "nvidia: model returned EMPTY content (chunks=%d finish=%s model=%s). "
-            "If this is a PDF, the model may have timed out or rejected the image payload.",
-            chunk_count, finish_reason, chosen_model,
-        )
-    yield {
-        "type": "done", "content": content, "reasoning": "".join(reasoning_full),
-        "finish_reason": finish_reason, "usage": usage,
-        "complete": finish_reason == "stop",
-    }
+    raise RuntimeError(f"No chat provider configured for model '{chosen_model}'.")
 
 
 def iter_response_with_fallback(
@@ -946,15 +445,15 @@ def iter_response_with_fallback(
     allow_fallback: bool = True,
 ) -> Iterator[dict]:
     """Wraps `iter_response` with automatic fallback to Stanza 2.5 if primary times out."""
-    chosen_model = model or default_model()
+    chosen_model = model or get_stanza_model()
 
     stanza_id = get_stanza_model().lower()
     nexos_id = get_nexos_model().lower()
     
     current_lower = chosen_model.lower()
     
-    # Auto-switch timeout for first token: Nexos 50s
-    if current_lower == nexos_id or "inkling" in current_lower or "deepseek" in current_lower:
+    # Give Nexos 50 seconds to produce its first answer or reasoning token.
+    if current_lower == nexos_id:
         first_token_timeout = 50.0
     else:
         first_token_timeout = None
@@ -1027,7 +526,7 @@ def iter_response_with_fallback(
             raise TimeoutError(str(first_val or "Model ended before the first answer token"))
 
         logger.warning(
-            "nvidia: primary model %s failed first-token check (%s). Auto-switching to Stanza 2.5 (%s)...",
+            "Primary model %s failed first-token check (%s). Auto-switching to Stanza 2.5 (%s)...",
             chosen_model, first_val, stanza_model
         )
 
@@ -1043,23 +542,6 @@ def iter_response_with_fallback(
         stop_event.set()
 
 
-def complete(
-    messages: list[dict],
-    *,
-    model: Optional[str] = None,
-    temperature: float = 0.7,
-    max_tokens: Optional[int] = None,
-) -> str:
-    """Non-streaming convenience — buffers iter_response into a single string."""
-    text: list[str] = []
-    for ev in iter_response(messages, model=model, temperature=temperature, max_tokens=max_tokens):
-        if ev["type"] == "delta":
-            text.append(ev["data"])
-        elif ev["type"] == "done":
-            return ev["content"]
-    return "".join(text)
-
-
 def describe_image(image_part: dict) -> str:
     """Text version of one image, so text-only models can answer follow-ups about it."""
     messages = [{
@@ -1067,7 +549,7 @@ def describe_image(image_part: dict) -> str:
         "content": [{"type": "text", "text": IMAGE_CONTEXT_PROMPT}, image_part],
     }]
     content = ""
-    for ev in iter_response(messages, model=get_vision_model(), max_tokens=900, thinking=False):
+    for ev in mistral_client.iter_response(messages, model=get_vision_model(), max_tokens=900):
         if ev["type"] == "done":
             content = ev["content"] or ""
     return content.strip()
@@ -1080,7 +562,7 @@ def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:
     if not user_snippet:
         return None
     try:
-        model_to_use = get_stanza_model() or default_model()
+        model_to_use = get_stanza_model()
         options = {}
         if mistral_client.is_mistral_model(model_to_use):
             client = mistral_client._client()
@@ -1091,7 +573,7 @@ def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:
             elif model_to_use.startswith("openai/gpt-oss"):
                 options["reasoning_effort"] = "low"
         else:
-            client = _client(model_to_use)
+            raise RuntimeError(f"No chat provider configured for model '{model_to_use}'.")
         completion = client.with_options(timeout=8.0, max_retries=0).chat.completions.create(
             model=model_to_use,
             messages=[

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app import nvidia_client
+from app import groq_client, nvidia_client
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 CASES = json.loads((FIXTURES / 'highlight_span_cases.json').read_text())
@@ -30,8 +30,8 @@ def test_provider_chunks_preserve_html_and_matching_closers(monkeypatch, split):
     client.chat.completions.create.return_value = [SimpleNamespace(choices=[SimpleNamespace(
         delta=SimpleNamespace(content=part), finish_reason='stop' if index else None,
     )]) for index, part in enumerate([source[:split], source[split:]])]
-    monkeypatch.setattr(nvidia_client, '_client', lambda *args: client)
-    events = list(nvidia_client.iter_response([], model='requested-model'))
+    monkeypatch.setattr(groq_client, '_client', lambda: client)
+    events = list(nvidia_client.iter_response([], model='openai/gpt-oss-120b'))
     assert ''.join(event['data'] for event in events if event['type'] == 'delta') == source
     assert nvidia_client.sanitize_reply(events[-1]['content']) == source
 
@@ -43,8 +43,8 @@ def test_stream_defers_highlighter_cleanup_until_matching_tags_are_assembled(mon
     client.chat.completions.create.return_value = [SimpleNamespace(choices=[SimpleNamespace(
         delta=SimpleNamespace(content=part), finish_reason='stop' if index else None,
     )]) for index, part in enumerate([source[:split], source[split:]])]
-    monkeypatch.setattr(nvidia_client, '_client', lambda *args: client)
-    events = list(nvidia_client.iter_response([], model='requested-model'))
+    monkeypatch.setattr(groq_client, '_client', lambda: client)
+    events = list(nvidia_client.iter_response([], model='openai/gpt-oss-120b'))
     streamed = ''.join(event['data'] for event in events if event['type'] == 'delta')
     assert streamed == source
     assert nvidia_client.sanitize_reply(streamed) == '<vector> &amp;literal;'

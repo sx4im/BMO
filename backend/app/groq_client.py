@@ -1,7 +1,7 @@
 """Groq AI client for Bmo.
 
 Bmo interacts with Groq's low-latency OpenAI-compatible chat completions endpoint
-(https://api.groq.com/openai/v1) for the Aeon Voice model.
+(https://api.groq.com/openai/v1) for Nexos and Aeon.
 
 Streaming is supported natively: ``iter_response`` yields ``{"type": "delta", "data": ...}``
 chunks as tokens arrive, followed by a final ``{"type": "done", "content": "..."}`` event.
@@ -27,7 +27,7 @@ from openai import (
     RateLimitError,
 )
 
-from .config import DEFAULT_GROQ_BASE_URL, get_aeon_model
+from .config import DEFAULT_GROQ_BASE_URL, get_aeon_model, get_nexos_model
 
 logger = logging.getLogger("bmo.groq")
 
@@ -92,9 +92,10 @@ def is_groq_model(model_name: Optional[str]) -> bool:
     aeon_m = default_model().lower().strip()
     return (
         m == "aeon"
-        or m == aeon_m
+        or m in {aeon_m, get_nexos_model().lower()}
         or m.startswith("groq/")
-        or m in {"qwen/qwen3.8-27b", "qwen-2.5-32b", "llama-3.3-70b-versatile"}
+        or m in {"openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b",
+                 "qwen-2.5-32b", "llama-3.3-70b-versatile"}
     )
 
 
@@ -139,6 +140,8 @@ def iter_response(
     model: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
+    reasoning_effort: Optional[str] = None,
+    thinking: bool = True,
     **kwargs,
 ) -> Iterator[dict]:
     """Stream completions from Groq.
@@ -149,6 +152,7 @@ def iter_response(
     """
     chosen_model = model or default_model()
     client = _client()
+    is_gpt_oss = chosen_model in {"openai/gpt-oss-120b", "openai/gpt-oss-20b"}
 
     cleaned_messages: list[dict] = []
     for m in messages:
@@ -156,6 +160,8 @@ def iter_response(
         content = m.get("content")
         if not role or content is None:
             continue
+        if is_gpt_oss and isinstance(content, list) and all(part.get("type") == "text" for part in content):
+            content = "\n\n".join(part["text"] for part in content)
         cleaned_messages.append({"role": role, "content": content})
 
     call_kwargs = {
@@ -164,6 +170,11 @@ def iter_response(
         "temperature": temperature,
         "stream": True,
     }
+    if is_gpt_oss:
+        call_kwargs["reasoning_effort"] = "high" if reasoning_effort == "max" else reasoning_effort or "low"
+        call_kwargs["extra_body"] = {"include_reasoning": thinking}
+        if max_tokens is None:
+            max_tokens = 16384
     # Groq's implicit completion default can be too small for generated code.
     # Qwen 3.8's documented output ceiling is 16,384 tokens (not its 131K context).
     if chosen_model == "qwen/qwen3.8-27b":
@@ -180,6 +191,7 @@ def iter_response(
     call_kwargs["stream_options"] = {"include_usage": True}
 
     full: list[str] = []
+    reasoning: list[str] = []
     chunk_count = 0
     finish_reason = None
     usage = None
@@ -208,6 +220,11 @@ def iter_response(
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
+            if is_gpt_oss and thinking:
+                thought = _clean_text(getattr(choice.delta, "reasoning", None))
+                if thought:
+                    reasoning.append(thought)
+                    yield {"type": "reasoning_delta", "data": thought}
             delta = getattr(choice.delta, "content", None)
             if delta:
                 cleaned_delta = _clean_text(delta)
@@ -231,7 +248,7 @@ def iter_response(
     except PermissionDeniedError as exc:
         raise RuntimeError("Groq permission denied (403). Check your account permissions.") from exc
     except NotFoundError as exc:
-        raise RuntimeError(f"Groq model '{chosen_model}' was not found (404). Check GROQ_AEON_MODEL.") from exc
+        raise RuntimeError(f"Groq model '{chosen_model}' was not found (404).") from exc
     except APIStatusError as exc:
         raise RuntimeError(f"Groq service error ({exc.status_code}): {exc.message}") from exc
     except (APIConnectionError, APITimeoutError) as exc:
@@ -248,8 +265,11 @@ def iter_response(
 
     if finish_reason is None:
         raise RuntimeError("Groq stream ended before a finish reason was received.")
-    yield {
+    done = {
         "type": "done", "content": "".join(full),
         "finish_reason": finish_reason, "usage": usage,
         "complete": finish_reason == "stop",
     }
+    if reasoning:
+        done["reasoning"] = "".join(reasoning)
+    yield done

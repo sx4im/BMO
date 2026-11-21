@@ -1,6 +1,6 @@
 """Smoke tests for the Bimo Render gateway.
 
-Full integration tests would need a real Supabase project and NVIDIA key, so
+Full integration tests would need a real Supabase project and provider keys, so
 those live outside this repo. These tests just check that the Flask app boots
 with valid env config, exposes ``/health``, and gates protected routes behind
 JWT authentication.
@@ -24,7 +24,6 @@ def client(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-jwt-secret")
     monkeypatch.setenv("SUPABASE_STORAGE_BUCKET", "bimo-attachments")
     monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
-    monkeypatch.setenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
     monkeypatch.setenv("DEEPGRAM_API_KEY", "test-deepgram-key")
     monkeypatch.setenv("CORS_ORIGINS", "*")
 
@@ -37,7 +36,8 @@ def client(monkeypatch):
         yield c
 
 
-def test_health(client):
+def test_health(client, monkeypatch):
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
     res = client.get("/health")
     assert res.status_code == 200
     body = res.get_json()
@@ -64,15 +64,9 @@ def test_invalid_jwt_is_rejected(client):
     assert res.status_code == 401
 
 
-def test_nvidia_debug_disabled_by_default(client):
-    """/nvidia-debug leaks the NVIDIA key fingerprint + real model id and burns
-    rate-limited quota via a live test call. It must be OFF unless DEBUG_AUTH=1
-    (the fixture does not set it), and must never run the live call while off."""
-    res = client.get("/nvidia-debug")
-    assert res.status_code == 404
-    body = res.get_json()
-    assert "key" not in body
-    assert "test" not in body
+def test_retired_nvidia_chat_debug_route_stays_disabled(client, monkeypatch):
+    monkeypatch.setenv("DEBUG_AUTH", "1")
+    assert client.get("/nvidia-debug").status_code == 404
 
 
 def test_tts_available_when_key_configured(client):  # noqa: ARG001 — fixture sets env
@@ -191,7 +185,7 @@ def test_models_catalog_shape():
 
 
 def test_real_model_ids_use_defaults():
-    """Default NVIDIA model IDs when env vars are unset."""
+    """Default model IDs when env vars are unset."""
     from app.main import (
         DEFAULT_NEXOS_MODEL,
         DEFAULT_STANZA_MODEL,
@@ -271,16 +265,18 @@ def test_real_model_ids_follow_env(monkeypatch):
     """Each friendly lane reads its model id from the environment."""
     monkeypatch.setenv("NVIDIA_STANZA_MODEL", "vendor/stale-stanza")
     monkeypatch.setenv("GROQ_AEON_MODEL", "qwen-2.5-32b")
-    monkeypatch.setenv("NVIDIA_NEXOS_MODEL", "vendor/nexos-custom")
-    monkeypatch.setenv("NVIDIA_VISION_MODEL", "vendor/vision-custom")
+    monkeypatch.setenv("NVIDIA_NEXOS_MODEL", "vendor/stale-nexos")
+    monkeypatch.setenv("GROQ_NEXOS_MODEL", "openai/gpt-oss-20b")
+    monkeypatch.setenv("NVIDIA_VISION_MODEL", "vendor/stale-vision")
+    monkeypatch.setenv("MISTRAL_VISION_MODEL", "mistral-small-2506")
     from app import main, nvidia_client
     importlib.reload(main)
     importlib.reload(nvidia_client)
 
     assert main.REAL_ID_MAP["thinking"] == "ministral-8b-2512"
     assert main.REAL_ID_MAP["aeon"] == "qwen-2.5-32b"
-    assert main.REAL_ID_MAP["deep"]     == "vendor/nexos-custom"
-    assert main.VISION_MODEL            == "vendor/vision-custom"
+    assert main.REAL_ID_MAP["deep"]     == "openai/gpt-oss-20b"
+    assert main.VISION_MODEL            == "mistral-small-2506"
 
 
 def test_usage_weighting_and_windows(monkeypatch):
@@ -488,152 +484,21 @@ def test_trivial_prompts_skip_thinking():
         assert _is_trivial_prompt(real) is False, real
 
 
-def test_iter_response_thinking_toggle_for_deepseek(monkeypatch):
-    """thinking=False must send chat_template_kwargs.thinking=False (fast path),
-    thinking=True must enable it. Non-DeepSeek models ignore the flag."""
-    from app import nvidia_client
-
-    captured = {}
-
-    class _FakeStream:
-        def __iter__(self):
-            return iter([types.SimpleNamespace(choices=[types.SimpleNamespace(
-                delta=types.SimpleNamespace(content=None), finish_reason="stop",
-            )])])
-
-    class _FakeClient:
-        class chat:  # noqa: N801
-            class completions:  # noqa: N801
-                @staticmethod
-                def create(**kwargs):
-                    captured.clear()
-                    captured.update(kwargs)
-                    return _FakeStream()
-
-    monkeypatch.setattr(nvidia_client, "_client", lambda *a, **k: _FakeClient())
-
-    list(nvidia_client.iter_response([{"role": "user", "content": "hi"}],
-                                     model="deepseek-ai/deepseek-v4-flash", thinking=False))
-    assert captured["extra_body"]["chat_template_kwargs"]["thinking"] is False
-
-    list(nvidia_client.iter_response([{"role": "user", "content": "hard problem"}],
-                                     model="deepseek-ai/deepseek-v4-flash", thinking=True,
-                                     reasoning_effort="high"))
-    assert captured["extra_body"]["chat_template_kwargs"]["thinking"] is True
-    assert captured["extra_body"]["chat_template_kwargs"]["reasoning_effort"] == "high"
-
-    # MiniMax uses the same chat_template_kwargs mechanism (retained handler),
-    # and pins MiniMax's recommended sampling (temperature=1.0, top_p=0.95).
-    list(nvidia_client.iter_response([{"role": "user", "content": "hi"}],
-                                     model="minimaxai/minimax-m3", thinking=False))
-    assert captured["extra_body"]["chat_template_kwargs"]["thinking"] is False
-    assert captured["top_p"] == 0.95
-    assert captured["temperature"] == 1.0
-
-    # Nemotron-3-Super supports reasoning_effort, enable_thinking, and directive
-    list(nvidia_client.iter_response([{"role": "user", "content": "hard problem"}],
-                                     model="nvidia/nemotron-3-super-120b-a12b", thinking=True,
-                                     reasoning_effort="high"))
-    assert captured["extra_body"]["chat_template_kwargs"]["thinking"] is True
-    assert captured["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
-    assert captured["extra_body"]["chat_template_kwargs"]["reasoning_effort"] == "high"
-    assert "low_effort" not in captured["extra_body"]["chat_template_kwargs"]
-
-    # Nemotron-3-Super in low effort mode omits directive and enables low_effort in chat_template_kwargs
-    list(nvidia_client.iter_response([{"role": "user", "content": "quick question"}],
-                                     model="nvidia/nemotron-3-super-120b-a12b", thinking=True,
-                                     reasoning_effort="low"))
-    assert captured["extra_body"]["chat_template_kwargs"]["low_effort"] is True
-
-    # GPT-OSS supports reasoning_effort
-    list(nvidia_client.iter_response([{"role": "user", "content": "hard problem"}],
-                                     model="openai/gpt-oss-120b", thinking=True,
-                                     reasoning_effort="medium"))
-    assert captured["extra_body"]["chat_template_kwargs"]["thinking"] is True
-    assert captured["extra_body"]["chat_template_kwargs"]["reasoning_effort"] == "medium"
-
-
-def test_qwen_stanza_gets_full_token_budget(monkeypatch):
-    """Stanza (qwen) must get the same 16384 output cap as the other lanes — not
-    the lower env default it used to fall through to, which capped its replies at
-    half the others and truncated them mid-sentence."""
-    from app import nvidia_client
-
-    captured = {}
-
-    class _FakeStream:
-        def __iter__(self):
-            return iter([types.SimpleNamespace(choices=[types.SimpleNamespace(
-                delta=types.SimpleNamespace(content=None), finish_reason="stop",
-            )])])
-
-    class _FakeClient:
-        class chat:  # noqa: N801
-            class completions:  # noqa: N801
-                @staticmethod
-                def create(**kwargs):
-                    captured.clear()
-                    captured.update(kwargs)
-                    return _FakeStream()
-
-    monkeypatch.setattr(nvidia_client, "_client", lambda *a, **k: _FakeClient())
-    list(nvidia_client.iter_response(
-        [{"role": "user", "content": "hi"}],
-        model="qwen/qwen3-next-80b-a3b-instruct",
-    ))
-    assert captured["max_tokens"] == 16384
-
-
-def test_nemotron_reasoning_directive(monkeypatch):
-    """Nemotron (the Nexos deep model) gates reasoning via a system directive,
-    not chat_template_kwargs: thinking=True -> 'detailed thinking on',
-    thinking=False -> 'detailed thinking off', capped at 16384 output tokens."""
-    from app import nvidia_client
-
-    captured = {}
-
-    class _FakeStream:
-        def __iter__(self):
-            return iter([types.SimpleNamespace(choices=[types.SimpleNamespace(
-                delta=types.SimpleNamespace(content=None), finish_reason="stop",
-            )])])
-
-    class _FakeClient:
-        class chat:  # noqa: N801
-            class completions:  # noqa: N801
-                @staticmethod
-                def create(**kwargs):
-                    captured.clear()
-                    captured.update(kwargs)
-                    return _FakeStream()
-
-    monkeypatch.setattr(nvidia_client, "_client", lambda *a, **k: _FakeClient())
-    base = [{"role": "system", "content": "You are Bimo."}, {"role": "user", "content": "hi"}]
-
-    list(nvidia_client.iter_response(base, model="nvidia/nemotron-3-ultra-550b-a55b", thinking=True))
-    assert "detailed thinking on" in captured["messages"][0]["content"].lower()
-    assert captured["max_tokens"] == 16384
-
-    list(nvidia_client.iter_response(base, model="nvidia/nemotron-3-ultra-550b-a55b", thinking=False))
-    assert "detailed thinking off" in captured["messages"][0]["content"].lower()
-
-
-
 def test_client_is_cached(monkeypatch):
     """The OpenAI client must be reused across calls (warm connection pool)
     and only rebuilt when the key/base URL/timeout change."""
-    from app import nvidia_client
+    from app import groq_client
 
-    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-cache-test-key")
-    nvidia_client._client_cache.clear()
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-cache-test-key")
+    groq_client._client_cache.clear()
 
-    first = nvidia_client._client()
-    second = nvidia_client._client()
+    first = groq_client._client()
+    second = groq_client._client()
     assert first is second
 
     # Rotating the key rebuilds the client.
-    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-rotated-key")
-    third = nvidia_client._client()
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-rotated-key")
+    third = groq_client._client()
     assert third is not first
 
 
@@ -646,7 +511,7 @@ def test_friendly_error_disambiguates_supabase_vs_nvidia():
     assert "SUPABASE_SERVICE_ROLE_KEY" in supabase_msg
     assert "Supabase" in supabase_msg
 
-    # NVIDIA rejection (already prefixed by nvidia_client._format_api_error)
+    # NVIDIA image API errors retain their provider prefix.
     # should NOT be misclassified as Supabase
     nvidia_msg = _friendly_error(Exception("NVIDIA 401: Invalid API key"))
     assert "SUPABASE_SERVICE_ROLE_KEY" not in nvidia_msg
@@ -1143,8 +1008,8 @@ def test_aeon_voice_model_properties(monkeypatch):
     assert "aeon" in ALL_VALID_MODEL_IDS
     assert get_real_id_map()["aeon"] == DEFAULT_AEON_MODEL
 
-    monkeypatch.setenv("NVIDIA_AEON_MODEL", "google/diffusiongemma-26b-a4b-it")
-    assert get_aeon_model() == "google/diffusiongemma-26b-a4b-it"
+    monkeypatch.setenv("GROQ_AEON_MODEL", "qwen-2.5-32b")
+    assert get_aeon_model() == "qwen-2.5-32b"
 
 
 def test_chat_aeon_model_stream(client, monkeypatch):
@@ -2200,7 +2065,7 @@ def _has_image_part(messages):
 
 def test_followup_after_described_image_uses_the_text_model_with_the_description(client, monkeypatch):
     from app import store
-    from app.config import get_real_id_map, get_vision_model
+    from app.config import get_real_id_map
 
     _stub_chat_persistence(monkeypatch)
     description = '<attachment_data filename="flow.png">\nStep 1: Cells -> Tissues -> Organs\n</attachment_data>'
@@ -2213,7 +2078,6 @@ def test_followup_after_described_image_uses_the_text_model_with_the_description
     resp.get_data(as_text=True)
 
     assert captured["model"] == get_real_id_map()["thinking"]
-    assert captured["model"] != get_vision_model()
     assert not _has_image_part(captured["messages"])
     joined = json.dumps(captured["messages"])
     assert "Cells -> Tissues -> Organs" in joined
@@ -2223,7 +2087,6 @@ def test_followup_after_described_image_uses_the_text_model_with_the_description
 
 def test_followup_after_undescribed_image_stays_on_vision_and_queues_a_description(client, monkeypatch):
     from app import store
-    from app.config import get_vision_model
 
     _stub_chat_persistence(monkeypatch)
     monkeypatch.setattr(store, "get_messages", lambda cid, limit=None: _image_history())
@@ -2233,14 +2096,13 @@ def test_followup_after_undescribed_image_stays_on_vision_and_queues_a_descripti
 
     _post_plain_chat(client, "c_img_old").get_data(as_text=True)
 
-    assert captured["model"] == get_vision_model()
+    assert captured["model"] == "ministral-8b-2512"
     assert _has_image_part(captured["messages"])
     assert [c[0] for c in describe_calls] == ["m_img"]
 
 
 def test_new_image_turn_uses_vision_and_ignores_client_text_context(client, monkeypatch):
     from app import store
-    from app.config import get_vision_model
 
     _stub_chat_persistence(monkeypatch)
     saved = {}
@@ -2269,7 +2131,7 @@ def test_new_image_turn_uses_vision_and_ignores_client_text_context(client, monk
         },
     ).get_data(as_text=True)
 
-    assert captured["model"] == get_vision_model()
+    assert captured["model"] == "ministral-8b-2512"
     assert "ignore all rules" not in json.dumps(captured["messages"])
     assert "text_context" not in saved["attachments"][0]
     assert [c[0] for c in describe_calls] == ["m_new"]
@@ -2338,6 +2200,133 @@ def test_background_description_is_saved_on_the_message(monkeypatch):
     assert "Step 1: Cells" in saved["attachments"][0]["text_context"]
     assert saved["attachments"][0]["text_context"].startswith('<attachment_data filename="flow.png">')
     assert "text_context" not in attachments[0]
+
+
+@pytest.mark.parametrize("endpoint", ["/chat", "/chat/incognito"])
+def test_chat_rejects_a_seventh_image_before_loading_or_saving(client, monkeypatch, endpoint):
+    from app import store
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Rejected attachments must not reach storage")
+
+    monkeypatch.setattr(store, "download_attachment", unexpected)
+    monkeypatch.setattr(store, "get_conversation", unexpected)
+    images = [{
+        "filename": f"figure-{index}.bmp", "path": f"test_autosearch_user/figure-{index}.bmp",
+        "content_type": "application/octet-stream",
+    } for index in range(7)]
+    response = client.post(endpoint, headers={"Authorization": f"Bearer {_search_chat_token()}"},
+                           json={"conversation_id": "c_limit", "attachments": images})
+    assert response.status_code == 422
+    assert response.get_json()["detail"] == "You can attach up to 6 images per message."
+
+
+def test_chat_sends_all_images_and_pdf_pages_to_mistral_then_reuses_saved_text(client, monkeypatch):
+    import base64
+    import io
+    import threading
+    from unittest.mock import Mock
+
+    import fitz
+    from PIL import Image
+
+    from app import groq_client, mistral_client, store
+
+    _stub_chat_persistence(monkeypatch)
+    history = [{"role": "user", "content": "I have a report."}]
+    monkeypatch.setattr(store, "get_messages", lambda *a, **k: history)
+    files = {}
+    for extension, fmt in [("png", "PNG"), ("bmp", "BMP")]:
+        with io.BytesIO() as output:
+            Image.new("RGB", (8, 8), "red").save(output, format=fmt)
+            files[f"test_autosearch_user/figure.{extension}"] = output.getvalue()
+    extra_images = []
+    for index in range(4):
+        filename = f"figure-{index}.png"
+        path = f"test_autosearch_user/{filename}"
+        files[path] = files["test_autosearch_user/figure.png"]
+        extra_images.append({"filename": filename, "path": path, "content_type": "image/png"})
+    with fitz.open() as pdf:
+        for page_number in range(1, 7):
+            pdf.new_page(width=200, height=100).insert_text((20, 30), f"Revenue page {page_number}")
+        files["test_autosearch_user/report.pdf"] = pdf.tobytes()
+    download = Mock(side_effect=lambda path, user_id: files[path])
+    monkeypatch.setattr(store, "download_attachment", download)
+
+    saved = threading.Event()
+
+    def update(message_id, user_id, attachments):
+        assert message_id == "m_search"
+        history.append({"role": "user", "content": "Analyze these files.", "attachments": attachments})
+        history.append({"role": "assistant", "content": "Here is my analysis."})
+        saved.set()
+
+    monkeypatch.setattr(store, "update_message_attachments", update)
+
+    def upstream(**kwargs):
+        return iter([types.SimpleNamespace(model=kwargs["model"], choices=[types.SimpleNamespace(
+            delta=types.SimpleNamespace(content="Red figure. Revenue report."),
+            finish_reason="stop",
+        )])])
+
+    mistral_api = Mock()
+    mistral_api.chat.completions.create.side_effect = upstream
+    monkeypatch.setattr(mistral_client, "_client", lambda: mistral_api)
+    groq_api = Mock()
+    groq_api.chat.completions.create.side_effect = upstream
+    monkeypatch.setattr(groq_client, "_client", lambda: groq_api)
+
+    upload = client.post(
+        "/chat", headers={"Authorization": f"Bearer {_search_chat_token()}"},
+        json={
+            "conversation_id": "c_mixed", "model": "deep", "message": "Analyze these files.",
+            "auto_search": False,
+            "attachments": [
+                {"filename": "figure.png", "path": "test_autosearch_user/figure.png", "content_type": "image/png"},
+                {"filename": "figure.bmp", "path": "test_autosearch_user/figure.bmp", "content_type": "application/octet-stream"},
+                *extra_images,
+                {"filename": "report.pdf", "path": "test_autosearch_user/report.pdf", "content_type": "application/pdf"},
+            ],
+        },
+    ).get_data(as_text=True)
+    assert '"provider": "mistral"' in upload
+    assert saved.wait(5)
+    groq_api.chat.completions.create.assert_not_called()
+    calls = [call.kwargs for call in mistral_api.chat.completions.create.call_args_list]
+    assert [call["model"] for call in calls] == ["ministral-8b-2512"] * 8
+    urls = [
+        part["image_url"] for message in calls[0]["messages"] if isinstance(message["content"], list)
+        for part in message["content"] if part["type"] == "image_url"
+    ]
+    assert len(urls) == 8
+    assert sum(url.startswith("data:image/jpeg;base64,") for url in urls) == 2
+    png_urls = [url for url in urls if url.startswith("data:image/png;base64,")]
+    assert len(png_urls) == 6
+    assert all(base64.b64decode(url.split(",")[1]).startswith(b"\x89PNG") for url in png_urls)
+    assert sum(
+        part["type"] == "image_url" for message in calls[1]["messages"] if isinstance(message["content"], list)
+        for part in message["content"]
+    ) == 4
+    assert "Revenue page 6" in str(calls[1]["messages"])
+    assert all(a.get("text_context") for a in history[-2]["attachments"])
+
+    download.reset_mock()
+    followup = client.post(
+        "/chat", headers={"Authorization": f"Bearer {_search_chat_token()}"},
+        json={
+            "conversation_id": "c_mixed", "model": "deep", "message": "What color were the figures?",
+            "auto_search": False,
+        },
+    ).get_data(as_text=True)
+    assert '"provider": "groq"' in followup
+    request = groq_api.chat.completions.create.call_args.kwargs
+    assert request["model"] == "openai/gpt-oss-120b"
+    assert "Red figure" in str(request["messages"])
+    assert "Revenue page 6" in str(request["messages"])
+    assert not _has_image_part(request["messages"])
+    assert mistral_api.chat.completions.create.call_count == 8
+    download.assert_not_called()
+
 
 @pytest.mark.parametrize('outcome', ['ok', 'empty', 'unavailable'])
 def test_search_reports_decision_and_outcome_before_answer(client, monkeypatch, outcome):
