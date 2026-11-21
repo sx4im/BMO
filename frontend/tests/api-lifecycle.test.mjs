@@ -2,14 +2,34 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { moduleLoader } from './modules.mjs';
 
-async function apiFixture(fetch) {
+async function apiFixture(fetch, globals = {}) {
   const app = moduleLoader({
     'config.js': { config: { apiUrl: 'https://api.invalid' } },
     'auth.js': { getAuth: () => ({ auth: { token: 'test-session' } }), refreshSession: async () => null },
     'supabaseClient.js': { isSupabaseConfigured: () => false, supabaseClient() {} },
-  }, { globals: { fetch, TextDecoder } });
+  }, { globals: { fetch, TextDecoder, ...globals } });
   return app.load('js/api.js');
 }
+
+test('conversation reads have a deadline and skip the network while offline', async () => {
+  const navigator = { onLine: true };
+  const requests = [];
+  const deadline = new AbortController().signal;
+  const api = await apiFixture(async (url, { signal }) => {
+    requests.push({ url, signal });
+    return new Response("[]");
+  }, { navigator, AbortSignal: { timeout: ms => {
+    assert.equal(ms, 15_000);
+    return deadline;
+  } } });
+  await api.listConversations("test");
+  await api.getMessages("test", "chat");
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every(request => request.signal === deadline));
+  navigator.onLine = false;
+  await assert.rejects(api.listConversations("test"), /internet connection/);
+  assert.equal(requests.length, 2);
+});
 
 test('message recovery and image polling forward their cancellation signal', async () => {
   const controller = new AbortController();

@@ -7,17 +7,17 @@ import { el, clear, formatTitle } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { getAuth } from "../auth.js";
 import { navigate } from "../router.js";
-import { mountAppShell } from "../app-shell.js?v=3";
+import { mountAppShell } from "../app-shell.js?v=4";
 import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { openShareModal } from "../components/share-modal.js?v=3";
 import { openMoveChatModal } from "./projects.js?v=3";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=35";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=69";
-import * as api from "../api.js?v=69";
+import * as api from "../api.js?v=71";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=46";
-import { MessageFeed } from "../chat/message-feed.js?v=51";
+import { MessageFeed } from "../chat/message-feed.js?v=52";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=17";
 import {
   detectExportIntent,
@@ -96,6 +96,8 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   let imageRequest = null;
   let imagePoll = null;
   let submitRevision = 0;
+  let queuedTurn = null;
+  let historyLoadFailed = false;
   let voiceHandle = null;
   let activeVoiceOnDelta = null;
   let activeVoiceOnSearch = null;
@@ -516,7 +518,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     onUserMessage: (m) => {
       const mid = m?.id ? String(m.id) : "";
       if (mid.startsWith("msg_pending_")) return;
-      messages = messages.filter((x) => !String(x.id).startsWith("tmp_"));
+      messages = messages.filter((x) => !String(x.id).startsWith("tmp_") || x.delivery_status === "unconfirmed");
       // A saved row can arrive before the reply, then be refreshed after
       // attachment processing. Reconcile it in place without duplicating or
       // moving the user's question below the assistant's answer.
@@ -603,6 +605,11 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   const composer = new Composer({
     onSubmit: (turn) => handleComposerSubmit(turn),
     onStop: () => {
+      if (queuedTurn) {
+        messages = messages.filter(message => message.id !== queuedTurn.message.id);
+        queuedTurn = null;
+      }
+      messages = messages.map(m => m.delivery_status === "sending" ? { ...m, delivery_status: "unconfirmed" } : m);
       ++submitRevision;
       pageFetchController?.abort();
       streamHandler.cancel();
@@ -729,7 +736,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     messageFeed.render({
       messages,
       user: getAuth().auth?.user || auth.user,
-      generating: composer.isGenerating,
+      generating: composer.isGenerating && !queuedTurn,
       searching,
       searchingLabel,
       searchVariant,
@@ -831,9 +838,10 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       return;
     }
     const conversationId = id;
+    const submission = submitRevision;
     try {
       const data = await api.getMessages(auth.token, conversationId);
-      if (unmounted || id !== conversationId) return;
+      if (unmounted || id !== conversationId || submission !== submitRevision) return;
       conversation = data?.conversation || null;
       if (conversation?.project_id) {
         activeProjectId = conversation.project_id;
@@ -857,21 +865,17 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     }
   }
 
-  async function handleComposerSubmit(turn) {
+  async function handleComposerSubmit(turn, queuedMessage) {
+    if (queuedTurn) return;
     const revision = ++submitRevision;
     const ownsSubmit = () => !unmounted && revision === submitRevision;
     const { text, attachments, model, reasoningEffort, autoSearch = true, systemPrompt } = turn;
     const skills = turn.skills || composer.skillPicker.selected;
     composer.skillPicker.setSelected([]);
 
-    if (model === "image") {
-      await sendImageMessage(text, attachments);
-      return;
-    }
-
     // Detect export intent on completed turn
     const exportIntent = detectExportIntent(text);
-    if (exportIntent.exportOnly && !attachments.length) {
+    if (model !== "image" && exportIntent.exportOnly && !attachments.length) {
       const latestAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.content?.trim());
       if (!latestAssistant) {
         toast("There is no completed response to export yet", { tone: "error" });
@@ -888,7 +892,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
 
     const isFirstTurn = !id || messages.filter((m) => m.role === "user").length <= 1;
 
-    const optimisticUser = {
+    const optimisticUser = queuedMessage ? { ...queuedMessage, delivery_status: "sending" } : {
       id: uid(),
       role: "user",
       content: text,
@@ -897,8 +901,24 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       created_at: new Date().toISOString(),
       conversation_id: id || "pending",
     };
+    if (navigator.onLine === false) {
+      const message = { ...optimisticUser, delivery_status: "queued" };
+      queuedTurn = { turn: { ...turn, skills }, message };
+      messages.push(message);
+      composer.isGenerating = true;
+      composer.syncSendEnabled();
+      renderUI();
+      messageFeed.scrollToBottom();
+      return;
+    }
+    if (model === "image") {
+      await sendImageMessage(text, attachments, optimisticUser);
+      return;
+    }
     const incognitoHistory = incognito
-      ? messages.slice(-24).map(({ role, content, attachments }) => ({ role, content: content || "", attachments }))
+      ? messages.filter(m => !m.delivery_status).slice(-24).map(({ role, content, attachments }) => (
+        { role, content: content || "", attachments }
+      ))
       : undefined;
     while (incognitoHistory?.length && JSON.stringify(incognitoHistory).length > 200000) incognitoHistory.shift();
     messages.push(optimisticUser);
@@ -992,11 +1012,12 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       });
     } catch (err) {
       if (!ownsSubmit()) return;
-      if (err?.name !== "AbortError" && !messages.at(-1)?.unsaved) {
+      if (!queuedMessage && err?.name !== "AbortError" && !messages.at(-1)?.unsaved) {
         messages = messages.filter((x) => x.id !== optimisticUser.id);
       }
     } finally {
       if (!ownsSubmit()) return;
+      if (queuedMessage) markDeliveryUnconfirmed(optimisticUser);
       // The preamble belongs to the live turn only. The card has normally been
       // handed to the assistant message by now; this clears it after a turn
       // that ended without one (error or abort).
@@ -1010,8 +1031,12 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     }
   }
 
-  async function sendImageMessage(text, attachments = []) {
-    const optimisticUser = {
+  function markDeliveryUnconfirmed(message) {
+    messages = messages.map(m => m.id === message.id ? { ...m, delivery_status: "unconfirmed" } : m);
+  }
+
+  async function sendImageMessage(text, attachments = [], pending) {
+    const optimisticUser = pending || {
       id: uid(),
       role: "user",
       content: text,
@@ -1053,14 +1078,15 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
         composer.renderModelBadge(incognito);
       }
       messages = messages.filter((x) => x.id !== optimisticUser.id);
-      messages.push(res?.user_message || optimisticUser);
+      messages.push(res?.user_message || { ...optimisticUser, delivery_status: undefined });
       if (res?.assistant_message) {
         messages.push(res.assistant_message);
         enteringId = res.assistant_message.id;
       }
     } catch (err) {
       if (!ownsImage()) return;
-      messages = messages.filter((x) => x.id !== optimisticUser.id);
+      if (optimisticUser.delivery_status) markDeliveryUnconfirmed(optimisticUser);
+      else messages = messages.filter((x) => x.id !== optimisticUser.id);
       toast(err.message || "Couldn't create image.", { tone: "error" });
     } finally {
       clearTimeout(timeoutId);
@@ -1151,11 +1177,15 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   }
 
   async function editMessage(message) {
-    if (streamHandler.isStreaming || imageGenerating || branching) return;
+    if (queuedTurn || streamHandler.isStreaming || imageGenerating || branching) return;
     const idx = messages.findIndex((x) => x.id === message.id);
     if (idx === -1) return;
-    if (!await branchBeforeMessage(message)) return;
-    messages = messages.slice(0, idx);
+    if (message.delivery_status === "unconfirmed") {
+      messages = messages.filter(m => m.id !== message.id);
+    } else {
+      if (!await branchBeforeMessage(message)) return;
+      messages = messages.slice(0, idx);
+    }
     composer.pendingAttachments = [...(message.attachments || [])];
     composer.skillPicker.setSelected((message.skills || []).map(skill => skill.id));
     composer.renderAttachmentsBar();
@@ -1165,7 +1195,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   }
 
   async function retryMessage(message) {
-    if (streamHandler.isStreaming || imageGenerating || branching) return;
+    if (queuedTurn || streamHandler.isStreaming || imageGenerating || branching) return;
     const idx = messages.findIndex((x) => x.id === message.id);
     if (idx === -1) return;
     if (!await branchBeforeMessage(message)) return;
@@ -1186,7 +1216,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   }
 
   async function retryAssistantMessage(assistantMsg) {
-    if (streamHandler.isStreaming || imageGenerating || branching) return;
+    if (queuedTurn || streamHandler.isStreaming || imageGenerating || branching) return;
     const idx = messages.findIndex((x) => x.id === assistantMsg.id);
     if (idx === -1) return;
     let userIdx = -1;
@@ -1361,14 +1391,28 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     await reconcileUnsavedReplies();
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
-  window.addEventListener("online", reconcileUnsavedReplies);
+  const onOnline = () => {
+    if (unmounted || navigator.onLine === false || getAuth().auth?.user?.id !== auth.user?.id) return;
+    loadConversations();
+    if (queuedTurn) {
+      const { turn, message } = queuedTurn;
+      queuedTurn = null;
+      composer.isGenerating = false;
+      messages = messages.filter(m => m.id !== message.id);
+      void handleComposerSubmit(turn, message);
+    } else {
+      if (historyLoadFailed && !composer.isGenerating && !messages.length) loadInitialHistory();
+      void reconcileUnsavedReplies();
+    }
+  };
+  window.addEventListener("online", onOnline);
 
   // The deploy guard asks the mounted page before discarding local work.
   const beforeReload = event => {
     if (voiceHandle || branching || imageGenerating || streamHandler.isStreaming ||
         composer.isGenerating || composer.isImageGenerating || composer.dictation || composer.isRecording ||
         composer.textarea.value.trim() || composer.pendingAttachments.length || composer.uploadingFiles.length ||
-        messages.some(message => message.unsaved)) event.preventDefault();
+        messages.some(message => message.unsaved || message.delivery_status)) event.preventDefault();
   };
   window.addEventListener("bmo:before-reload", beforeReload);
 
@@ -1396,16 +1440,23 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   renderUI({ initial: true });
 
   loadModels();
-  loadMessages().then(() => {
-    if (unmounted) return;
-    loading = false;
-    renderUI({ initial: true });
-  }).catch((err) => {
-    if (unmounted) return;
-    loading = false;
-    renderUI();
-    toast(err.message || "Failed to load chat", { tone: "error" });
-  });
+  async function loadInitialHistory() {
+    historyLoadFailed = false;
+    try {
+      await loadMessages();
+    } catch (err) {
+      if (!unmounted) {
+        historyLoadFailed = true;
+        toast(err.name === "TimeoutError" ? "Chat history took too long to load" : err.message || "Failed to load chat", { tone: "error" });
+      }
+    } finally {
+      if (!unmounted) {
+        loading = false;
+        renderUI({ initial: true });
+      }
+    }
+  }
+  loadInitialHistory();
 
   whenMarkdownReady(() => { if (!unmounted) renderUI(); });
 
@@ -1431,7 +1482,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     document.removeEventListener("click", onDocClickConvoMenu);
     document.removeEventListener("pointerdown", handleUniversalFocus);
     document.removeEventListener("visibilitychange", onVisibilityChange);
-    window.removeEventListener("online", reconcileUnsavedReplies);
+    window.removeEventListener("online", onOnline);
     window.removeEventListener("bmo:conversations-updated", onConversationsUpdated);
   };
 }

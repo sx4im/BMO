@@ -3,7 +3,7 @@ import { icon } from "./icons.js?v=72";
 import { renderSidebar } from "./components/sidebar.js?v=69";
 import { openChatSearch } from "./components/chat-search.js?v=31";
 import { toast } from "./components/toast.js?v=58";
-import * as api from "./api.js?v=30";
+import * as api from "./api.js?v=71";
 import { getAuth, signOut } from "./auth.js";
 import { navigate } from "./router.js";
 import { applyTheme } from "./prefs.js";
@@ -24,6 +24,7 @@ let state = {
 };
 
 let nodes = null;
+let conversationRequest = 0;
 
 export function getShellState() {
   return state;
@@ -32,11 +33,12 @@ export function getShellState() {
 export async function loadConversations() {
   const { auth } = getAuth();
   if (!auth) return;
+  const request = ++conversationRequest;
   state.conversationsError = null;
   if (!state.conversations && nodes) renderSidebars();
   try {
     const conversations = await api.listConversations(auth.token);
-    if (getAuth().auth?.user?.id !== auth.user?.id) return;
+    if (request !== conversationRequest || getAuth().auth?.user?.id !== auth.user?.id) return;
     state.conversations = conversations;
     if (nodes) renderSidebars();
     if (typeof window !== "undefined") {
@@ -45,8 +47,8 @@ export async function loadConversations() {
       );
     }
   } catch (err) {
-    if (getAuth().auth?.user?.id !== auth.user?.id) return;
-    state.conversationsError = "Couldn't load chats";
+    if (request !== conversationRequest || getAuth().auth?.user?.id !== auth.user?.id) return;
+    state.conversationsError = navigator.onLine === false ? "Waiting for connection" : "Couldn't load chats";
     if (nodes) renderSidebars();
   }
 }
@@ -262,6 +264,7 @@ function shellApi() {
       renderSidebars();
     },
     setConversations(list) {
+      ++conversationRequest;
       state.conversations = Array.isArray(list) ? list : [];
       state.conversationsError = null;
       renderSidebars();
@@ -307,6 +310,7 @@ function shellApi() {
  * the shell rebuilds cleanly on the next mount.
  */
 export function tearDownShell() {
+  ++conversationRequest;
   nodes = null;
   state = { conversations: null, conversationsError: null, projects: null, activeId: null, pageRefresh: null, usage: null };
 }

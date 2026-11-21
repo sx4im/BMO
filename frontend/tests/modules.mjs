@@ -10,7 +10,7 @@ export function moduleLoader(stubs = {}, { append = {}, globals = {} } = {}) {
     document: dom.window.document, window: dom.window, Node: dom.window.Node,
     CustomEvent: dom.window.CustomEvent, Event: dom.window.Event, location: dom.window.location, history: dom.window.history,
     localStorage: dom.window.localStorage, navigator: dom.window.navigator,
-    URL, URLSearchParams, AbortController, DOMException, FormData: class { append() {} },
+    URL, URLSearchParams, AbortController, AbortSignal, DOMException, FormData: class { append() {} },
     console, setTimeout, clearTimeout, setInterval, clearInterval,
     requestAnimationFrame: fn => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout,
     ...globals,

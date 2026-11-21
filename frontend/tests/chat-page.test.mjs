@@ -102,6 +102,66 @@ test("a closed chat's Share modal cannot reactivate the mobile Share button", as
   assert.equal(page.shareStates.length, count);
 });
 
+test("an offline chat stays visible and sends once on reconnection", async t => {
+  let finish;
+  const page = await chatPage({ streamChat: async (_token, payload, callbacks) => {
+    await new Promise(resolve => { finish = resolve; });
+    callbacks.onUserMessage({ id: "saved-user", role: "user", content: payload.message });
+    callbacks.onAssistantMessage({ id: "answer", role: "assistant", content: "Ready." });
+  } });
+  t.after(page.unmount);
+  const win = page.app.dom.window;
+  let online = false;
+  Object.defineProperty(win.navigator, "onLine", { get: () => online });
+  await page.turn("Queued question");
+  assert.equal(page.payloads.length, 0);
+  assert.equal(page.rendered().messages[0].delivery_status, "queued");
+  assert.equal(page.rendered().generating, false);
+
+  online = true;
+  win.dispatchEvent(new win.Event("online"));
+  win.dispatchEvent(new win.Event("online"));
+  assert.equal(page.payloads.length, 1);
+  assert.equal(page.rendered().messages[0].delivery_status, "sending");
+  finish();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(Array.from(page.rendered().messages, m => m.id), ["saved-user", "answer"]);
+  assert.equal(page.rendered().messages[0].delivery_status, undefined);
+});
+
+test("stopping a queued offline chat cancels delivery", async t => {
+  const page = await chatPage();
+  t.after(page.unmount);
+  const win = page.app.dom.window;
+  let online = false;
+  Object.defineProperty(win.navigator, "onLine", { get: () => online });
+  await page.turn("Cancel this");
+  page.composer.onStop();
+  online = true;
+  win.dispatchEvent(new win.Event("online"));
+  assert.equal(page.payloads.length, 0);
+  assert.equal(page.rendered().messages.length, 0);
+});
+
+test("a failed reconnect keeps the draft and does not resend an unconfirmed request", async t => {
+  const page = await chatPage({ streamChat: async () => { throw new TypeError("Failed to fetch"); } });
+  t.after(page.unmount);
+  const win = page.app.dom.window;
+  let online = false;
+  Object.defineProperty(win.navigator, "onLine", { get: () => online });
+  await page.turn("Keep this draft");
+  online = true;
+  win.dispatchEvent(new win.Event("online"));
+  await new Promise(resolve => setImmediate(resolve));
+  win.dispatchEvent(new win.Event("online"));
+  assert.equal(page.payloads.length, 1);
+  const draft = page.rendered().messages[0];
+  assert.equal(draft.delivery_status, "unconfirmed");
+  await page.feed.callbacks.onEditMessage(draft);
+  assert.equal(page.composer.textarea.value, "Keep this draft");
+  assert.equal(page.branchCalls.length, 0);
+});
+
 test("document export falls back to client rendering when the gateway is unavailable", async t => {
   const page = await chatPage();
   t.after(page.unmount);
@@ -833,11 +893,15 @@ test("user message attachments render above the text bubble while assistant atta
       id: "u1",
       role: "user",
       content: "whats that",
+      delivery_status: "queued",
       attachments: [{ filename: "notes.pdf", content_type: "application/pdf", path: "p/notes.pdf" }],
     },
   });
   const userKids = Array.from(userEl.querySelector(".body").children);
   assert.ok(userKids.findIndex(n => n.classList.contains("message-attachments")) < userKids.findIndex(n => n.classList.contains("bubble")));
+  const status = userEl.querySelector('[role="status"]');
+  assert.equal(status.textContent, "Offline · Will send when connected");
+  assert.equal(status.previousElementSibling.className, "bubble");
 
   const assistantEl = messageBubble({
     message: {

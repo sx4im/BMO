@@ -15,7 +15,7 @@ import { openConfirmModal } from "../components/confirm-modal.js?v=58";
 import * as api from "../api.js?v=64";
 import { getAuth } from "../auth.js";
 import { navigate } from "../router.js";
-import { mountAppShell, loadConversations } from "../app-shell.js?v=3";
+import { mountAppShell, loadConversations } from "../app-shell.js?v=4";
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;

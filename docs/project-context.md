@@ -15,6 +15,17 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- A chat open in the browser queues one message when the browser reports it
+  is offline. The message shows its status under the bubble and sends once
+  on reconnection. Stop cancels a queued turn. Unconfirmed writes are kept
+  editable and are not automatically replayed. Queue state lives in the
+  open chat view. Recent-chat and chat-history reads use a 15-second deadline
+  and retry when connectivity returns. On November 21, an exact direct
+  Supabase conversation query returned 200 in 0.63 seconds while the same
+  authenticated read through Render returned 502 after about 10 seconds.
+  Subsequent Render reads timed out intermittently even after redeploy.
+  Evidence isolates the observed slowdown to the gateway path and leaves
+  its precise cause unconfirmed.
 - Nexos 3.0 (`deep`) now uses Groq `openai/gpt-oss-120b`. It retains
   streamed reasoning, bounded continuation, and the existing first-output
   fallback to Stanza. `GROQ_NEXOS_MODEL` sets the upstream model.

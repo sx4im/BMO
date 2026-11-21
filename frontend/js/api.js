@@ -73,11 +73,16 @@ export async function saveOnboarding(token, payload) {
 // ---------- conversations ----------
 
 export async function listConversations(token) {
-  return request("/conversations", { token });
+  return request("/conversations", { token, signal: chatReadSignal() });
 }
 
 export async function getMessages(token, conversationId, signal) {
-  return request(`/conversations/${conversationId}/messages`, { token, signal });
+  return request(`/conversations/${conversationId}/messages`, { token, signal: signal ?? chatReadSignal() });
+}
+
+function chatReadSignal() {
+  if (navigator.onLine === false) throw new Error("Waiting for an internet connection.");
+  return AbortSignal.timeout(15_000);
 }
 
 export async function deleteConversation(token, conversationId) {

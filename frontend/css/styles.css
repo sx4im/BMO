@@ -4266,6 +4266,13 @@ button:hover .icon-dislike,
   opacity: 1;
 }
 
+.message-delivery-status {
+  display: block;
+  margin-top: 4px;
+  font: 11.5px/1.4 var(--font-sans);
+  color: var(--muted);
+}
+
 /* Icon-only action controls (copy / edit / retry). */
 .msg-act {
   display: inline-flex;

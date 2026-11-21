@@ -167,9 +167,12 @@ export function messageBubble({
 
   // Timestamp shows under user prompts only (hover-revealed), then the icons.
   const actionButtons = [];
-  if (!isAssistant) actionButtons.push(el("span", { class: "msg-time", text: formatStamp(message.created_at) }));
-  if (!isAssistant && onRetry) actionButtons.push(actBtn("refresh", "Retry", () => onRetry(message)));
-  if (!isAssistant && onEdit)  actionButtons.push(actBtn("pencil", "Edit", () => onEdit(message)));
+  const deliveryStatus = !isAssistant && message.delivery_status;
+  if (!isAssistant && !deliveryStatus) actionButtons.push(el("span", { class: "msg-time", text: formatStamp(message.created_at) }));
+  if (!isAssistant && !deliveryStatus && onRetry) actionButtons.push(actBtn("refresh", "Retry", () => onRetry(message)));
+  if (!isAssistant && (!deliveryStatus || deliveryStatus === "unconfirmed") && onEdit) {
+    actionButtons.push(actBtn("pencil", "Edit", () => onEdit(message)));
+  }
   if (message.content) actionButtons.push(copyBtn);
 
   // Assistant replies get feedback (thumbs up/down) + regenerate.
@@ -219,6 +222,12 @@ export function messageBubble({
   }
 
   if (isAssistant && attachmentsPreview) bodyChildren.push(attachmentsPreview);
+  const statusText = {
+    queued: "Offline · Will send when connected",
+    sending: "Sending…",
+    unconfirmed: "Send not confirmed",
+  }[deliveryStatus];
+  if (statusText) bodyChildren.push(el("span", { class: "message-delivery-status", role: "status", text: statusText }));
   if (actionButtons.length) bodyChildren.push(el("div", { class: "actions" }, actionButtons));
 
   const body = el("div", { class: "body" }, bodyChildren);
