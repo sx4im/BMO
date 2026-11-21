@@ -2,7 +2,7 @@
 
 <h1><img src=".github/assets/logo.svg" alt="Bmo" width="120" align="absmiddle" /></h1>
 
-A streaming AI chat workspace and agent built with vanilla JavaScript on the frontend and a lightweight Flask backend proxying NVIDIA inference and Supabase storage. Chat on the web or seamlessly connect via WhatsApp.
+A streaming AI chat workspace and agent built with vanilla JavaScript on the frontend and a lightweight Flask backend that routes inference to NVIDIA, Mistral, and Groq and stores data in Supabase. Chat on the web, talk to Bmo by voice, or connect via WhatsApp.
 
 [![Live demo](https://img.shields.io/badge/Live_demo-bimo.qzz.io-d97757?style=flat-square)](https://bimo.qzz.io)
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg?style=flat-square)](LICENSE)
@@ -22,7 +22,7 @@ A streaming AI chat workspace and agent built with vanilla JavaScript on the fro
 
 Bmo is a fast, full-featured AI workspace and agent. It streams responses token by token via Server-Sent Events, renders live Markdown, code blocks with syntax highlighting, and math expressions, and supports image generation, document parsing, and bidirectional voice interaction.
 
-The client is built with clean, dependency-free HTML, CSS, and modern ES modules—no bundlers or build steps required. The backend is an efficient Flask gateway that validates Supabase user tokens, enforces rate limits, and routes inference to NVIDIA, Mistral, and Groq endpoints.
+The client is built with clean, dependency-free HTML, CSS, and modern ES modules—no bundlers or build steps required. The backend is an efficient Flask gateway that validates Supabase user tokens, enforces rate limits, and routes inference to NVIDIA, Mistral, and Groq, and proxies search and speech providers.
 
 ## Explainer video
 
@@ -34,11 +34,15 @@ The client is built with clean, dependency-free HTML, CSS, and modern ES modules
 
 - **Passwordless authentication**: Sign in with Google through Supabase OAuth. Tokens are verified using ES256 JWTs against project JWKS keys.
 - **Live streaming**: Responses stream using Server-Sent Events with inline Markdown, syntax-highlighted code blocks, and KaTeX rendering.
-- **Model routing**: Switch between all-round help (Stanza 2.5 powered by Mistral), deep reasoning (Nexos 3.0), and image generation (Iris 2.0).
+- **Model routing**: Switch between all-round help (Stanza 2.5, Mistral), deep reasoning with optional extended thinking (Nexos 3.0, NVIDIA), and image generation (Iris 2.0, FLUX).
+- **Projects and Customize**: Group chats with project instructions and knowledge files, set global instructions, and add text-only skills with `@` mentions in the composer.
+- **Sharing and export**: Share a read-only snapshot of a chat, branch a conversation, pin chats, and export answers to DOCX or PDF.
+- **WhatsApp**: Chat with Bmo (Aeon on Groq Qwen) through the Meta WhatsApp Cloud API.
 - **Document parsing**: Drop in PDF, DOCX, XLSX, PPTX, or ZIP files to extract text and analyze contents.
 - **Vision processing**: Attach images to route prompts to a vision model.
 - **Autonomous web search**: Bmo decides on its own when a question needs live results and searches via TinyFish. A search card above the answer shows the query it ran, the pages it read with their freshness, and how long the search took. Full page scraping for pasted URLs.
-- **Voice assistant**: Speech to text and text to speech powered by NVIDIA Riva.
+- **Voice assistant**: Streaming speech to text (Deepgram Nova-3, with Whisper verification for Auto language) and text to speech (Deepgram Flux) across 42 languages. Dictation in the composer is transcribed server-side.
+- **Usage limits**: Weighted token metering with a 5-hour session window and a weekly window.
 - **Server cancellation**: Stopping a response halts generation on the server immediately using an internal stream registry.
 
 ## System architecture
@@ -53,21 +57,35 @@ The client is built with clean, dependency-free HTML, CSS, and modern ES modules
 ┌──────────────────────────────────────────────────────────┐
 │                      Flask gateway                       │
 │  • Verifies JWTs against Supabase JWKS                   │
-│  • Enforces row-level security with service-role key     │
+│  • Enforces ownership checks with the service-role key   │
 │  • Controls SSE token streams and cancellation           │
+│  • Routes each turn: search decision, model, fallback    │
 └──────────────────────────────────────────────────────────┘
-     │                 │                      │
-     ▼                 ▼                      ▼
- Supabase          Supabase            NVIDIA endpoints
- Postgres          Storage             • Chat (SSE)
- (RLS)             (Signed URLs)       • Vision & Images
-                                       • Riva ASR & TTS
+   │          │            │            │           │
+   ▼          ▼            ▼            ▼           ▼
+Supabase  Supabase      NVIDIA       Mistral      Groq
+Postgres  Storage       Nexos 3.0    Stanza 2.5   Aeon (WhatsApp, Voice,
+(RLS)     (Signed URLs) Vision       (chat)       search classifier,
+                        Iris images               titles)
+
+Also: TinyFish (search/scrape), Deepgram (STT/TTS), Meta WhatsApp Cloud API
 ```
+
+Model lanes:
+
+| Lane | Id | Provider | Default model |
+|---|---|---|---|
+| Stanza 2.5 | `thinking` | Mistral | `ministral-8b-2512` |
+| Nexos 3.0 | `deep` | NVIDIA | `z-ai/glm-5.3-flash` |
+| Bmo Voice / WhatsApp | `aeon` | Groq | `qwen/qwen3.8-27b` |
+| Vision | n/a | NVIDIA | `google/diffusiongemma-26b-a4b-it` |
+| Iris 2.0 | `image` | NVIDIA | `black-forest-labs/flux-3-image-klein` |
+
 
 ## Quick start
 
 ### Prerequisites
-Python 3.11+, a Supabase account, a Mistral API key (powers Stanza 2.5 with `ministral-8b-2512` by default), a [Groq API key](https://console.groq.com/keys) (powers WhatsApp Aeon with `qwen/qwen3.8-27b` by default), and an NVIDIA API key (powers Nexos 3.0, Vision, and image generation).
+Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (Stanza 2.5), a [Groq API key](https://console.groq.com/keys) (Aeon: WhatsApp, Voice, search routing, titles), an NVIDIA API key (Nexos 3.0, Vision, image generation), and optionally TinyFish (web search) and Deepgram (voice) keys.
 
 ### 1. Database setup
 Run these forward migrations from `backend/migrations/` in order inside your Supabase project SQL editor. Files ending in `_down.sql` undo migrations; use them only for an intentional rollback.
@@ -106,14 +124,12 @@ python -m http.server 5500
 ```
 Open `http://localhost:5500` in your browser. Configure your Supabase URL and backend origin in Settings.
 
-Stanza 2.5 uses Mistral's `ministral-8b-2512` through `MISTRAL_API_KEY`;
-`MISTRAL_MODEL` and `MISTRAL_BASE_URL` can override its model and endpoint.
-WhatsApp Aeon continues to use Groq/Qwen through `GROQ_AEON_MODEL` (then
-`GROQ_MODEL`, the legacy `NVIDIA_AEON_MODEL`, or the default). Groq errors
-surface normally; search uses rules and semantic Voice checks report unavailable
-when Groq is unavailable. Extended thinking remains available for Nexos.
-The earlier shared-provider experiment has ended; generation completion and
-save recovery fixes remain active. Legacy `NVIDIA_STANZA_MODEL` is ignored.
+### Model configuration
+- **Stanza 2.5**: `MISTRAL_API_KEY`; override with `MISTRAL_MODEL` and `MISTRAL_BASE_URL`.
+- **Nexos 3.0**: `NVIDIA_API_KEY` and `NVIDIA_NEXOS_MODEL`. Use NVIDIA's dotted id `z-ai/glm-5.3-flash`.
+- **Aeon**: `GROQ_API_KEY` with `GROQ_AEON_MODEL` (then `GROQ_MODEL`, legacy `NVIDIA_AEON_MODEL`, or the default).
+- Provider errors surface directly. Without Groq, search falls back to rules and semantic Voice checks report unavailable. Legacy `NVIDIA_STANZA_MODEL` is ignored.
+- See `backend/.env.example` for every variable and `render.yaml` for the deployed set.
 
 ## Project structure
 
@@ -121,40 +137,49 @@ save recovery fixes remain active. Legacy `NVIDIA_STANZA_MODEL` is ignored.
 Bmo/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                Flask gateway, streaming routes, model map
-│   │   ├── auth.py                JWT and JWKS authentication verification
+│   │   ├── main.py                Flask app factory, blueprints, security headers
+│   │   ├── config.py              Model catalog, quotas, upload allowlists
+│   │   ├── routes/                chat, user, media, project, customize, export, analytics
+│   │   ├── auth.py                JWT and JWKS verification
 │   │   ├── store.py               Postgres and Storage data operations
-│   │   ├── groq_client.py         WhatsApp Aeon inference client
-│   │   ├── mistral_client.py      Stanza inference client
-│   │   ├── nvidia_client.py       Inference wrapper for OpenAI SDK and NIM
-│   │   ├── riva_transcribe.py     Riva speech-to-text integration
-│   │   ├── riva_tts.py            Riva text-to-speech integration
-│   │   ├── document_processor.py  File parser for PDF, DOCX, XLSX, PPTX, ZIP
-│   │   └── analytics.py           Usage metrics calculation
+│   │   ├── chat_generation.py     Completion and bounded continuation
+│   │   ├── chat_persistence.py    Durable turn writer
+│   │   ├── search_router.py       Search decision (rules + classifier) and TinyFish
+│   │   ├── nvidia_client.py       Nexos, vision, and image inference
+│   │   ├── mistral_client.py      Stanza inference
+│   │   ├── groq_client.py         Aeon inference
+│   │   ├── whatsapp.py            WhatsApp Cloud API webhook
+│   │   ├── voice_turns.py         Voice turn handling
+│   │   ├── deepgram_tts.py        Streaming text-to-speech
+│   │   ├── riva_transcribe.py     Speech-to-text fallback providers
+│   │   ├── document_processor.py  PDF, DOCX, XLSX, PPTX, ZIP parsing
+│   │   ├── skill_service.py       Skills and prompt assembly
+│   │   └── project_service.py     Project knowledge handling
 │   ├── migrations/                SQL schema and security policies
 │   └── tests/                     Backend unit and API tests
 ├── frontend/
-│   ├── index.html                 Single-page application markup
+│   ├── index.html                 Single-page application shell
 │   ├── css/styles.css             CSS tokens and component layout
-│   └── js/                        Plain ES module components
-├── render.yaml                    Render deployment configuration
-└── vercel.json                    Vercel frontend configuration
+│   ├── js/                        pages/, chat/ (composer, stream), components/
+│   └── tests/                     Frontend regression tests (jsdom)
+├── docs/                          Project context, verification records
+├── render.yaml                    Render backend deployment
+├── vercel.json                    Vercel frontend configuration
+└── docker-compose.yml             Local container setup
 ```
 
 ## Security
 
 1. **No direct database access**: Requests route through the Flask gateway, which checks identity before accessing data.
 2. **Row level security**: Supabase Postgres rules restrict row access to the owning user ID.
-3. **Server secrets**: Service role keys and NVIDIA API keys stay on the backend server.
+3. **Server secrets**: Service role keys and all provider API keys (NVIDIA, Mistral, Groq, Deepgram, TinyFish) stay on the backend server.
 4. **Token verification**: ES256 tokens validate against project JWKS keys on every request.
 
 ## Testing
 
-Run tests with pytest:
-
 ```bash
-cd backend
-pytest -v
+cd backend && pytest -q                          # backend
+cd frontend && npm install && npm run test:run   # frontend (jsdom)
 ```
 
 ## License
