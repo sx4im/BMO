@@ -80,7 +80,7 @@ def get_internal_models() -> list[dict]:
     return [
         {"id": "thinking", "label": "Stanza 2.5", "real_id": get_stanza_model()},
         {"id": "deep", "label": "Nexos 3.0", "real_id": get_nexos_model()},
-        {"id": "aeon", "label": "Bmo Voice", "real_id": get_aeon_model()},
+        {"id": "aeon", "label": "Bmo", "real_id": get_aeon_model()},
     ]
 
 

@@ -122,6 +122,33 @@ def test_recorded_multilingual_response_preserves_detected_language(gateway,head
     assert response.json=={'text':'Bonjour.','language':'fr'}
 
 
+@pytest.mark.parametrize("language, expected", [("auto", "multi"), ("ur", "ur")])
+def test_voice_recording_uses_only_deepgram(gateway, headers, monkeypatch, language, expected):
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "deepgram-test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "other-provider-key")
+    audio = b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 32
+    post = Mock(return_value=SimpleNamespace(ok=True, json=lambda: {
+        "results": {"channels": [{"alternatives": [{"transcript": "Recognized.", "languages": ["fr"]}]}]},
+    }))
+    monkeypatch.setattr(media_routes.requests, "post", post)
+    response = gateway.post("/voice/transcribe", headers=headers, data={
+        "audio": (io.BytesIO(audio), "voice.wav"), "language": language,
+    })
+    assert response.status_code == 200
+    assert response.json == {"text": "Recognized.", "language": "fr"}
+    assert post.call_count == 1
+    assert post.call_args.args == ("https://api.deepgram.com/v1/listen",)
+    assert post.call_args.kwargs["params"]["language"] == expected
+
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "")
+    post.reset_mock()
+    response = gateway.post("/voice/transcribe", headers=headers, data={
+        "audio": (io.BytesIO(audio), "voice.wav"), "language": language,
+    })
+    assert response.status_code == 503
+    post.assert_not_called()
+
+
 def test_auto_without_detection_provider_is_actionable_instead_of_forcing_english(gateway,headers,monkeypatch):
     monkeypatch.setenv('DEEPGRAM_API_KEY','test-key')
     for key in ('TRANSCRIBE_BASE_URL','TRANSCRIBE_API_KEY','GROQ_API_KEY','OPENAI_API_KEY'):

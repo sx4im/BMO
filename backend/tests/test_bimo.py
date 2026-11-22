@@ -1057,7 +1057,8 @@ def test_chat_aeon_model_stream(client, monkeypatch):
     assert captured_kwargs.get("max_tokens") == 450
     # Verify AEON_SYSTEM_PROMPT is used
     sys_msgs = [m["content"] for m in captured_kwargs.get("messages", []) if m["role"] == "system"]
-    assert any("You are Bmo Voice" in m for m in sys_msgs)
+    assert any("You are Bmo, built by Saim Shafique" in m and "Your version is Bmo 6.0" in m for m in sys_msgs)
+    assert all("Bmo Voice" not in m for m in sys_msgs)
     assert "You are Aeon" not in AEON_SYSTEM_PROMPT
 
 

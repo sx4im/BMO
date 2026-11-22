@@ -15,9 +15,29 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
-- The Impeccable cleanup removes unused pulsing dots, colored shadows, and
-  decorative loading effects. Iris shows a static image tile with a live
-  generating status. Skill uploads fill to 100% before showing the
+- Iris uses the bundled img-fx 0.5.1 `pixels-mechanic` WebGL engine while
+  generating. It loads on demand, pauses offscreen, and uses a still orb
+  with reduced motion. Successful results can appear from 10 seconds after
+  the request starts. At 12 seconds the tile stops moving and shows a
+  continued waiting status until the provider returns. Errors appear as
+  soon as reported. Tests covered early results and cancellation while the
+  tile is visible. Chromium exercised the WebGL preset with simulated results.
+- Voice calls use Deepgram Nova-3 for live transcription and recorded
+  recovery through `/voice/transcribe`. Only finalized user text appears
+  in the call. Auto uses Nova's multilingual mode. Urdu requires an
+  explicit selection. Capture closes after a 350ms quiet window on desktop
+  and touch devices. An 85 Hz high-pass filter reduces rumble in the detector.
+  Spoken cues require a search event.
+  Firefox verified the language label and released a synthetic microphone
+  384ms after silence. Provider responses were simulated. Recorded recovery
+  requires the updated API. The release passed 238 frontend and 634 backend
+  tests.
+- The voice call header and assistant use the name Bmo. The voice prompt
+  identifies Bmo 6.0 when asked about the version. Only speech synthesis
+  receives the letter-by-letter pronunciation. Tests verified the English
+  speech payload, with live synthesis outside the test.
+- The Impeccable cleanup removed unused pulsing dots, colored shadows, and
+  timed image-generation stages. Skill uploads fill to 100% before showing the
   validation status, and the CSS voice fallback uses a single gradient.
   The frontend entry page scan passed with no suppressions. Chromium
   checked the image loading and download flow at desktop and mobile widths
@@ -67,9 +87,7 @@ through Graft and the current source before editing.
   minute-scale retry on rate limits. Verified with 632 backend and 236
   frontend tests plus Chromium attachment geometry and interaction checks.
 - NVIDIA serves Iris image generation only. The chat transport, diagnostic
-  route, and Riva dependency were removed. Deepgram still serves microphone
-  and live Voice transcription, while Voice Auto retains its existing
-  recorded Whisper check for language detection. Verification covered 629
+  route, and Riva dependency were removed. Verification covered 629
   backend and 233 frontend tests, including mixed image/PDF batching,
   Mistral context persistence, a Groq follow-up with no image bytes, and
   locally simulated provider HTTP streams. Live inference requires provider
@@ -90,20 +108,9 @@ through Graft and the current source before editing.
   measured fallback was exercised in jsdom rather than native browsers. Frontend
   cache versions (`styles.css?v=256`, `composer.js?v=43`, `chat.js?v=213`,
   `main.js?v=258`, `bmo-build`) bumped.
-- Voice Auto now verifies complete recorded turns with the configured Whisper
-  transcription provider and applies its detected language to the final transcript,
-  reply and TTS voice. Live Nova captions remain provisional. This covers Urdu,
-  which Nova-3's multilingual list excludes, and avoids reusing a fixed English
-  locale during recorded recovery. Auto adds one recorded transcription step;
-  manually selected languages retain the direct live path and stay pinned.
-  Empty completed live transcripts retain the existing manual-mode silence path.
-- Live language selection uses the provider's dominant language (or word counts),
-  not the final word. Language names, regional tags and common aliases normalize
-  to supported voices. Auto requests use a backward-compatible multipart flag;
-  missing detection configuration/metadata is actionable rather than a hidden
-  English fallback. Verification: 639 backend and 227 frontend tests passed,
-  with Graft build/check and diff checks clean. See
-  `docs/verification/voice-auto-2026-11-17.md`.
+- Live language selection uses the provider's dominant language or word counts.
+  Language names, regional tags, and aliases normalize to supported voices.
+  Manually selected languages stay pinned, including during recorded recovery.
 - Final UI/Voice/search pass: 634 backend and 219 frontend tests passed.
   Jump-to-latest is CSS-anchored to the composer wrapper, with a 44px target,
   orange hover and visible keyboard focus; growing/clearing drafts cannot strand
@@ -113,10 +120,9 @@ through Graft and the current source before editing.
   (verified 2026-11-17): AI systems engineer/open-source contributor in
   Hafizabad, Pakistan, focused on Bmo and AI-agent verification/evaluation/testing.
   It appears only when asked about Saim; old WhatsApp age/job claims were removed.
-- Voice has twelve local acknowledgment variants per state for all 42 languages.
-  Search cues follow real search events; slow turns get at most one cue after
-  650ms. Quick answers skip it, and stalled cue synthesis cannot block real
-  output. Urdu/Indic sentence punctuation now starts speech before completion;
+- Voice offers local acknowledgments in all 42 languages after search starts.
+  Stalled cue synthesis cannot block real output. Urdu/Indic sentence
+  punctuation starts speech before completion;
   first phrase fallback is 40 characters. A failed turn cannot replay buffered
   text from its canceled cue. Live provider/network latency is not benchmarked.
 - Search skips complete conversational closings before evaluating news/recency
@@ -184,11 +190,6 @@ through Graft and the current source before editing.
 - The landing hero keeps compact desktop text/buttons/video. Its heading's left
   edge aligns with the navbar logo, and the video's right edge aligns with
   Try Bmo. Preserve the existing mobile layout.
-- Voice automatically ends a turn after two seconds of microphone quiet, even
-  when semantic completion says incomplete or is pending. Positive semantic
-  verdicts can still finish sooner; resumed speech resets the quiet window.
-  Nova's speech endpoint also uses two seconds. Final streaming text is flushed
-  before sending, with recorded-audio recovery preserved.
 - Chat and Voice again show the original randomized waiting vocabulary, rotating
   every three seconds. Search/transcription status labels take priority. Rotation
   stops on answer output, completion, cancellation, error, or closing Voice.

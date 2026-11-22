@@ -14,8 +14,7 @@
  */
 
 import { el, clear } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=73";
-import { readingOrb } from "../components/orb.js?v=3";
+import { createOrb, readingOrb } from "../components/orb.js?v=3";
 import { searchCard } from "../components/search-card.js?v=4";
 import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=35";
 import { messageBubble, reasoningDetails } from "../components/message.js?v=81";
@@ -24,6 +23,7 @@ import { StreamingRenderer } from "./stream-renderer.js?v=15";
 import { stripStrayCursors } from "./caret.js?v=1";
 import { ScrollFollower } from "./scroll-follower.js?v=7";
 import { getGreeting, getRandomGreetingTemplate, getPageGreetingTemplate, getFirstName } from "./greetings.js?v=4";
+import "../components/image-generation-effect.js?v=2";
 
 export function emptyStreamView({ incognito, user, template } = {}) {
   if (incognito) {
@@ -37,19 +37,23 @@ export function emptyStreamView({ incognito, user, template } = {}) {
   ]);
 }
 
-export function imageGeneratingNode() {
+export function imageGeneratingNode(startedAt = Date.now()) {
+  const status = el("span", { class: "status-text", text: "Generating image…" });
   return el("article", { class: "message assistant searching" }, [
     el("div", { class: "body" }, [
       el("div", { class: "meta", role: "status" }, [
         el("span", { class: "author", text: "Bmo" }),
         el("span", { text: "·" }),
-        el("span", { class: "status-text", text: "Generating image…" }),
+        status,
       ]),
-      el("div", {
+      el("bmo-image-generation", {
         class: "image-gen-placeholder",
         "aria-hidden": "true",
-        html: icon("image", { width: 28, height: 28 }),
-      }),
+        dataset: { startedAt },
+        onanimationtimeout: () => { status.textContent = "Still generating…"; },
+      }, [
+        createOrb({ state: "shaping", size: 128, speed: 0.75 }),
+      ]),
     ]),
   ]);
 }
@@ -254,6 +258,7 @@ export class MessageFeed {
     searchCardData = null,
     searchPreamble = "",
     imageGenerating = false,
+    imageStartedAt,
     streamingText = "",
     streamingReasoning = "",
     enteringId = null,
@@ -407,7 +412,7 @@ export class MessageFeed {
 
     if (imageGenerating) {
       if (!this._imageGeneratingNode || !this._imageGeneratingNode.isConnected) {
-        this._imageGeneratingNode = imageGeneratingNode();
+        this._imageGeneratingNode = imageGeneratingNode(imageStartedAt);
         this.streamInner.append(this._imageGeneratingNode);
       }
     } else if (this._imageGeneratingNode) {

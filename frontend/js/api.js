@@ -523,7 +523,7 @@ export async function createTranscriptionToken(token, { signal } = {}) {
   return request("/transcribe/token", { method: "POST", token, signal });
 }
 
-export async function transcribeAudio(token, audioBlob, { language, signal } = {}) {
+export async function transcribeAudio(token, audioBlob, { language, deepgramOnly, signal } = {}) {
   const execute = async (t) => {
     const fd = new FormData();
     const isWav = (audioBlob.type || "").includes("wav");
@@ -533,7 +533,8 @@ export async function transcribeAudio(token, audioBlob, { language, signal } = {
       fd.append("language", "multi");
       fd.append("auto_language", "1");
     } else if (language) fd.append("language", language);
-    const response = await fetch(`${config.apiUrl}/transcribe`, {
+    const endpoint = deepgramOnly ? "/voice/transcribe" : "/transcribe";
+    const response = await fetch(`${config.apiUrl}${endpoint}`, {
       method: "POST",
       headers: authHeaders(t),
       body: fd,

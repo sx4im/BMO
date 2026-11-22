@@ -13,11 +13,11 @@ import { openConfirmModal, openPromptModal } from "../components/confirm-modal.j
 import { openShareModal } from "../components/share-modal.js?v=3";
 import { openMoveChatModal } from "./projects.js?v=3";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=35";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=69";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=72";
 import * as api from "../api.js?v=71";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=48";
-import { MessageFeed } from "../chat/message-feed.js?v=53";
+import { MessageFeed } from "../chat/message-feed.js?v=56";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=17";
 import {
   detectExportIntent,
@@ -29,6 +29,12 @@ import {
 } from "../export.js?v=5";
 
 
+
+const MIN_IMAGE_ANIMATION_MS = 10000;
+
+function hasGeneratedImage(message) {
+  return message?.attachments?.some(attachment => attachment.content_type?.startsWith("image/"));
+}
 
 function uid(prefix = "tmp") {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -92,6 +98,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   // results. Handed to the assistant message once the answer lands.
   let searchCardData = null;
   let imageGenerating = false;
+  let imageStartedAt = null;
   let imagePollTimer = null;
   let imageRequest = null;
   let imagePoll = null;
@@ -743,6 +750,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       searchCardData,
       searchPreamble,
       imageGenerating,
+      imageStartedAt,
       streamingText: streamHandler.streamingText,
       streamingReasoning: streamHandler.streamingReasoning,
       statusPhrase: streamHandler.currentPhrase,
@@ -1046,6 +1054,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     };
     messages.push(optimisticUser);
     imageGenerating = true;
+    imageStartedAt = Date.now();
     composer.isImageGenerating = true;
     composer.syncSendEnabled();
     renderUI();
@@ -1058,6 +1067,11 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     const conversationId = id;
     const ownsImage = () => !unmounted && imageRequest === controller && id === conversationId;
     const timeoutId = setTimeout(() => controller.abort(), 60000);
+    let animationTimer;
+    const animationReady = new Promise(resolve => {
+      animationTimer = setTimeout(resolve, MIN_IMAGE_ANIMATION_MS);
+      controller.signal.addEventListener("abort", resolve, { once: true });
+    });
 
     try {
       const res = await api.generateImage(auth.token, {
@@ -1068,6 +1082,8 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       }, controller.signal);
 
       if (!ownsImage()) return;
+      if (hasGeneratedImage(res?.assistant_message)) await animationReady;
+      if (!ownsImage() || controller.signal.aborted) return;
       if (res?.conversation) {
         conversation = res.conversation;
         if (!id) {
@@ -1089,6 +1105,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       else messages = messages.filter((x) => x.id !== optimisticUser.id);
       toast(err.message || "Couldn't create image.", { tone: "error" });
     } finally {
+      clearTimeout(animationTimer);
       clearTimeout(timeoutId);
       if (unmounted || imageRequest !== controller) return;
       imageRequest = null;
@@ -1114,6 +1131,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     imagePoll = poll;
     const ownsPoll = () => !unmounted && imagePoll === poll && id === poll.conversationId;
     imageGenerating = true;
+    imageStartedAt = Date.parse(messages.at(-1).created_at);
     composer.isImageGenerating = true;
     composer.syncSendEnabled();
     renderUI();
@@ -1137,12 +1155,21 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
         const msgs = Array.isArray(data?.messages) ? data.messages : [];
         const last = msgs[msgs.length - 1];
         if (last?.role === "assistant") {
-          conversation = data.conversation || conversation;
-          messages = msgs;
-          enteringId = last.id;
-          composer.renderModelBadge(incognito);
-          finish();
-          loadConversations();
+          const showResult = () => {
+            if (!ownsPoll()) return;
+            conversation = data.conversation || conversation;
+            messages = msgs;
+            enteringId = last.id;
+            composer.renderModelBadge(incognito);
+            finish();
+            loadConversations();
+          };
+          const remaining = MIN_IMAGE_ANIMATION_MS - (Date.now() - imageStartedAt);
+          if (remaining > 0 && hasGeneratedImage(last)) {
+            imagePollTimer = setTimeout(showResult, remaining);
+          } else {
+            showResult();
+          }
           return;
         }
       } catch {}

@@ -41,7 +41,7 @@ The frontend runs directly in the browser with HTML, CSS, and ES modules. The Fl
 - **Document parsing**: Drop in PDF, DOCX, XLSX, PPTX, or ZIP files to extract text and analyze contents.
 - **Vision processing**: Attach images to route prompts to a vision model.
 - **Autonomous web search**: Bmo decides on its own when a question needs live results and searches via TinyFish. A search card above the answer shows the query it ran, the pages it read with their freshness, and how long the search took. Full page scraping for pasted URLs.
-- **Voice assistant**: Streaming speech to text (Deepgram Nova-3, with Whisper verification for Auto language) and text to speech (Deepgram Flux) across 42 languages. Dictation in the composer is transcribed server-side.
+- **Voice assistant**: Deepgram Nova-3 handles streaming and recorded speech to text. Final transcripts appear after each turn. Deepgram Flux handles speech output. For Urdu, select Urdu explicitly.
 - **Usage limits**: Weighted token metering with a 5-hour session window and a weekly window.
 - **Server cancellation**: Stopping a response halts generation on the server immediately using an internal stream registry.
 
@@ -65,8 +65,8 @@ The frontend runs directly in the browser with HTML, CSS, and ES modules. The Fl
    ▼          ▼            ▼            ▼           ▼
 Supabase  Supabase      NVIDIA       Mistral      Groq
 Postgres  Storage       Iris images  Stanza 2.5   Nexos 3.0, Aeon,
-(RLS)     (Signed URLs)              attachments  search and Voice checks,
-                                     and titles   Whisper for Voice Auto
+(RLS)     (Signed URLs)              attachments  search and turn checks
+                                     and titles
 
 Also: TinyFish (search/scrape), Deepgram (STT/TTS), Meta WhatsApp Cloud API
 ```
@@ -77,7 +77,7 @@ Model lanes:
 |---|---|---|---|
 | Stanza 2.5 | `thinking` | Mistral | `ministral-8b-2512` |
 | Nexos 3.0 | `deep` | Groq | `openai/gpt-oss-120b` |
-| Bmo Voice / WhatsApp | `aeon` | Groq | `qwen/qwen3.8-27b` |
+| Voice calls / WhatsApp | `aeon` | Groq | `qwen/qwen3.8-27b` |
 | Attachment analysis | n/a | Mistral | `ministral-8b-2512` |
 | Iris 2.0 | `image` | NVIDIA | `black-forest-labs/flux-3-image-klein` |
 
@@ -85,7 +85,7 @@ Model lanes:
 ## Quick start
 
 ### Prerequisites
-Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (Stanza 2.5 and attachments), a [Groq API key](https://console.groq.com/keys) (Nexos, Aeon, search routing, and Voice Auto transcription), an NVIDIA API key (Iris image generation), and optionally TinyFish (web search) and Deepgram (voice) keys.
+Python 3.11+, a Supabase account, a [Mistral API key](https://console.mistral.ai/) (Stanza 2.5 and attachments), a [Groq API key](https://console.groq.com/keys) (Nexos, Aeon, and search routing), an NVIDIA API key (Iris image generation), and optionally TinyFish (web search) and Deepgram (voice) keys.
 
 ### 1. Database setup
 Run these forward migrations from `backend/migrations/` in order inside your Supabase project SQL editor. Files ending in `_down.sql` undo migrations; use them only for an intentional rollback.

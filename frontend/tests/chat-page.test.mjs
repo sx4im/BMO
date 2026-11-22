@@ -644,6 +644,38 @@ for (const busy of ['draft', 'voice', 'upload', 'attachment', 'dictation', 'imag
 }
 
 
+for (const unmountDuringAnimation of [false, true]) {
+  test(`a fast image ${unmountDuringAnimation ? 'stays hidden after unmount' : 'appears after ten seconds'}`, async t => {
+    let revealImage;
+    const page = await chatPage({
+      timers: {
+        setTimeout(fn, ms) {
+          if (ms === 10000) {
+            revealImage = fn;
+            return setTimeout(fn, 60000).unref();
+          }
+          return setTimeout(fn, ms).unref();
+        },
+      },
+      generateImage: async () => ({
+        assistant_message: { id: 'image', role: 'assistant', attachments: [{ content_type: 'image/png' }] },
+      }),
+    });
+    if (!unmountDuringAnimation) t.after(page.unmount);
+    const sending = page.turn('Draw', { model: 'image' });
+    await new Promise(setImmediate);
+    assert.equal(page.rendered().imageGenerating, true);
+    assert.equal(page.rendered().messages.some(message => message.id === 'image'), false);
+    assert.equal(typeof revealImage, 'function');
+
+    if (unmountDuringAnimation) page.unmount();
+    else revealImage();
+    await sending;
+    assert.equal(page.rendered().messages.some(message => message.id === 'image'), !unmountDuringAnimation);
+    if (!unmountDuringAnimation) assert.equal(page.rendered().imageGenerating, false);
+  });
+}
+
 test('image generation aborts on unmount and ignores a late successful response', async () => {
   let finish, signal;
   const page = await chatPage({ generateImage: async (_t, _p, supplied) => {

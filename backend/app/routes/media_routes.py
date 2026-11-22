@@ -243,9 +243,10 @@ def upload_attachment(user):
 # ---------- Recorded Voice Transcription (Nova-3 / Whisper / Riva) ----------
 
 @media_bp.post("/transcribe")
+@media_bp.post("/voice/transcribe", defaults={"deepgram_only": True})
 @limiter.limit("20 per minute")
 @require_user
-def transcribe(user):  # noqa: ARG001
+def transcribe(user, deepgram_only=False):  # noqa: ARG001
     if "audio" not in request.files:
         return bad_request("audio file is required", 422)
     audio_file = request.files["audio"]
@@ -270,19 +271,19 @@ def transcribe(user):  # noqa: ARG001
         return bad_request("invalid transcription language", 422)
 
     automatic = language == "auto" or request.form.get("auto_language") == "1"
-    base_url, api_key, model = _rest_transcription_provider()
-    if automatic and not base_url:
-        return bad_request("Automatic language detection requires a configured Whisper transcription provider. Select a language and try again.", 503)
 
     # Completed recordings use the server's key directly. They do not require
     # /auth/grant or Member permissions, which are specific to live token grants.
     deepgram_key = get_deepgram_api_key()
-    if deepgram_key and not automatic:
+    if deepgram_only and not deepgram_key:
+        return bad_request("Deepgram voice transcription is not configured.", 503)
+    if deepgram_key and (deepgram_only or not automatic):
         try:
             resp = requests.post(
                 "https://api.deepgram.com/v1/listen",
                 headers={"Authorization": f"Token {deepgram_key}", "Content-Type": "application/octet-stream"},
-                params={"model": "nova-3", "language": language, "smart_format": "true", "punctuate": "true"},
+                params={"model": "nova-3", "language": "multi" if automatic else language,
+                        "smart_format": "true", "punctuate": "true"},
                 data=audio_bytes, timeout=30,
             )
             if not resp.ok:
@@ -301,6 +302,9 @@ def transcribe(user):  # noqa: ARG001
             logger.warning("Deepgram recorded transcription failed")
             return bad_request("Could not transcribe the recording with Deepgram. Please try again.", 502)
 
+    base_url, api_key, model = _rest_transcription_provider()
+    if automatic and not base_url:
+        return bad_request("Automatic language detection requires a configured Whisper transcription provider. Select a language and try again.", 503)
     if not base_url:
         return bad_request("Server-side voice transcription is not configured.", 503)
 

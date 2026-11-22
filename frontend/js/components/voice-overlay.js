@@ -1,14 +1,13 @@
-// Full-screen voice assistant (Bmo Voice).
+// Full-screen Bmo voice call.
 //
 // Flow: open -> listen (live transcription) -> completed thought -> send ->
 // voice-themed wait text while the reply streams -> read the reply aloud
 // (Deepgram Flux/Aura streaming) -> listen again. The X closes it. A procedural
 // fog sphere follows the voice state and the microphone/playback audio envelopes.
 //
-// Speech input uses Deepgram Nova-3 streaming, with recorded-audio recovery.
-// Browser recognition is a compatibility fallback for older browsers. Semantic
-// checks can finish a turn early; adaptive Web Audio VAD also sends after two
-// seconds of quiet, even when a completion verdict is missing or incorrect.
+// Speech input uses Deepgram Nova-3 streaming and recorded-audio recovery. Semantic
+// checks can finish a turn early. Adaptive Web Audio VAD also sends after a
+// quiet pause, even when a completion verdict is missing or incorrect.
 //
 // Text-to-speech audio is decoded and played through the Web Audio API rather
 // than an <audio> element: that keeps it inside the site CSP (the fetch is a
@@ -17,8 +16,8 @@
 import { el } from "../utils.js?v=30";
 import { icon } from "../icons.js?v=73";
 import { toast } from "./toast.js?v=58";
-import * as api from "../api.js?v=70";
-import { LiveTranscriber } from "../chat/live-transcriber.js?v=4";
+import * as api from "../api.js?v=72";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=5";
 import { getRandomPhrase } from "../chat/waiting-phrases.js?v=1";
 import { SemanticTurnDetector } from "../chat/turn-detector.js?v=1";
 import { VOICE_LANGUAGES, normalizeVoiceLanguage } from "./voice-languages.js?v=2";
@@ -34,7 +33,7 @@ import { blobToWav16kMono } from "../audio-wav.js?v=30";
 // room's noise floor, dropping fast in quiet gaps and learning upward only
 // before speech starts. This accounts for steady background noise — fan,
 // traffic, café chatter — without using an absolute silence gate. The turn
-// auto-ends after two seconds of quiet once the user has spoken.
+// auto-ends after a quiet pause once the user has spoken.
 //
 // IMPORTANT: capture runs with autoGainControl OFF (see startRecorder). AGC
 // inflates the silent-gap noise floor toward the speech level, which shrinks
@@ -51,7 +50,8 @@ const VAD_ENTER_FACTOR = 2.0;    // speech: level > floor * 2.0 (and > MIN)
 const VAD_EXIT_FACTOR  = 1.4;    // silence again below floor * 1.4 (hysteresis)
 const VAD_MIN_LEVEL    = 0.005;  // absolute gate so dead-quiet rooms don't fire on hiss
 const VAD_ENTER_FRAMES = 2;      // ~2 consecutive loud frames (~35 ms) to confirm speech
-const VAD_SILENCE_MS   = 2000;    // quiet speech endpoint, independent of semantic verdicts
+const VAD_SILENCE_MS   = 350;   // bridge brief gaps without holding the mic open
+const VAD_HIGHPASS_HZ  = 85;    // filter low room rumble for detection only
 const VAD_IDLE_ROTATE_MS = 60000; // renew silent backup recordings without ending the call
 const VAD_MAX_TURN_MS  = 5 * 60 * 1000;  // hard safety cap per turn
 
@@ -95,7 +95,8 @@ function stripForSpeech(md = "", isStartOfTurn = false, language = "en") {
     .replace(/(\.{2,}|…)/g, (match, _, offset) => {
       return (isStartOfTurn && offset <= 8) ? match : ", ";
     })
-    .replace(/[ \t\r\n]+/g, " ");
+    .replace(/[ \t\r\n]+/g, " ")
+    .replace(/\bBmo\b/gi, language === "en" ? "Bee Em Oh" : "B M O");
   return language === "en" ? expandYearsForSpeech(cleaned) : cleaned;
 }
 
@@ -131,45 +132,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   let completionWarningShown = false;
   let waitPhraseTimer = null;
   let inputDelivery = "neutral";
-  let finalCaption = "";
-  let finalCaptionAt = 0;
-  let stoppedCaption = "";
-
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let recognition = null;
-  let speechRecSupported = !!SpeechRec;
-
-  // Brave disables Google's Web Speech backend by default for privacy.
-  // Proactively detect Brave and route straight to MediaRecorder + Whisper/Riva.
-  let isBraveBrowser = false;
-  if (typeof navigator !== "undefined" && navigator.brave && typeof navigator.brave.isBrave === "function") {
-    navigator.brave.isBrave().then((val) => {
-      if (val) {
-        console.info("[bimo-voice] Brave detected; routing speech input to MediaRecorder");
-        isBraveBrowser = true;
-        speechRecSupported = false;
-        if (state === "listening" && recognition) {
-          const recording = mediaRecorder?.state === "recording";
-          if (recording && !liveInput) {
-            semanticTurn?.cancel();
-            semanticTurn = null;
-          }
-          stopRecognition({ keepCapture: recording });
-          if (!recording) startRecorder();
-        }
-      }
-    }).catch(() => {});
-  }
-
   let audioCtx = null;
   let ttsSource = null;
   let meterRaf = null;
   let playbackAnalyser = null;
   let playbackMeter = null;
   let microphoneMeter = null;
-  let visualMicStream = null;
-  let visualMicSource = null;
-  let micSequence = 0;
   let recorderSequence = 0;
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
   let activeSpeech = null;   // current speech playback handle
@@ -233,8 +201,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   // Voice-activity detection state (tuning constants at the top of the file).
   let vadAnalyser = null;
   let vadSource = null;
+  let vadHighpass = null;
   let vadRaf = null;
   let vadHadSpeech = false;   // did this take ever contain confirmed speech?
+  let interimTranscript = "";
   let lastTranscriptChangeAt = 0;
   let discardTake = false;    // drop the in-flight recording on stop (typed turn)
   let recordStartedAt = 0;    // performance.now() when the current take began
@@ -273,7 +243,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     try { localStorage.setItem("bimo-voice-lang", id); } catch {}
     const conf = getLangConfig();
     langBtn.value = autoLanguage ? "auto" : id;
-    langSize.textContent = autoLanguage ? "Auto" : conf.label;
+    langLabel.textContent = autoLanguage ? "Auto" : conf.label;
     langBtn.setAttribute("aria-label", autoLanguage ? "Language: Automatic" : `Language: ${conf.label}`);
 
     // Reconnect TTS WebSocket for new language model
@@ -284,26 +254,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     ensureTTSWS();
     if (state === "listening" && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined") {
       discardTake = true;
-      stopRecognition();
       const pendingRecorder = Boolean(mediaRecorder);
       stopRecorder();
       if (!pendingRecorder) startListening();
       return;
     }
     if (state === "idle") startListening();
-
-    // Update speech recognition language if Web Speech is active
-    if (recognition) {
-      try {
-        recognition.lang = conf.recLang;
-        if (speechRecSupported && !isBraveBrowser && state === "listening") {
-          stopRecognition();
-          startSpeechRecognition();
-        }
-      } catch (err) {
-        console.warn("[bimo-voice] recognition lang update error:", err);
-      }
-    }
   }
 
   const langBtn = el("select", {
@@ -316,10 +272,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   }))]);
   langBtn.value = autoLanguage ? "auto" : currentLangId;
 
-  const langSize = el("span", { class: "voice-lang-size", "aria-hidden": "true",
+  const langLabel = el("span", { class: "voice-lang-label", "aria-hidden": "true",
     text: autoLanguage ? "Auto" : getLangConfig().label });
   const langWrap = el("div", { class: "voice-lang-wrap" }, [
-    langSize, langBtn,
+    langLabel, langBtn,
     el("span", { class: "voice-lang-arrow", "aria-hidden": "true", html: icon("chevronDown", { width: 14, height: 14 }) }),
   ]);
 
@@ -333,10 +289,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   });
 
   const overlay = el("div", {
-    class: "voice-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Bmo Voice",
+    class: "voice-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Bmo",
   }, [
     el("header", { class: "voice-header" }, [
-      el("span", { class: "voice-title" }, [el("strong", { text: "Bmo" }), el("span", { text: " Voice" })]),
+      el("span", { class: "voice-title", text: "Bmo" }),
     ]),
     el("div", { class: "voice-stage" }, [globe, statusText, transcriptText]),
     el("div", { class: "voice-bar" }, [
@@ -407,10 +363,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
   }
   function setTranscript(t) {
-    if (state === "listening" && t !== transcriptText.textContent) {
-      if (t?.trim()) lastTranscriptChangeAt = performance.now();
-      semanticTurn?.update(t);
-    }
     transcriptText.textContent = t || "";
     transcriptText.scrollTop = transcriptText.scrollHeight;
   }
@@ -427,307 +379,19 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     micBtn.classList.add("active");
     if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined") {
       startRecorder();
-    } else if (speechRecSupported && !isBraveBrowser) {
-      startSpeechRecognition();
     } else {
       setState("idle", "Voice input isn't supported here — type instead");
       micBtn.classList.remove("active");
     }
   }
 
-  let speechSilenceTimer = null;
-  let speechStartTimer = null;
-  let speechResultTimer = null;
-
-  function dedupeWordsAndPhrases(str) {
-    if (!str) return "";
-    // 1. Split into words and eliminate immediate single-word stutter ("I I" -> "I")
-    const words = str.trim().split(/\s+/);
-    const uniqueWords = [];
-    for (let i = 0; i < words.length; i++) {
-      const w = words[i];
-      const cleanW = w.toLowerCase().replace(/[^a-z0-9]/gi, "");
-      const prevClean = uniqueWords.length ? uniqueWords[uniqueWords.length - 1].toLowerCase().replace(/[^a-z0-9]/gi, "") : "";
-      if (cleanW && cleanW === prevClean) continue;
-      uniqueWords.push(w);
-    }
-
-    let cleaned = uniqueWords.join(" ");
-
-    // 2. Eliminate immediate multi-word phrase stutter ("I said tomorrow I said tomorrow" -> "I said tomorrow")
-    for (let n = 6; n >= 2; n--) {
-      const wList = cleaned.split(/\s+/);
-      if (wList.length < n * 2) continue;
-      for (let i = 0; i <= wList.length - n * 2; i++) {
-        const p1 = wList.slice(i, i + n).join(" ").toLowerCase().replace(/[^a-z0-9 ]/gi, "");
-        const p2 = wList.slice(i + n, i + n * 2).join(" ").toLowerCase().replace(/[^a-z0-9 ]/gi, "");
-        if (p1 && p1 === p2) {
-          wList.splice(i + n, n);
-          cleaned = wList.join(" ");
-          i--;
-        }
-      }
-    }
-    return cleaned.replace(/\s+/g, " ").trim();
-  }
-
-  function extractCleanTranscript(results) {
-    if (!results || !results.length) return "";
-    
-    // On Android Chrome, the last item in results frequently contains the full progressive sentence.
-    const lastItem = results[results.length - 1];
-    const lastText = (lastItem && lastItem[0] && lastItem[0].transcript || "").trim();
-
-    // Check if results are progressive snapshots of the same sentence
-    let isProgressive = false;
-    if (results.length > 1 && lastText) {
-      const firstText = (results[0] && results[0][0] && results[0][0].transcript || "").trim();
-      if (firstText && lastText.toLowerCase().startsWith(firstText.toLowerCase().slice(0, Math.min(10, firstText.length)))) {
-        isProgressive = true;
-      }
-    }
-
-    if (isProgressive && lastText) {
-      return dedupeWordsAndPhrases(lastText);
-    }
-
-    // Standard / Desktop Chrome: distinct chunk assembly
-    const parts = [];
-    for (let i = 0; i < results.length; i++) {
-      const item = results[i];
-      if (!item || !item[0]) continue;
-      const text = (item[0].transcript || "").trim();
-      if (!text) continue;
-
-      const lowerText = text.toLowerCase().replace(/[^a-z0-9 ]/gi, "");
-      const prevText = parts.length ? parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9 ]/gi, "") : "";
-
-      if (parts.length && lowerText.startsWith(prevText)) {
-        parts[parts.length - 1] = text;
-      } else if (parts.length && prevText.startsWith(lowerText)) {
-        // keep existing
-      } else {
-        parts.push(text);
-      }
-    }
-    return dedupeWordsAndPhrases(parts.join(" "));
-  }
-
-  function startSpeechRecognition(captionsOnly = false) {
-    const stopCaptionSource = () => {
-      semanticTurn?.cancel();
-      semanticTurn = null;
-      stopRecognition({ keepCapture: true });
-    };
-    stopRecognition({ keepCapture: captionsOnly });
-    try {
-      const currentRecognition = new SpeechRec();
-      recognition = currentRecognition;
-      const isCurrent = () => active && recognition === currentRecognition;
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.lang = getLangConfig().recLang;
-
-      let lastRecognizedText = "";
-
-      recognition.onstart = () => {
-        if (!isCurrent()) return;
-        clearTimeout(speechStartTimer);
-        speechStartTimer = null;
-        setState("listening", "Listening… speak now");
-        // Some browsers expose recognition but its remote service never returns
-        // words. Keep the existing recorder available instead of waiting forever.
-        speechResultTimer = setTimeout(() => {
-          if (isCurrent() && state === "listening" && !turnInFlight) {
-            if (captionsOnly) stopCaptionSource();
-            else useRecorderInput();
-          }
-        }, 6000);
-      };
-
-      recognition.onresult = (event) => {
-        if (!isCurrent() || turnInFlight) return;
-        finalCaption = "";
-        finalCaptionAt = 0;
-        stoppedCaption = "";
-        const currentText = extractCleanTranscript(event.results);
-        if (currentText) {
-          if (captionsOnly && Array.from(event.results).every(result => result.isFinal)) {
-            finalCaption = currentText;
-            finalCaptionAt = performance.now();
-          }
-          clearTimeout(speechResultTimer);
-          speechResultTimer = null;
-          lastRecognizedText = currentText;
-          setTranscript(currentText);
-          if (speechSilenceTimer) clearTimeout(speechSilenceTimer);
-          speechSilenceTimer = setTimeout(() => {
-            if (active && !turnInFlight && lastRecognizedText) {
-              const textToSend = lastRecognizedText;
-              lastRecognizedText = "";
-              if (captionsOnly) {
-                // The adaptive VAD owns recorded takes. A one-shot caption
-                // timer cannot distinguish room noise from continued speech.
-                if (mediaRecorder?.state === "recording" && !microphoneMeter) stopRecorder();
-                return;
-              }
-              stopRecognition();
-              endTurn(textToSend);
-            }
-          }, VAD_SILENCE_MS);
-        }
-      };
-
-      recognition.onerror = (event) => {
-        if (!isCurrent()) return;
-        finalCaption = "";
-        stoppedCaption = "";
-        console.warn("[bimo-voice] Web Speech error:", event?.error);
-        if (event?.error !== "no-speech") {
-          speechRecSupported = false;
-          if (captionsOnly) stopCaptionSource();
-          else stopRecognition();
-          if (!captionsOnly) startRecorder();
-        }
-      };
-
-      let emptyEndCount = 0;
-      recognition.onend = () => {
-        if (isCurrent() && state === "listening" && !turnInFlight) {
-          if (captionsOnly) {
-            // The owned recording already contains this utterance. Recognition
-            // supplies captions only; a service failure must not discard audio.
-            if (semanticTurn && !liveInput) {
-              stopCaptionSource();
-              return;
-            }
-            if (speechSilenceTimer) return;
-            finalCaption = "";
-            emptyEndCount++;
-            if (emptyEndCount < 3) {
-              try { currentRecognition.start(); return; } catch {}
-            }
-            stopCaptionSource();
-            return;
-          }
-          // A pending silence timer owns this compatibility take's submission.
-          if (speechSilenceTimer) {
-            try {
-              recognition.start();
-            } catch {}
-            return;
-          }
-
-          const text = lastRecognizedText.trim();
-          if (text) {
-            lastRecognizedText = "";
-            emptyEndCount = 0;
-            stopRecognition();
-            endTurn(text);
-          } else {
-            emptyEndCount++;
-            if (emptyEndCount >= 3) {
-              console.warn("[bimo-voice] Web Speech ended repeatedly without results, falling back to MediaRecorder");
-              speechRecSupported = false;
-              stopRecognition();
-              startRecorder();
-              return;
-            }
-            try {
-              recognition.start();
-            } catch {
-              speechRecSupported = false;
-              startRecorder();
-            }
-          }
-        }
-      };
-
-      speechStartTimer = setTimeout(() => {
-        if (isCurrent() && state === "listening" && !turnInFlight) {
-          if (captionsOnly) stopCaptionSource();
-          else useRecorderInput();
-        }
-      }, 3000);
-      recognition.start();
-      if (!captionsOnly) startMicrophoneMeter();
-    } catch (err) {
-      console.warn("[bimo-voice] Web Speech init failed, using MediaRecorder fallback:", err);
-      if (captionsOnly) stopCaptionSource();
-      else useRecorderInput();
-    }
-  }
-
-  function stopRecognition({ keepCapture = false } = {}) {
-    finalCaption = "";
-    finalCaptionAt = 0;
-    clearTimeout(speechStartTimer);
-    clearTimeout(speechResultTimer);
-    speechStartTimer = null;
-    speechResultTimer = null;
-    if (speechSilenceTimer) {
-      clearTimeout(speechSilenceTimer);
-      speechSilenceTimer = null;
-    }
-    if (recognition) {
-      try {
-        recognition.onstart = null;
-        recognition.onresult = null;
-        recognition.onerror = null;
-        recognition.onend = null;
-        recognition.stop();
-      } catch {}
-      recognition = null;
-    }
-    if (!keepCapture) stopVAD();
-  }
-
-  function useRecorderInput() {
-    if (!active || state !== "listening" || turnInFlight) return;
-    speechRecSupported = false;
-    stopRecognition();
-    setState("listening", "Listening through your microphone…");
-    startRecorder();
-  }
-
-  async function startMicrophoneMeter() {
-    stopMicrophoneMeter();
-    if (!audioCtx || !navigator.mediaDevices?.getUserMedia) return;
-    const sequence = micSequence;
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: {
-        echoCancellation: true, noiseSuppression: true, autoGainControl: false,
-      } });
-      if (!active || state !== "listening" || sequence !== micSequence) {
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-      visualMicStream = stream;
-      visualMicSource = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 512;
-      visualMicSource.connect(analyser);
-      microphoneMeter = createAudioMeter(analyser, audioCtx.sampleRate);
-      scheduleMeter();
-    } catch {
-      // Native speech recognition may still work if meter capture is unavailable.
-      stream?.getTracks().forEach(track => track.stop());
-      if (sequence === micSequence) stopMicrophoneMeter();
-    }
-  }
-
   function stopMicrophoneMeter() {
-    micSequence++;
     microphoneMeter = null;
-    if (visualMicSource) { try { visualMicSource.disconnect(); } catch {} visualMicSource = null; }
-    if (visualMicStream) { visualMicStream.getTracks().forEach(track => track.stop()); visualMicStream = null; }
     orb.setLevels({ mic: 0, low: 0, mid: 0 });
     if (!playbackMeter && meterRaf !== null) { cancelAnimationFrame(meterRaf); meterRaf = null; }
   }
 
-  // ---------- listening fallback (record -> /transcribe, auto-stop on silence) ----------
+  // Keep a local recording so Deepgram can recover a failed live turn.
   async function startRecorder() {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setState("idle", "Voice input isn't supported here — type instead");
@@ -779,19 +443,20 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
     recordStartedAt = performance.now();
     setState("listening", "Listening…");
-    if (typeof api.checkVoiceTurn === "function" && (typeof AudioWorkletNode !== "undefined" || (speechRecSupported && !isBraveBrowser))) {
+    if (typeof api.checkVoiceTurn === "function" && typeof AudioWorkletNode !== "undefined") {
       const detector = new SemanticTurnDetector({
+        settleMs: 180,
         check: (text, { signal }) => api.checkVoiceTurn(token, text.slice(-6000), previousAssistant.slice(-1200), { signal }),
         onComplete: () => {
           if (active && semanticTurn === detector && sequence === recorderSequence && state === "listening") {
             // Flush Nova's finalized words rather than send its interim caption.
-            stopRecorder({ useFinalCaption: true });
+            stopRecorder();
           }
         },
         onUnavailable: () => {
           if (!active || semanticTurn !== detector || completionWarningShown) return;
           completionWarningShown = true;
-          toast("Smart turn detection is unavailable; Voice will send after a two-second pause.");
+          toast("Smart turn detection is unavailable. Voice will send after a short pause.");
         },
       });
       semanticTurn = detector;
@@ -799,6 +464,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
     // Audio gates semantic checks and guarantees submission after a quiet pause.
     vadHadSpeech = false;
+    interimTranscript = "";
     lastTranscriptChangeAt = 0;
     discardTake = false;
     try {
@@ -809,7 +475,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       vadAnalyser = vadCtx.createAnalyser();
       vadAnalyser.fftSize = 512;
       vadAnalyser.smoothingTimeConstant = 0.2;
-      vadSource.connect(vadAnalyser);
+      if (vadCtx.createBiquadFilter) {
+        vadHighpass = vadCtx.createBiquadFilter();
+        vadHighpass.type = "highpass";
+        vadHighpass.frequency.value = VAD_HIGHPASS_HZ;
+        vadSource.connect(vadHighpass);
+        vadHighpass.connect(vadAnalyser);
+      } else {
+        vadSource.connect(vadAnalyser);
+      }
       microphoneMeter = createAudioMeter(vadAnalyser, vadCtx.sampleRate);
       scheduleMeter();
 
@@ -832,9 +506,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         // waveform amplitude, not the orb's normalized visual envelope.
         const level = sample.rms;
         peakLevel = Math.max(peakLevel, level);
-        if (finalCaption && now-finalCaptionAt > 180 && sample.rawLevel > 0.08) {
-          finalCaption = "";
-        }
         const elapsed = now - startedAt;
 
         // Learn the room before speech and lower the estimate in quiet gaps.
@@ -859,11 +530,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
         // Speech can begin during calibration. Its first quiet gap still ends
         // the take even if that speech was initially learned as the room floor.
-        const hasTranscript = Boolean(transcriptText.textContent.trim());
+        const hasTranscript = Boolean(interimTranscript);
         const speechDropRatio = hasTranscript ? 0.7 : 0.35;
         // Recognized words also prove speech when the local gate missed a very
         // soft voice. A near-silent microphone can still end that utterance.
-        const quietTranscript = hasTranscript && level < VAD_MIN_LEVEL * 0.7;
+        const quietTranscript = hasTranscript && level <= exitAt;
         if (!speaking && (quietTranscript || (peakLevel >= VAD_MIN_LEVEL && level < peakLevel * speechDropRatio))) {
           speaking = true;
           vadHadSpeech = true;
@@ -893,8 +564,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           }
         } else if (level <= exitAt) {
           if (!silenceStart) silenceStart = now;
-          else if (now - Math.max(silenceStart, lastTranscriptChangeAt) >= VAD_SILENCE_MS) {
-            stopRecorder({ useFinalCaption: true });
+          // New words can still indicate soft speech above the silence floor.
+          const quietSince = level > VAD_MIN_LEVEL * 0.7
+            ? Math.max(silenceStart, lastTranscriptChangeAt)
+            : silenceStart;
+          if (now - quietSince >= VAD_SILENCE_MS) {
+            stopRecorder();
             return;
           }
         } else {
@@ -926,15 +601,21 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
     if (typeof AudioWorkletNode !== "undefined") {
       const live = new LiveTranscriber({
-        token, language: autoLanguage ? "multi" : currentLangId,
+        token, language: autoLanguage ? "multi" : currentLangId, endpointingMs: VAD_SILENCE_MS,
         onLanguage: language => {
           if (!active || liveInput !== live || !autoLanguage) return;
           applyDetectedLanguage(language);
         },
         onTranscript: text => {
           if (!active || liveInput !== live || state !== "listening") return;
-          if (text) vadHadSpeech = true;
-          setTranscript(text);
+          if (text !== interimTranscript) {
+            interimTranscript = text;
+            if (text) {
+              vadHadSpeech = true;
+              lastTranscriptChangeAt = performance.now();
+            }
+            semanticTurn?.update(text);
+          }
         },
         onUtteranceEnd: () => {
           // Provider speech endpoints also recover turns when the local VAD
@@ -949,28 +630,25 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           semanticTurn = null;
           // Preserve this take's recorded audio for recovery; never submit an
           // incomplete streaming hypothesis as the user's whole question.
-          if (state === "listening" && speechRecSupported && !isBraveBrowser) startSpeechRecognition(true);
         },
       });
       liveInput = live;
       live.start(mediaStream);
-    } else if (speechRecSupported && !isBraveBrowser) startSpeechRecognition(true);
+    }
   }
 
   function stopVAD() {
     stopMicrophoneMeter();
     if (vadRaf) { cancelAnimationFrame(vadRaf); vadRaf = null; }
     if (vadSource) { try { vadSource.disconnect(); } catch { /* ignore */ } vadSource = null; }
+    if (vadHighpass) { vadHighpass.disconnect(); vadHighpass = null; }
     vadAnalyser = null;
   }
 
-  function stopRecorder({ useFinalCaption = false } = {}) {
+  function stopRecorder() {
     semanticTurn?.cancel();
     semanticTurn = null;
     recorderSequence++;
-    // A recognizer started after a streaming failure only heard the suffix.
-    // That take must recover from its complete recording, not those captions.
-    stoppedCaption = useFinalCaption && !liveInput && !mediaRecorder?.liveInput ? finalCaption : "";
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       if (liveInput) {
         mediaRecorder.liveInput = liveInput;
@@ -978,6 +656,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         liveInput = null;
       }
       try { mediaRecorder.stop(); } catch { /* ignore */ }
+      mediaStream?.getTracks().forEach(track => track.stop());
+      mediaStream = null;
+      micBtn.classList.remove("active");
     }
   }
 
@@ -989,9 +670,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
   async function onRecorderStop() {
     semanticTurn?.cancel();
     semanticTurn = null;
-    const readyCaption = stoppedCaption;
-    stoppedCaption = "";
-    stopRecognition();
     stopVAD();
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
     const recorder = mediaRecorder;
@@ -1007,22 +685,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       if (state === "listening" && !turnInFlight) startListening();
       return;
     }
-    if (readyCaption && !autoLanguage) {
-      recorder?.liveInput?.cancel();
-      audioChunks = [];
-      endTurn(readyCaption);
-      return;
-    }
-    // The local VAD is ADVISORY, not a hard gate. Transcribe whenever the take
-    // has real audio (>= MIN_TRANSCRIBE_MS), even if the VAD never confirmed
-    // speech — a far laptop mic the VAD under-read still gets heard, and Riva
-    // returns "" for genuine silence (a friendly "Didn't catch that", not a
-    // dropped turn). Only a truly empty or sub-0.6s misfire (mic-open pop,
-    // instant stop) is discarded.
-    const MIN_TRANSCRIBE_MS = 600;
     const took = recordStartedAt ? performance.now() - recordStartedAt : 0;
     recordStartedAt = 0;
-    if (!recorder?.liveResult && (!audioChunks.length || took < MIN_TRANSCRIBE_MS)) {
+    if (!recorder?.liveResult && (!audioChunks.length || took < VAD_SILENCE_MS)) {
       audioChunks = [];
       afterSpeaking();
       return;
@@ -1035,15 +700,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     controller.signal.addEventListener("abort", () => recorder?.liveInput?.cancel(), { once: true });
     try {
       let t;
-      const detectRecording = autoLanguage && audioChunks.length > 0;
-      if (detectRecording && recorder?.liveResult) {
-        inputDelivery = recorder.liveInput?.delivery || "neutral";
-        // Auto needs full-language coverage (including Urdu), not just Nova's
-        // live multilingual subset. Captions remain provisional until this call.
-        recorder.liveResult.catch(() => {});
-        recorder.liveInput?.cancel();
-      }
-      if (recorder?.liveResult && !detectRecording) {
+      if (recorder?.liveResult) {
         try {
           t = (await recorder.liveResult).trim();
           if (!isCurrent()) return;
@@ -1053,11 +710,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         catch { if (!isCurrent()) return; }
       }
       if (!isCurrent()) return;
-      if (t === undefined) {
+      if ((t === undefined || (autoLanguage && !t)) && audioChunks.length) {
         const blob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
         const wav = await blobToWav16kMono(blob);
         if (!isCurrent()) return;
-        const res = await api.transcribeAudio(token, wav, { language: autoLanguage ? "auto" : currentLangId, signal: controller.signal });
+        const res = await api.transcribeAudio(token, wav, { language: autoLanguage ? "auto" : currentLangId, deepgramOnly: true, signal: controller.signal });
         if (!isCurrent()) return;
         t = (res?.text || "").trim();
         applyDetectedLanguage(res?.language);
@@ -1083,7 +740,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     const isCurrent = () => active && turn === turnSequence;
     turnInFlight = true;
     micBtn.classList.remove("active");
-    stopRecognition();
     stopRecorder();
     setTranscript(text);
     setState("thinking");
@@ -1107,13 +763,13 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
 
     const activeLang = getLangConfig();
-    function announce(kind) {
+    function announceSearch() {
       if (!isCurrent() || !audioCtx || searchAnnounced || pendingText) return;
       searchAnnounced = true;
       searchActive = true;
       searchSpeech = createDeepgramTTSStream(startedAt);
       activeSpeech = searchSpeech;
-      searchSpeech.finish(getVoiceAcknowledgment(activeLang.id, kind));
+      searchSpeech.finish(getVoiceAcknowledgment(activeLang.id, "search"));
       searchDone = searchSpeech.done().then(() => {
         searchActive = false;
         if (!isCurrent() || responseFailed) return;
@@ -1122,9 +778,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         if (pendingText) pushReply();
       });
     }
-    // Quick answers speak directly; a slow turn gets one short local cue.
-    const acknowledgmentTimer = setTimeout(() => announce("thinking"), 650);
-
     try {
       const reply = (await sendTurn(text, {
         language: activeLang.id,
@@ -1133,13 +786,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         onVoiceStyle: tone => { if (isCurrent()) currentTone = ["gentle", "lively"].includes(tone) ? tone : "neutral"; },
         onSearching: () => {
           if (!isCurrent()) return;
-          clearTimeout(acknowledgmentTimer);
           setState("thinking", "Searching…");
-          announce("search");
+          announceSearch();
         },
         onDelta: soFar => {
           if (!isCurrent()) return;
-          clearTimeout(acknowledgmentTimer);
           pendingText = soFar;
           // A slow acknowledgment synthesizer must never hold up real output.
           if (pendingText && searchSpeech && !searchSpeech.hasAudio()) searchSpeech.cancel();
@@ -1147,7 +798,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         },
       })) || "";
 
-      clearTimeout(acknowledgmentTimer);
       if (reply && searchSpeech && !searchSpeech.hasAudio()) searchSpeech.cancel();
       await searchDone;
       if (!isCurrent()) { speech?.cancel(); searchSpeech?.cancel(); return; }
@@ -1175,7 +825,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         afterSpeaking();
       }
     } finally {
-      clearTimeout(acknowledgmentTimer);
       if (isCurrent()) turnInFlight = false;
     }
   }
@@ -1332,10 +981,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         audioCtx.resume().catch(() => {});
       }
       if (state !== "speaking") {
-        stopRecognition();
         stopRecorder();
         micBtn.classList.remove("active");
-        setTranscript("");
         setState("speaking", "Speaking…");
       }
 
@@ -1526,7 +1173,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         vadHadSpeech = true;
         stopRecorder();
       } else {
-        stopRecognition();
         micBtn.classList.remove("active");
         setState("idle", "Tap the mic to talk");
       }
@@ -1539,7 +1185,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     const t = typeInput.value.trim();
     if (!t || turnInFlight) return;
     typeInput.value = "";
-    stopRecognition();
     stopSpeaking();
     // If the mic was live, release it and discard that take — otherwise the
     // recorder keeps the mic hot through the whole typed turn and its stale
@@ -1558,7 +1203,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     document.removeEventListener("keydown", onKey);
     document.removeEventListener("visibilitychange", meterVisibilityChanged);
     reducedMotion?.removeEventListener?.("change", meterVisibilityChanged);
-    stopRecognition();
     stopRecorder();
     stopSpeaking();
     stopVAD();

@@ -81,6 +81,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
     requestAnimationFrame:fn=>setTimeout(()=>fn(Date.now()),options.frameInterval ?? 10).unref(),cancelAnimationFrame:clearTimeout,
   }});
   Object.defineProperty(app.dom.window.document,'hidden',{configurable:true,value:false});
+  app.dom.window.matchMedia = query => ({ matches: query === '(pointer: coarse)' && Boolean(options.coarsePointer) });
   if(options.getUserMedia) Object.defineProperty(app.dom.window.navigator,'mediaDevices',{
     configurable:true,value:{getUserMedia:options.getUserMedia},
   });
@@ -104,6 +105,25 @@ test('voice uses restrained documented delivery settings',async t=>{
   assert.deepEqual({...page.voiceDelivery('gentle')},{speed:1,expressivity:-1});
   assert.deepEqual({...page.voiceDelivery('lively')},{speed:1.1,expressivity:1});
   assert.deepEqual({...page.voiceDelivery('unknown')},{speed:1.05,expressivity:0});
+});
+
+test('voice displays Bmo and sends its letter names to speech synthesis', async t => {
+  const reply = "I'm Bmo. BMO is here to help.";
+  const page = await voicePage(async (_text, handlers) => {
+    handlers.onDelta("I'm B");
+    handlers.onDelta(reply);
+    return reply;
+  });
+  t.after(() => page.overlay.close());
+
+  const dialog = page.dom.window.document.querySelector('.voice-overlay');
+  assert.equal(dialog.getAttribute('aria-label'), 'Bmo');
+  assert.equal(dialog.querySelector('.voice-title').textContent, 'Bmo');
+
+  page.submit('Who are you?');
+  await until(() => page.commands.some(command => command.type === 'Flush'));
+  const spoken = page.commands.filter(command => command.type === 'Speak').map(command => command.text).join('').trim();
+  assert.equal(spoken, "I'm Bee Em Oh. Bee Em Oh is here to help.");
 });
 
 test('voice announces retrieval once, then speaks only the answer with its chosen register',async t=>{
@@ -188,17 +208,6 @@ test('all streamed audio chunks share one playback analyser and actual waveform 
   await until(() => page.orbEvents.some(e => e.levels?.playback > 0));
 });
 
-test('Web Speech also feeds real microphone energy and releases the capture', async t => {
-  let stopped = 0;
-  const page = await voicePage(async () => '', 'en', {
-    micLevel: 0.1,
-    getUserMedia: async () => ({getTracks: () => [{stop(){stopped++;}}]}),
-  });
-  t.after(() => page.overlay.close());
-  await until(() => page.orbEvents.some(e => e.levels?.mic > 0));
-  page.overlay.close();
-  assert.equal(stopped, 1);
-});
 
 test('a microphone acquired after close is immediately released', async () => {
   let resolveCapture, stopped = 0;
@@ -272,15 +281,16 @@ for (const action of ['close', 'type', 'listen']) {
   });
 }
 
-test('late recognition start cannot replace a typed turn state', async t => {
-  const page = await voicePage(() => new Promise(() => {}));
+
+test('a browser with only native speech recognition can still type without opening a recognizer', async t => {
+  const sent = [];
+  const page = await voicePage(async text => { sent.push(text); return ''; });
   t.after(() => page.overlay.close());
-  await until(() => page.recognitions.length);
-  const lateStart = page.recognitions[0].onstart;
+  assert.equal(page.recognitions.length, 0);
+  assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state, 'idle');
   page.submit('A typed turn');
-  await tick();
-  lateStart();
-  assert.equal(page.dom.window.document.querySelector('.voice-overlay').dataset.state, 'thinking');
+  await until(() => sent.length);
+  assert.deepEqual(sent, ['A typed turn']);
 });
 
 test('transcription API forwards cancellation to fetch', async () => {
@@ -383,61 +393,64 @@ test('the first recording can answer without waiting for browser transcripts', a
   assert.deepEqual(sent, ['A recovered spoken question']);
 });
 
-test('browser speech results submit the question and play the assistant reply', async t => {
-  const sent = [];
-  const reply = 'I heard your spoken question.';
-  const page = await voicePage(async (text, handlers) => {
-    sent.push(text); handlers.onDelta(reply); return reply;
+
+
+test('voice displays only the completed Deepgram transcript', async t => {
+  let live, finalize;
+  class Live {
+    constructor(options) { this.options = options; live = this; }
+    async start() {}
+    finish() { return new Promise(resolve => { finalize = resolve; }); }
+    cancel() {}
+  }
+  const page = await voicePage(async () => 'Here is your spoken answer.', 'en', {
+    liveTranscriber: Live,
+    recordingData: true,
+    getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
   });
   t.after(() => page.overlay.close());
-  await until(() => page.recognitions.length);
-  const result = Object.assign([{transcript:'Can you hear me?', confidence:1}], {isFinal:true});
-  page.recognitions[0].onresult({results:[result], resultIndex:0});
-  await until(() => page.commands.some(command => command.type === 'Speak'), 4800);
-  assert.deepEqual(sent, ['Can you hear me?']);
-  assert.equal(page.commands.filter(command => command.type === 'Speak').map(command => command.text).join('').trim(), reply);
-  assert.equal(page.recorders.length, 0);
+  await until(() => live);
+  const caption = page.dom.window.document.querySelector('.voice-transcript');
+  live.options.onTranscript('Can you');
+  assert.equal(caption.textContent, '');
+  live.options.onUtteranceEnd();
+  await until(() => finalize);
+  assert.equal(caption.textContent, '');
+  finalize('Can you hear me?');
+  await until(() => page.dom.window.document.querySelector('.voice-overlay').dataset.state === 'speaking');
+  assert.equal(caption.textContent, 'Can you hear me?');
+  assert.equal(page.recognitions.length, 0);
 });
 
-test('live captions update immediately and disappear on first assistant audio', async t => {
-  let finish;
-  const page = await voicePage(async (_text, handlers) => {
-    handlers.onDelta('Here is your spoken answer.');
-    return new Promise(resolve => {finish = resolve;});
-  }, 'en', {
-    recordingData: true,
-    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
-    transcribeAudio: async () => ({text:'Can you hear me?'}),
-  });
-  t.after(() => {finish?.('Here is your spoken answer.'); page.overlay.close();});
-  await until(() => page.recognitions.length);
-  const emit = (text, final) => page.recognitions[0].onresult({results:[Object.assign([{transcript:text}],{isFinal:final})]});
-  emit('Can you', false);
-  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, 'Can you');
-  emit('Can you hear me?', true);
-  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, 'Can you hear me?');
-  await until(() => page.dom.window.document.querySelector('.voice-overlay').dataset.state === 'speaking', 4800);
-  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent, '');
-  assert.equal(page.recorders.length, 1);
-});
 
-test('all language selections restart captions and capture with the selected locale', async t => {
+test('changing languages updates the visible label and restarts Deepgram in that locale', async t => {
   let stopped = 0;
+  const sessions = [];
+  class Live {
+    constructor(options) { sessions.push(options); }
+    async start() {}
+    async finish() { return ''; }
+    cancel() {}
+  }
   const page = await voicePage(async () => '', 'en', {
+    liveTranscriber: Live,
     getUserMedia: async () => ({getTracks: () => [{stop(){stopped++;}}]}),
   });
   t.after(() => page.overlay.close());
-  await until(() => page.recognitions.length);
-  const locales = ['nl-NL','fr-FR','de-DE','it-IT','es-ES','ja-JP','en-US'];
-  for (const locale of locales) {
-    const previous = page.recognitions.length;
-    const select=page.dom.window.document.querySelector('.voice-lang-btn');
-    select.value=locale.slice(0,2);select.dispatchEvent(new page.dom.window.Event('change'));
-    await until(() => page.recognitions.length > previous);
-    assert.equal(page.recognitions.at(-1).lang, locale);
-    assert.equal(page.dom.window.localStorage.getItem('bimo-voice-lang'), locale.slice(0,2));
+  await until(() => sessions.length);
+  const select = page.dom.window.document.querySelector('.voice-lang-btn');
+  const label = page.dom.window.document.querySelector('.voice-lang-label');
+  for (const locale of ['nl', 'fr', 'de', 'it', 'es', 'ja', 'ur', 'en']) {
+    const previous = sessions.length;
+    select.value = locale;
+    select.dispatchEvent(new page.dom.window.Event('change'));
+    await until(() => sessions.length > previous);
+    assert.equal(sessions.at(-1).language, locale);
+    assert.equal(label.textContent, select.selectedOptions[0].textContent);
+    assert.equal(page.dom.window.localStorage.getItem('bimo-voice-lang'), locale);
   }
-  assert.equal(stopped, locales.length);
+  assert.equal(stopped, 8);
+  assert.equal(page.recognitions.length, 0);
 });
 
 test('recorder setup failure releases the microphone and permits retry', async t => {
@@ -468,25 +481,6 @@ test('failed WAV conversion never uploads mislabeled compressed audio', async t 
   assert.equal(uploads, 0);
 });
 
-test('failed browser captions never truncate the recorded question', async t => {
-  let offset = 0, uploads = 0;
-  const sent = [];
-  const page = await voicePage(async text => {sent.push(text);return '';}, 'en', {
-    recordingData: true, clockOffset: () => offset,
-    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
-    transcribeAudio: async () => {uploads++;return {text:'What is the weather in Lahore?'};},
-  });
-  t.after(() => page.overlay.close());
-  await until(() => page.recognitions.length);
-  page.recognitions[0].onresult({results:[Object.assign([{transcript:'What is'}],{isFinal:false})]});
-  page.recognitions[0].onerror({error:'network'});
-  assert.equal(page.recorders[0].state, 'recording');
-  offset = 700;
-  page.dom.window.document.querySelector('.voice-mic').click();
-  await until(() => sent.length);
-  assert.deepEqual(sent, ['What is the weather in Lahore?']);
-  assert.equal(uploads, 1);
-});
 
 test('rapid language changes create one replacement recording with the final language', async t => {
   let captures = 0;
@@ -500,45 +494,13 @@ test('rapid language changes create one replacement recording with the final lan
   button.value='fr';button.dispatchEvent(new page.dom.window.Event('change'));
   await tick();
   assert.equal(captures, 2);
-  assert.equal(page.recognitions.at(-1).lang, 'fr-FR');
-});
-
-test('healthy final browser speech starts the answer without a second transcription request', async t => {
-  let uploads = 0;
-  const sent = [];
-  const page = await voicePage(async text => {sent.push(text);return '';}, 'en', {
-    recordingData: true,
-    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
-    transcribeAudio: async () => {uploads++;return new Promise(()=>{});},
-  });
-  t.after(() => page.overlay.close());
-  await until(() => page.recognitions.length);
-  page.recognitions[0].onresult({results:[Object.assign([{transcript:'How are you today?'}],{isFinal:true})]});
-  await until(() => sent.length, 4800);
-  assert.deepEqual(sent, ['How are you today?']);
-  assert.equal(uploads, 0);
-});
-
-test('continued microphone speech invalidates an earlier final caption', async t => {
-  let level = 0.1, uploads = 0;
-  const sent = [];
-  const page = await voicePage(async text => {sent.push(text);return '';}, 'en', {
-    recordingData: true, micLevel: () => level,
-    getUserMedia: async () => ({getTracks: () => [{stop(){}}]}),
-    transcribeAudio: async () => {uploads++;return {text:'What is the weather in Lahore?'};},
-  });
-  t.after(() => page.overlay.close());
-  await until(() => page.recognitions.length);
-  page.recognitions[0].onresult({results:[Object.assign([{transcript:'What is'}],{isFinal:true})]});
-  await new Promise(resolve=>setTimeout(resolve,350));
-  level = 0;
-  await until(() => sent.length, 4800);
-  assert.deepEqual(sent, ['What is the weather in Lahore?']);
-  assert.equal(uploads, 1);
+  assert.equal(page.dom.window.document.querySelector('.voice-lang-label').textContent, 'French');
+  assert.equal(page.recognitions.length, 0);
 });
 
 
-test('Deepgram streams Urdu captions, finalizes the complete take, and uses Flux Urdu TTS',async t=>{
+
+test('explicit Urdu streams through Deepgram and shows only the completed transcript',async t=>{
   const sessions=[],sent=[];
   class Live {
     constructor(options){this.options=options;sessions.push(this);}
@@ -555,7 +517,7 @@ test('Deepgram streams Urdu captions, finalizes the complete take, and uses Flux
   await until(()=>sessions.length);
   assert.equal(sessions[0].options.language,'ur');
   sessions[0].options.onTranscript('آپ کیسے');
-  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent,'آپ کیسے');
+  assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent,'');
   sessions[0].options.onUtteranceEnd();
   await until(()=>sent.length);
   assert.deepEqual(sent,['آپ کیسے ہیں؟']);
@@ -598,7 +560,7 @@ test('automatic language changes the Flux voice without restarting the microphon
   assert.ok(page.sockets.some(socket=>socket.url.includes('model=flux-arnaud-fr')));
 });
 
-test('a failed live stream cannot submit only the suffix heard by fallback captions',async t=>{
+test('a failed live stream recovers the full recording through Deepgram',async t=>{
   let live,offset=0,uploads=0;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -609,12 +571,12 @@ test('a failed live stream cannot submit only the suffix heard by fallback capti
   const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
     liveTranscriber:Live,recordingData:true,clockOffset:()=>offset,
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
-    transcribeAudio:async()=>{uploads++;return {text:'The beginning and the end of my question'};},
+    transcribeAudio:async(_token,_audio,opts)=>{assert.equal(opts.deepgramOnly,true);uploads++;return {text:'The beginning and the end of my question'};},
   });t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onError(Error('Disconnected'));
-  await until(()=>page.recognitions.length);
+  assert.equal(page.recognitions.length,0);
   offset=1000;
-  page.recognitions.at(-1).onresult({results:[Object.assign([{transcript:'the end of my question'}],{isFinal:true})]});
+  page.dom.window.document.querySelector('.voice-mic').click();
   await until(()=>sent.length,4800);
   assert.deepEqual(sent,['The beginning and the end of my question']);
   assert.equal(uploads,1);
@@ -666,29 +628,36 @@ test('a short mid-sentence pause does not submit an unfinished thought',async t=
   t.after(()=>page.overlay.close());await until(()=>live);
   live.options.onTranscript('I would like to');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await new Promise(resolve=>setTimeout(resolve,750));
+  await new Promise(resolve=>setTimeout(resolve,150));
   assert.equal(page.recorders[0].state,'recording');assert.equal(sent.length,0);
 });
 
 
-test('local turn detection submits after two seconds of quiet',async t=>{
-  let level=0.1,offset=0,live;const sent=[];
+test('desktop releases the mic after a short quiet pause before transcription finishes',async t=>{
+  let level=0.1,offset=0,live,tracksStopped=0,finalize;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
     async start(){}
-    finish(){return Promise.resolve('This is the complete question');}
+    finish(){return new Promise(resolve=>{finalize=resolve;});}
     cancel(){}
   }
   const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
     liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
-    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
+    getUserMedia:async()=>({getTracks:()=>[{stop(){tracksStopped++;}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('This is the complete question');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await new Promise(resolve=>setTimeout(resolve,40));offset=1500;
+  assert.equal(live.options.endpointingMs,350);
+  await new Promise(resolve=>setTimeout(resolve,40));offset=120;
   await new Promise(resolve=>setTimeout(resolve,40));
   assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
-  offset=2100;await until(()=>sent.length);
+  live.options.onTranscript('This is the complete question.');
+  offset=390;await until(()=>tracksStopped===1);
+  assert.equal(sent.length,0);
+  finalize('This is the complete question');
+  await until(()=>sent.length);
   assert.deepEqual(sent,['This is the complete question']);
+  assert.equal(page.recorders[0].state,'inactive');
+  assert.equal(tracksStopped,1);
 });
 
 test('closing during the post-reply restart delay cannot reopen the microphone',async()=>{
@@ -762,7 +731,7 @@ test('room noise above the visual meter threshold cannot block Deepgram end-of-s
   assert.deepEqual(sent,['What is the weather?']);
 });
 
-test('local two-second detection submits over steady room noise when no provider endpoint arrives',async t=>{
+test('mobile also releases the mic after a short quiet pause over steady room noise',async t=>{
   let level=0.03,band=0.05,offset=0,live;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -771,14 +740,15 @@ test('local two-second detection submits over steady room noise when no provider
     cancel(){}
   }
   const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
-    liveTranscriber:Live,recordingData:true,micLevel:()=>level,micBandLevel:()=>band,clockOffset:()=>offset,
+    coarsePointer:true,liveTranscriber:Live,recordingData:true,micLevel:()=>level,micBandLevel:()=>band,clockOffset:()=>offset,
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
   level=0.12;band=0.3;live.options.onTranscript('This is my complete question');
   await new Promise(resolve=>setTimeout(resolve,100));level=0.03;band=0.05;
-  await new Promise(resolve=>setTimeout(resolve,60));offset=1500;
+  assert.equal(live.options.endpointingMs,350);
+  await new Promise(resolve=>setTimeout(resolve,60));offset=120;
   await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
-  offset=2100;await until(()=>sent.length);
+  offset=390;await until(()=>sent.length);
   assert.deepEqual(sent,['This is my complete question']);
 });
 
@@ -879,7 +849,7 @@ test('semantic Voice submits a complete question promptly without a provider sil
 });
 
 for (const stalled of [false, true]) {
-  test(`two seconds of quiet submits even when the semantic check ${stalled ? 'stalls' : 'rejects completion'}`,async t=>{
+  test(`a short quiet pause submits even when the semantic check ${stalled ? 'stalls' : 'rejects completion'}`,async t=>{
     let live,level=0.03,offset=0,signal;const sent=[],checks=[];
     class Live {
       constructor(options){this.options=options;live=this;}
@@ -888,7 +858,7 @@ for (const stalled of [false, true]) {
       cancel(){}
     }
     const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
-      liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+      coarsePointer:true,liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
       checkVoiceTurn:async(_token,text,_previous,options)=>{
         checks.push(text);signal=options.signal;
         return stalled ? new Promise(()=>{}) : {available:true,complete:false};
@@ -898,9 +868,9 @@ for (const stalled of [false, true]) {
     level=0.12;live.options.onTranscript('Compare Python and JavaScript');
     await new Promise(resolve=>setTimeout(resolve,100));level=0.03;
     await until(()=>checks.length);
-    offset=1000;await new Promise(resolve=>setTimeout(resolve,40));
+    await new Promise(resolve=>setTimeout(resolve,30));
     assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
-    offset=2100;await until(()=>sent.length);
+    offset=390;await until(()=>sent.length);
     assert.deepEqual(sent,['Compare Python and JavaScript']);
     assert.equal(page.recorders[0].state,'inactive');
     if(stalled) assert.equal(signal.aborted,true);
@@ -924,7 +894,7 @@ test('a provider endpoint can recover a turn rejected by semantic completion',as
   assert.deepEqual(sent,['A complete question']);
 });
 
-test('resuming speech resets the two-second quiet window',async t=>{
+test('resuming speech resets the quiet window',async t=>{
   let live,level=0.03,offset=0;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -933,20 +903,20 @@ test('resuming speech resets the two-second quiet window',async t=>{
     cancel(){}
   }
   const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
-    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    coarsePointer:true,liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
     checkVoiceTurn:async()=>({available:true,complete:false}),
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
   level=0.12;live.options.onTranscript('The beginning');
   await new Promise(resolve=>setTimeout(resolve,80));level=0.03;
-  await new Promise(resolve=>setTimeout(resolve,60));offset=1000;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=90;
   await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
   level=0.12;live.options.onTranscript('The rest of my question');
   await new Promise(resolve=>setTimeout(resolve,60));offset=3100;
   await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
-  level=0.03;await new Promise(resolve=>setTimeout(resolve,60));offset=4600;
+  level=0.03;await new Promise(resolve=>setTimeout(resolve,60));offset=3190;
   await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
-  offset=5300;await until(()=>sent.length);
+  offset=3490;await until(()=>sent.length);
   assert.deepEqual(sent,['The rest of my question']);
 });
 
@@ -1000,20 +970,31 @@ test('loss of live captions cancels an incomplete semantic turn and recovers its
   assert.deepEqual(sent,['A whole question recovered from audio']);
 });
 
-test('native captions ending without a result restore recorded-audio recovery',async t=>{
-  let level=0.1,offset=0;const sent=[];
-  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
-    recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
-    checkVoiceTurn:async()=>assert.fail('No words should request semantic checks'),
-    transcribeAudio:async()=>({text:'A complete recorded question'}),
-    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
-  await until(()=>page.recognitions.length);page.recognitions[0].onend();
-  await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await new Promise(resolve=>setTimeout(resolve,60));offset=2100;await until(()=>sent.length);
-  assert.deepEqual(sent,['A complete recorded question']);
+
+test('without an AudioWorklet, quiet automatically sends the entire recording to Deepgram', async t => {
+  let level = 0.1, offset = 0;
+  const sent = [];
+  const page = await voicePage(async text => { sent.push(text); return ''; }, 'en', {
+    recordingData: true, micLevel: () => level, clockOffset: () => offset,
+    checkVoiceTurn: async () => assert.fail('No live transcript should request semantic checks'),
+    transcribeAudio: async (_token, _audio, options) => {
+      assert.equal(options.deepgramOnly, true);
+      return { text: 'A complete recorded question' };
+    },
+    getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => page.recorders[0]?.state === 'recording');
+  await new Promise(resolve => setTimeout(resolve, 250));
+  level = 0;
+  await new Promise(resolve => setTimeout(resolve, 60));
+  offset = 1100;
+  await until(() => sent.length);
+  assert.deepEqual(sent, ['A complete recorded question']);
+  assert.equal(page.recognitions.length, 0);
 });
 
-test('semantic service failure falls back to a two-second pause without dropping the question',async t=>{
+test('semantic service failure falls back to acoustic quiet without dropping the question',async t=>{
   let live,level=0.1,offset=0;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -1087,16 +1068,16 @@ test('Urdu Voice announces an actual web search in Urdu', async t => {
   assert.ok(new URL(first.url).searchParams.get('model').endsWith('-ur'));
 });
 
-test('a slow Voice reply gets one local acknowledgment while model output is pending', async t => {
+test('a slow voice reply waits for the answer without a spoken search cue', async t => {
   let finish;
   const page=await voicePage(()=>new Promise(resolve=>{finish=resolve;}),'fr');
-  t.after(()=>page.overlay.close());page.submit('Explique ce sujet.');
-  await until(()=>page.commands.some(command=>command.type==='Speak'),1500);
-  const spoken=page.commands.filter(command=>command.type==='Speak');
-  assert.equal(spoken.length,1);
-  const {voiceAcknowledgments}=await page.load('js/components/voice-acknowledgments.js');
-  assert.ok(voiceAcknowledgments('fr').includes(spoken[0].text.trim()));
+  t.after(()=>{page.overlay.close();finish?.('');});
+  page.submit('Explique ce sujet.');
+  await new Promise(resolve=>setTimeout(resolve,780));
+  assert.equal(page.commands.some(command=>command.type==='Speak'),false);
   finish('Voici la réponse.');
+  await until(()=>page.commands.some(command=>command.type==='Flush'));
+  assert.deepEqual(page.commands.filter(command=>command.type==='Speak').map(command=>command.text.trim()),['Voici la réponse.']);
 });
 
 test('Urdu sentence punctuation starts speaking before model completion', async t => {
@@ -1128,22 +1109,30 @@ test('a failed searched turn cannot replay buffered answer text after its cue is
   assert.ok(page.commands.filter(command=>command.type==='Speak').every(command=>!command.text.includes('Buffered partial answer')));
 });
 
-test('Auto verifies the complete recorded turn and corrects provisional Hindi detection to Urdu',async t=>{
-  let live,submitted,request;
+
+test('Auto uses a healthy finalized Deepgram transcript without uploading the recording again', async t => {
+  let live, submitted;
   class Live {
-    delivery='neutral';detectedLanguage='hi';
-    constructor(options){this.options=options;live=this;}
-    async start(){} finish(){return Promise.resolve('गलत भाषा');} cancel(){}
+    delivery = 'neutral';
+    detectedLanguage = 'fr';
+    constructor(options) { this.options = options; live = this; }
+    async start() {}
+    async finish() { return 'Bonjour, comment allez-vous ?'; }
+    cancel() {}
   }
-  const page=await voicePage(async(text,opts)=>{submitted={text,...opts};return '';},'auto',{
-    liveTranscriber:Live,recordingData:true,
-    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
-    transcribeAudio:async(_token,_audio,opts)=>{request=opts;return {text:'آپ کیسے ہیں؟',language:'urdu'};},
-  });t.after(()=>page.overlay.close());await until(()=>live);
-  live.options.onLanguage('hi');live.options.onUtteranceEnd();await until(()=>submitted);
-  assert.equal(request.language,'auto');assert.ok(request.signal);
-  assert.equal(submitted.text,'آپ کیسے ہیں؟');assert.equal(submitted.language,'ur');
-  assert.ok(page.sockets.some(socket=>socket.url.includes('model=flux-ambreen-ur')));
+  const page = await voicePage(async (text, opts) => { submitted = { text, ...opts }; return ''; }, 'auto', {
+    liveTranscriber: Live, recordingData: true,
+    getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+    transcribeAudio: async () => assert.fail('A healthy stream should not upload a second copy'),
+  });
+  t.after(() => page.overlay.close());
+  await until(() => live);
+  assert.equal(live.options.language, 'multi');
+  live.options.onUtteranceEnd();
+  await until(() => submitted);
+  assert.equal(submitted.text, 'Bonjour, comment allez-vous ?');
+  assert.equal(submitted.language, 'fr');
+  assert.ok(page.sockets.some(socket => socket.url.includes('model=flux-arnaud-fr')));
 });
 
 test('Auto recorded recovery applies a detected regional locale instead of the previous English voice',async t=>{
@@ -1154,7 +1143,7 @@ test('Auto recorded recovery applies a detected regional locale instead of the p
     transcribeAudio:async(_token,_audio,opts)=>{request=opts;return {text:'Bonjour à vous.',language:'FR_fr'};},
   });t.after(()=>page.overlay.close());await until(()=>page.recorders[0]?.state==='recording');
   offset=1000;page.dom.window.document.querySelector('.voice-mic').click();await until(()=>submitted);
-  assert.equal(request.language,'auto');assert.equal(submitted.language,'fr');
+  assert.equal(request.language,'auto');assert.equal(request.deepgramOnly,true);assert.equal(submitted.language,'fr');
   assert.equal(submitted.languageName,'French');
 });
 
