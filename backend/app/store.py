@@ -1162,6 +1162,19 @@ def list_skills(user_id: str) -> list[dict]:
     ).eq("user_id", user_id).order("name").order("id"))
 
 
+def list_enabled_builtin_skills(user_id: str) -> set[str]:
+    rows = _execute(supabase().table("enabled_builtin_skills").select("skill_id").eq("user_id", user_id)).data
+    return {row["skill_id"] for row in rows or []}
+
+
+def set_builtin_skill_enabled(user_id: str, skill_id: str, enabled: bool) -> None:
+    table = supabase().table("enabled_builtin_skills")
+    if enabled:
+        _execute(table.upsert({"user_id": user_id, "skill_id": skill_id}, on_conflict="user_id,skill_id"))
+    else:
+        _execute(table.delete().eq("user_id", user_id).eq("skill_id", skill_id))
+
+
 def get_skill(skill_id: str, user_id: str) -> Optional[dict]:
     rows = _execute(supabase().table("skills").select("*").eq("id", skill_id).eq("user_id", user_id).limit(1)).data
     return (rows or [None])[0]

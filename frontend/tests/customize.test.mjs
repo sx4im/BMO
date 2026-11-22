@@ -147,6 +147,59 @@ test("Backspace at the message start removes the last skill without changing the
   assert.deepEqual(Array.from(app.picker.selectedIds), ['one']);
 });
 
+test("Built-in skill cards can be enabled and exported from their own section", async t => {
+  let app;
+  const skill = { id: "builtin-caveman", name: "caveman", description: "Concise replies", enabled: false, builtin: true };
+  const toggles = [];
+  const downloads = [];
+  const markdown = { type: "text/markdown" };
+  const api = {
+    getInstructions: async () => ({ instructions: "" }),
+    listSkills: async () => [skill, catalog[0]],
+    exportSkill: async (_token, id) => {
+      assert.equal(id, skill.id);
+      return markdown;
+    },
+    setSkillEnabled: async (_token, id, enabled) => {
+      toggles.push({ id, enabled });
+      return { ...skill, enabled };
+    },
+  };
+  app = moduleLoader({
+    "api.js": api,
+    "auth.js": { getAuth: () => ({ auth: { token: "test", user: { id: "owner" } } }) },
+    "app-shell.js": { mountAppShell: async () => ({ content: app.dom.window.document.querySelector("#app"), setActiveConversation() {} }) },
+    "export.js": { downloadBlob: (blob, name) => downloads.push({ blob, name }) },
+  });
+  const { renderCustomize } = await app.load("js/pages/customize.js");
+  t.after(await renderCustomize());
+  await new Promise(setImmediate);
+
+  const doc = app.dom.window.document;
+  doc.querySelector("#tab-skills").click();
+  const section = doc.querySelector('[aria-labelledby="builtin-skills-heading"]');
+  assert.equal(section.querySelector("h3").textContent, "Built-in skills");
+  assert.equal(section.querySelector('[role="switch"]').getAttribute("aria-checked"), "false");
+  assert.equal(section.querySelector(".skill-use-link"), null);
+  assert.deepEqual([...section.querySelectorAll(".skill-card-actions button")].map(b => b.textContent), ["Export"]);
+  section.querySelector(".skill-card-actions button").click();
+  await new Promise(setImmediate);
+  assert.deepEqual(downloads, [{ blob: markdown, name: "SKILL.md" }]);
+
+  section.querySelector('[role="switch"]').click();
+  await new Promise(setImmediate);
+  assert.deepEqual(toggles, [{ id: skill.id, enabled: true }]);
+  assert.equal(section.querySelector('[role="switch"]').getAttribute("aria-checked"), "true");
+  assert.equal(section.querySelector(".skill-use-link").getAttribute("href"), "#/app/chat?skill_id=builtin-caveman");
+  const chat = await picker();
+  t.after(() => chat.picker.destroy());
+  chat.picker.setCatalog([skill]);
+  chat.type("/caveman");
+  assert.equal(chat.picker.popup.querySelector('[role="option"]'), null);
+  chat.picker.setCatalog([{ ...skill, enabled: true }]);
+  assert.equal(chat.picker.popup.querySelector('[role="option"]').textContent, "caveman");
+});
+
 test("Customize tabs, instructions save races, skill editor and toggles update incrementally", async t => {
   let app, finishSave;
   const toggles = [], savedSkills = [], uploads = [], downloads = [];

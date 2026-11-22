@@ -15,6 +15,16 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Customize ships Caveman, No AI Slop, and Humanizer as read-only built-in
+  Markdown skills. Migration `0010_builtin_skills.sql` saves explicit
+  per-account opt-ins. Enabled skills remain per-message selections.
+  Postgres 16 verified tenant isolation and migration reapplication.
+  Chromium checked desktop and 375px layouts with a simulated API. The
+  release passed 239 frontend and 635 backend tests. See `docs/CUSTOMIZE.md`
+  for pinned sources and deployment order.
+  Production Supabase recorded migration `0010_builtin_skills` as version
+  `20261122150700`. The table has row-level security, gateway-only access,
+  and zero opt-ins after migration. It was applied ahead of the app rollout.
 - Iris uses the bundled img-fx 0.5.1 `pixels-mechanic` WebGL engine while
   generating. It loads on demand, pauses offscreen, and uses a still orb
   with reduced motion. Successful results can appear from 10 seconds after
@@ -205,8 +215,6 @@ through Graft and the current source before editing.
 - Claude-style artifact/file creation is research only. Do not implement the
   proposed parser, version storage, document renderers, or side panel without a
   new implementation request.
-- Chat skill recommendations are research only; see
-  `docs/bimo-chat-skills-research-2026-11-15.md`.
 - The Ponytail audit records cleanup candidates, not approval to refactor them:
   `docs/verification/ponytail-audit-2026-11-15.md`.
 

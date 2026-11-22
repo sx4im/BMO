@@ -5,8 +5,9 @@
 ## Deployment
 
 1. Apply `backend/migrations/0009_customize.sql` after migrations 0001–0008, **before deploying the backend**. Chat now reads preferences on every turn. The migration is idempotent; `0009_customize_down.sql` is the destructive rollback.
-2. Install `backend/requirements.txt`. PyYAML 6.0.3 is the one approved dependency addition; there are no new frontend dependencies.
-3. Deploy backend and frontend together. Existing conversations default to no active skills.
+2. Apply `backend/migrations/0010_builtin_skills.sql` before deploying the built-in catalog. The migration starts with no opt-ins. Its rollback drops saved opt-ins.
+3. Install `backend/requirements.txt`. PyYAML 6.0.3 parses skill metadata.
+4. Deploy backend and frontend together. Existing conversations default to no active skills.
 
 RLS protects preferences, skills and references. The skill reference FK includes the owner. A database trigger also validates direct conversation writes. All gateway reads, updates, deletes and exports filter by `user_id`; invalid, missing, foreign or disabled skill IDs return the same 404. An invalid list, duplicates or more than three IDs returns 422.
 
@@ -15,18 +16,35 @@ RLS protects preferences, skills and references. The skill reference FK includes
 | Endpoint | Method | Body / result |
 | --- | --- | --- |
 | `/preferences` | GET / PUT | `{instructions}`; at most 4,000 characters, empty clears |
-| `/skills` | GET / POST | Metadata list / create `{name, description, instructions}` |
+| `/skills` | GET / POST | Personal and built-in metadata / create a personal skill |
 | `/skills/<id>` | GET / PUT / DELETE | Full skill with reference files / update text / delete |
 | `/skills/<id>/enabled` | PUT | `{enabled: boolean}` |
 | `/skills/upload` | POST | Multipart `file`: a Markdown `.md` skill |
 | `/skills/<id>/export` | GET | `SKILL.md`; older skills with references export a ZIP |
-| `/chat`, `/chat/incognito` | POST | Optional `skill_ids`: at most three distinct enabled, owned UUIDs |
+| `/chat`, `/chat/incognito` | POST | Optional `skill_ids`: at most three distinct enabled personal or built-in UUIDs |
 
 Skill names are 1–64 lowercase ASCII letters, numbers and single hyphens, without leading or trailing hyphens, and unique per user. Description is required (1–1,024 characters). Instructions may be empty and are limited to 20,000 characters. An update preserves imported references.
 
 Skills apply only to the message that includes their `skill_ids`. Omitting `skill_ids` or sending `[]` uses no skills. The composer clears its selection after sending and never restores skills from a saved conversation. Legacy `conversations.active_skills` selections are cleared on the next chat request. Incognito callers also select skills per message and no conversation is stored. User messages keep immutable `{id, name}` snapshots for historical chips, including branches and shares. Disabled or deleted skills are excluded when creating a branch; historical labels remain.
 
 Prompt order is global instructions, base prompt and its explicit safety precedence, active skills with references, project instructions/knowledge, then conversation/study/voice instructions. All user-written fields use the shared delimiter escaping helper. Text, vision and document continuation batches receive this context.
+
+## Built-in skills
+
+The Skills tab lists Caveman, No AI Slop, and Humanizer in a built-in section.
+Each starts disabled for every account. Turn on a switch to make the skill
+available in the `/` picker, or select its title to open a new chat with that
+skill selected. Bmo applies it to the selected message. The built-in source
+is read-only, and Export downloads the original `SKILL.md`.
+
+The backend bundles the Markdown and accompanying license notices under
+`backend/app/builtin_skills/`. Account opt-ins are stored separately from
+personal skills. Humanizer's shipped file exceeds the 20,000-character limit
+for personal uploads.
+
+- [Caveman source](https://github.com/JuliusBrussee/caveman/blob/70f4f34e834893ea9af9f4fc6022266bd56d18b1/skills/caveman/SKILL.md)
+- [No AI Slop source](https://github.com/petergyang/no-ai-slop/blob/000650b156983f5159695b441477f4e63b25dc85/skills/no-ai-slop/SKILL.md)
+- [Humanizer source](https://github.com/blader/humanizer/blob/a32f24407364c74c812b43c15926d638bee1e072/SKILL.md)
 
 ## Imports
 

@@ -93,6 +93,12 @@ export async function renderCustomize(_params, { signal } = {}) {
   panels[0].append(instructionsLoading, instructionsCard);
 
   const grid = el("div", { class: "skills-grid" });
+  const builtinGrid = el("div", { class: "skills-grid" });
+  const builtinSection = el("section", { class: "builtin-skills", "aria-labelledby": "builtin-skills-heading", hidden: true }, [
+    el("h3", { id: "builtin-skills-heading", text: "Built-in skills" }),
+    el("p", { class: "customize-hint", text: "Enable a skill, then pick it for a message with / in chat." }),
+    builtinGrid,
+  ]);
   const empty = el("div", { class: "customize-empty", hidden: true }, [
     el("h3", { text: "A little expertise, on demand" }),
     el("p", { text: "Save a reusable skill, then type / in a chat to use it. Choose up to three at a time." }),
@@ -120,7 +126,11 @@ export async function renderCustomize(_params, { signal } = {}) {
     const card = skillCard(skill);
     const previous = cards.get(skill.id);
     if (previous) previous.replaceWith(card);
-    else grid.append(card);
+    else {
+      const target = skill.builtin ? builtinGrid : grid;
+      target.append(card);
+    }
+    if (skill.builtin) builtinSection.hidden = false;
     cards.set(skill.id, card);
     empty.hidden = cards.size > 0;
   }
@@ -177,7 +187,7 @@ export async function renderCustomize(_params, { signal } = {}) {
   add.addEventListener("keydown", closeAdd);
   panels[1].append(el("div", { class: "skills-heading" }, [
     el("h2", { text: "Skills" }), add,
-  ]), upload, progress, feedback, skillsStatus, grid, empty);
+  ]), upload, progress, feedback, skillsStatus, grid, empty, builtinSection);
 
   function skillCard(skill) {
     const cardError = el("p", { class: "skill-card-error", role: "alert", hidden: true });
@@ -197,12 +207,12 @@ export async function renderCustomize(_params, { signal } = {}) {
       },
     }, [el("span", { "aria-hidden": "true" })]);
     return el("article", { class: "workspace-card skill-card" }, [
-      el("div", { class: "skill-card-head" }, [el("h3", {}, [skill.enabled
+      el("div", { class: "skill-card-head" }, [el(skill.builtin ? "h4" : "h3", {}, [skill.enabled
         ? el("a", { class: "skill-use-link", href: skillChatUrl(skill), title: "Use in a new chat", text: skill.name })
         : el("span", { text: skill.name })]), toggle]),
       el("p", { class: "skill-description", text: skill.description, title: skill.description }),
       el("div", { class: "skill-card-actions" }, [
-        el("button", { type: "button", class: "btn secondary workspace-action", onclick: async event => {
+        ...(skill.builtin ? [] : [el("button", { type: "button", class: "btn secondary workspace-action", onclick: async event => {
           const button = event.currentTarget;
           button.disabled = true;
           try { const full = await api.getSkill(auth.token, skill.id); if (isCurrent()) edit(full); }
@@ -211,7 +221,7 @@ export async function renderCustomize(_params, { signal } = {}) {
         } }, [
           el("span", { class: "btn-ic", html: icon("pencil", { width: 16, height: 16 }) }),
           el("span", { text: "Edit" }),
-        ]),
+        ])]),
         el("button", { type: "button", class: "btn secondary workspace-action", onclick: async event => {
           const button = event.currentTarget;
           button.disabled = true;
@@ -225,7 +235,7 @@ export async function renderCustomize(_params, { signal } = {}) {
           el("span", { class: "btn-ic", html: icon("download", { width: 16, height: 16 }) }),
           el("span", { text: "Export" }),
         ]),
-        el("button", { type: "button", class: "btn secondary workspace-action", onclick: () => openConfirmModal({
+        ...(skill.builtin ? [] : [el("button", { type: "button", class: "btn secondary workspace-action", onclick: () => openConfirmModal({
           title: "Delete skill?", message: `Delete ${skill.name}? Previous messages will keep their skill labels.`, confirmText: "Delete",
           onConfirm: async () => {
             try {
@@ -236,7 +246,7 @@ export async function renderCustomize(_params, { signal } = {}) {
         }) }, [
           el("span", { class: "btn-ic", html: icon("trash", { width: 16, height: 16 }) }),
           el("span", { text: "Delete" }),
-        ]),
+        ])]),
       ]),
       cardError,
     ]);

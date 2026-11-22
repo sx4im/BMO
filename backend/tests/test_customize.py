@@ -105,11 +105,59 @@ def test_crud_toggle_and_owned_references(gateway, headers, db):
     assert gateway.get(f"/skills/{sid}", headers=headers).status_code == 404
 
 
+def test_builtin_skills_are_shared_read_only_and_opt_in_per_account(gateway, headers, db, monkeypatch):
+    catalog = gateway.get("/skills", headers=headers).json
+    builtin = {item["name"]: item for item in catalog if item.get("builtin")}
+    assert set(builtin) == {"caveman", "no-ai-slop", "humanizer"}
+    assert all(not item["enabled"] and "instructions" not in item for item in builtin.values())
+    assert not db.rows.get("skills")
+
+    # A personal upload with the same name stays separate from the built-in.
+    personal = skill(db, name="humanizer")
+    humanizer_id = builtin["humanizer"]["id"]
+    caveman_id = builtin["caveman"]["id"]
+    assert personal["id"] != humanizer_id
+    endpoint = f"/skills/{humanizer_id}"
+    original = gateway.get(f"{endpoint}/export", headers=headers)
+    assert original.status_code == 200
+    detail = gateway.get(endpoint, headers=headers).json
+    assert detail["files"] == []
+    assert len(detail["instructions"]) > 20000
+    assert detail["instructions"].encode() in original.data
+    assert gateway.put(endpoint, headers=headers, json=values()).status_code == 403
+    assert gateway.delete(endpoint, headers=headers).status_code == 403
+
+    turn = {"message": "Edit my draft", "skill_ids": [humanizer_id], "auto_search": False}
+    assert gateway.post("/chat", headers=headers, json=turn).status_code == 404
+    for sid in (humanizer_id, caveman_id, humanizer_id):
+        response = gateway.put(f"/skills/{sid}/enabled", headers=headers, json={"enabled": True})
+        assert response.status_code == 200
+        assert response.json["enabled"] is True and response.json["builtin"] is True
+    assert gateway.get(endpoint, headers=auth("other")).json["enabled"] is False
+    assert gateway.post("/chat", headers=auth("other"), json=turn).status_code == 404
+    assert gateway.get(f"/skills/{caveman_id}", headers=headers).json["enabled"] is True
+
+    captured = stream(monkeypatch)
+    response = gateway.post("/chat", headers=headers, json=turn)
+    assert response.status_code == 200
+    assert "Reviewed." in response.get_data(as_text=True)
+    prompt = captured[-1][0]["content"]
+    assert '<skill name="humanizer">' in prompt
+    assert '<skill name="caveman">' not in prompt
+    assert detail["instructions"].splitlines()[-2] in prompt
+    response = gateway.post("/chat", headers=headers, json={"message": "Follow up", "auto_search": False})
+    assert response.status_code == 200
+    response.get_data()
+    assert "<active_skills>" not in captured[-1][0]["content"]
+    assert gateway.put(f"{endpoint}/enabled", headers=headers, json={"enabled": False}).json["enabled"] is False
+    assert gateway.post("/chat", headers=headers, json=turn).status_code == 404
+
+
 def test_user_b_cannot_read_change_delete_export_or_invoke_user_a_skill(gateway, headers, db, monkeypatch):
     private = store.create_skill("owner", values(), [{"filename": "references/private.txt", "content": "Secret", "size_bytes": 6}])
     other = auth("other")
     sid = private["id"]
-    assert gateway.get("/skills", headers=other).json == []
+    assert all(item.get("builtin") for item in gateway.get("/skills", headers=other).json)
     for method, path, body in [
         ("get", f"/skills/{sid}", None), ("put", f"/skills/{sid}", values(instructions="stolen")),
         ("delete", f"/skills/{sid}", None), ("get", f"/skills/{sid}/export", None),

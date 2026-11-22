@@ -55,7 +55,8 @@ class MemoryQuery:
         self.db.calls.append((self.table, self.action, self.columns))
         rows = self.db.rows.setdefault(self.table, [])
         if self.action == "upsert":
-            existing = next((row for row in rows if row.get(self.conflict) == self.values[self.conflict]), None)
+            keys = self.conflict.split(",")
+            existing = next((row for row in rows if all(row.get(key) == self.values[key] for key in keys)), None)
             if existing is not None:
                 existing.update(self.values)
                 return SimpleNamespace(data=[copy.deepcopy(existing)])

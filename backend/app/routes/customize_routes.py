@@ -13,9 +13,11 @@ from .helpers import bad_request
 customize_bp = Blueprint("customize_routes", __name__)
 
 
-def owned_skill(skill_id, user_id):
+def find_skill(skill_id, user_id):
     parsed = skill_service.valid_id(skill_id)
-    return store.get_skill(parsed, user_id) if parsed else None
+    if not parsed:
+        return None
+    return skill_service.builtin_skills().get(parsed) or store.get_skill(parsed, user_id)
 
 
 @customize_bp.errorhandler(ValueError)
@@ -49,7 +51,10 @@ def save_preferences(user):
 @customize_bp.get("/skills")
 @require_user
 def list_skills(user):
-    return jsonify(store.list_skills(user.id))
+    enabled = store.list_enabled_builtin_skills(user.id)
+    builtins = [skill_service.builtin_summary(skill, skill["id"] in enabled)
+                for skill in skill_service.builtin_skills().values()]
+    return jsonify(store.list_skills(user.id) + builtins)
 
 
 @customize_bp.post("/skills")
@@ -74,18 +79,23 @@ def upload_skill(user):
 @customize_bp.get("/skills/<skill_id>")
 @require_user
 def get_skill(user, skill_id):
-    skill = owned_skill(skill_id, user.id)
+    skill = find_skill(skill_id, user.id)
     if not skill:
         return bad_request("skill not found", 404)
+    if skill.get("builtin"):
+        enabled = skill["id"] in store.list_enabled_builtin_skills(user.id)
+        return jsonify({**skill, "enabled": enabled, "files": []})
     return jsonify({**skill, "files": store.list_skill_files(skill["id"], user.id)})
 
 
 @customize_bp.put("/skills/<skill_id>")
 @require_user
 def update_skill(user, skill_id):
-    skill = owned_skill(skill_id, user.id)
+    skill = find_skill(skill_id, user.id)
     if not skill:
         return bad_request("skill not found", 404)
+    if skill.get("builtin"):
+        return bad_request("Built-in skills are read-only", 403)
     values = skill_service.validate_skill(request.get_json(silent=True))
     updated = store.update_skill(skill["id"], user.id, values)
     return jsonify(updated) if updated else bad_request("skill not found", 404)
@@ -94,12 +104,16 @@ def update_skill(user, skill_id):
 @customize_bp.put("/skills/<skill_id>/enabled")
 @require_user
 def enable_skill(user, skill_id):
-    skill = owned_skill(skill_id, user.id)
+    skill = find_skill(skill_id, user.id)
     if not skill:
         return bad_request("skill not found", 404)
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or type(payload.get("enabled")) is not bool:
         return bad_request("enabled must be a boolean", 422)
+    if skill.get("builtin"):
+        enabled = payload["enabled"]
+        store.set_builtin_skill_enabled(user.id, skill["id"], enabled)
+        return jsonify(skill_service.builtin_summary(skill, enabled))
     updated = store.update_skill(skill["id"], user.id, {"enabled": payload["enabled"]})
     return jsonify(updated) if updated else bad_request("skill not found", 404)
 
@@ -107,7 +121,9 @@ def enable_skill(user, skill_id):
 @customize_bp.delete("/skills/<skill_id>")
 @require_user
 def delete_skill(user, skill_id):
-    skill = owned_skill(skill_id, user.id)
+    skill = find_skill(skill_id, user.id)
+    if skill and skill.get("builtin"):
+        return bad_request("Built-in skills are read-only", 403)
     if not skill or not store.delete_skill(skill["id"], user.id):
         return bad_request("skill not found", 404)
     return jsonify({"status": "deleted", "id": skill["id"]})
@@ -116,9 +132,12 @@ def delete_skill(user, skill_id):
 @customize_bp.get("/skills/<skill_id>/export")
 @require_user
 def export_skill(user, skill_id):
-    skill = owned_skill(skill_id, user.id)
+    skill = find_skill(skill_id, user.id)
     if not skill:
         return bad_request("skill not found", 404)
+    if skill.get("builtin"):
+        return send_file(io.BytesIO(skill_service.builtin_skill_markdown(skill["name"])), mimetype="text/markdown",
+                         as_attachment=True, download_name="SKILL.md")
     files = store.list_skill_files(skill["id"], user.id)
     if not files:
         return send_file(io.BytesIO(skill_service.export_skill_markdown(skill)), mimetype="text/markdown",
