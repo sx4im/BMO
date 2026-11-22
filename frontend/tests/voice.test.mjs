@@ -615,8 +615,8 @@ test('Voice automatically listens after a spoken answer and stays open while the
   assert.deepEqual(sent,['What is a triangle?','And what is a square?']);
 });
 
-test('a short mid-sentence pause does not submit an unfinished thought',async t=>{
-  let live,level=0.1;const sent=[];
+test('a mid-sentence pause of about 600 ms keeps the same recording open',async t=>{
+  let live,level=0.1,offset=0;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
     async start(){}
@@ -624,16 +624,66 @@ test('a short mid-sentence pause does not submit an unfinished thought',async t=
     cancel(){}
   }
   const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
-    liveTranscriber:Live,recordingData:true,micLevel:()=>level,getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    checkVoiceTurn:async()=>({available:true,complete:true}),
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});
   t.after(()=>page.overlay.close());await until(()=>live);
   live.options.onTranscript('I would like to');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await new Promise(resolve=>setTimeout(resolve,150));
+  await new Promise(resolve=>setTimeout(resolve,70));offset=550;
+  await new Promise(resolve=>setTimeout(resolve,40));
   assert.equal(page.recorders[0].state,'recording');assert.equal(sent.length,0);
 });
 
+test('a delayed Deepgram endpoint cannot stop speech that has already resumed',async t=>{
+  let live,level=0.01,offset=0;const sent=[];
+  class Live {
+    constructor(options){this.options=options;live=this;}
+    async start(){}
+    finish(){return Promise.resolve('Here is the full question');}
+    cancel(){}
+  }
+  const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
+    liveTranscriber:Live,micLevel:()=>level,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});
+  t.after(()=>page.overlay.close());await until(()=>live);
+  await new Promise(resolve=>setTimeout(resolve,240));level=0.12;
+  live.options.onTranscript('Here is');
+  await new Promise(resolve=>setTimeout(resolve,80));level=0.01;
+  await new Promise(resolve=>setTimeout(resolve,70));level=0.12;
+  await new Promise(resolve=>setTimeout(resolve,80));
+  live.options.onUtteranceEnd();
+  await tick();
+  assert.equal(page.recorders[0].state,'recording');assert.equal(sent.length,0);
+  live.options.onTranscript('Here is the full question');level=0.01;
+  await new Promise(resolve=>setTimeout(resolve,60));
+  live.options.onUtteranceEnd();
+  await tick();
+  assert.equal(page.recorders[0].state,'recording');assert.equal(sent.length,0);
+  offset=1900;
+  await until(()=>sent.length);
+  assert.deepEqual(sent,['Here is the full question']);
+});
 
-test('desktop releases the mic after a short quiet pause before transcription finishes',async t=>{
+test('one microphone startup spike does not restart the recording',async t=>{
+  let frames=0,offset=0;
+  class Live {
+    async start(){}
+    finish(){return Promise.resolve('');}
+    cancel(){}
+  }
+  const page=await voicePage(async()=>assert.fail('No user turn was spoken'),'en',{
+    liveTranscriber:Live,micLevel:()=>++frames===1 ? 0.2 : 0.004,clockOffset:()=>offset,
+    getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});
+  t.after(()=>page.overlay.close());
+  await new Promise(resolve=>setTimeout(resolve,285));offset=1950;
+  await new Promise(resolve=>setTimeout(resolve,70));
+  assert.equal(page.recorders.length,1);
+  assert.equal(page.recorders[0].state,'recording');
+});
+
+
+test('desktop releases the mic at the quiet fallback before transcription finishes',async t=>{
   let level=0.1,offset=0,live,tracksStopped=0,finalize;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -646,12 +696,12 @@ test('desktop releases the mic after a short quiet pause before transcription fi
     getUserMedia:async()=>({getTracks:()=>[{stop(){tracksStopped++;}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('This is the complete question');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  assert.equal(live.options.endpointingMs,350);
-  await new Promise(resolve=>setTimeout(resolve,40));offset=120;
+  assert.equal(live.options.endpointingMs,1800);
+  await new Promise(resolve=>setTimeout(resolve,40));offset=650;
   await new Promise(resolve=>setTimeout(resolve,40));
   assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
   live.options.onTranscript('This is the complete question.');
-  offset=390;await until(()=>tracksStopped===1);
+  offset=2550;await until(()=>tracksStopped===1);
   assert.equal(sent.length,0);
   finalize('This is the complete question');
   await until(()=>sent.length);
@@ -731,7 +781,7 @@ test('room noise above the visual meter threshold cannot block Deepgram end-of-s
   assert.deepEqual(sent,['What is the weather?']);
 });
 
-test('mobile also releases the mic after a short quiet pause over steady room noise',async t=>{
+test('mobile uses the same quiet fallback over steady room noise',async t=>{
   let level=0.03,band=0.05,offset=0,live;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
@@ -745,10 +795,10 @@ test('mobile also releases the mic after a short quiet pause over steady room no
   await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
   level=0.12;band=0.3;live.options.onTranscript('This is my complete question');
   await new Promise(resolve=>setTimeout(resolve,100));level=0.03;band=0.05;
-  assert.equal(live.options.endpointingMs,350);
-  await new Promise(resolve=>setTimeout(resolve,60));offset=120;
+  assert.equal(live.options.endpointingMs,1800);
+  await new Promise(resolve=>setTimeout(resolve,60));offset=650;
   await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
-  offset=390;await until(()=>sent.length);
+  offset=1900;await until(()=>sent.length);
   assert.deepEqual(sent,['This is my complete question']);
 });
 
@@ -831,7 +881,7 @@ test('microphone startup ramp cannot freeze a low noise floor and block the next
 
 
 test('semantic Voice submits a complete question promptly without a provider silence endpoint',async t=>{
-  let live,level=0.1;const sent=[],checks=[];
+  let live,level=0.1,offset=0;const sent=[],checks=[];
   class Live {
     constructor(options){this.options=options;live=this;}
     async start(){}
@@ -839,17 +889,18 @@ test('semantic Voice submits a complete question promptly without a provider sil
     cancel(){}
   }
   const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
-    liveTranscriber:Live,recordingData:true,micLevel:()=>level,
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
     checkVoiceTurn:async(_token,text)=>{checks.push(text);return {available:true,complete:true};},
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('What is photosynthesis?');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await until(()=>sent.length,1000);
+  await new Promise(resolve=>setTimeout(resolve,60));offset=700;
+  await until(()=>sent.length);
   assert.deepEqual(sent,['What is photosynthesis?']);assert.equal(checks.length,1);
 });
 
 for (const stalled of [false, true]) {
-  test(`a short quiet pause submits even when the semantic check ${stalled ? 'stalls' : 'rejects completion'}`,async t=>{
+  test(`the longer quiet fallback submits even when the semantic check ${stalled ? 'stalls' : 'rejects completion'}`,async t=>{
     let live,level=0.03,offset=0,signal;const sent=[],checks=[];
     class Live {
       constructor(options){this.options=options;live=this;}
@@ -867,18 +918,19 @@ for (const stalled of [false, true]) {
     await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
     level=0.12;live.options.onTranscript('Compare Python and JavaScript');
     await new Promise(resolve=>setTimeout(resolve,100));level=0.03;
+    await new Promise(resolve=>setTimeout(resolve,60));offset=700;
     await until(()=>checks.length);
     await new Promise(resolve=>setTimeout(resolve,30));
     assert.equal(sent.length,0);assert.equal(page.recorders[0].state,'recording');
-    offset=390;await until(()=>sent.length);
+    offset=1950;await until(()=>sent.length);
     assert.deepEqual(sent,['Compare Python and JavaScript']);
     assert.equal(page.recorders[0].state,'inactive');
     if(stalled) assert.equal(signal.aborted,true);
   });
 }
 
-test('a provider endpoint can recover a turn rejected by semantic completion',async t=>{
-  let live;const sent=[];
+test('a provider endpoint can recover a quiet turn rejected by semantic completion',async t=>{
+  let live,level=0.01,offset=0,checked=false;const sent=[];
   class Live {
     constructor(options){this.options=options;live=this;}
     async start(){}
@@ -886,10 +938,15 @@ test('a provider endpoint can recover a turn rejected by semantic completion',as
     cancel(){}
   }
   const page=await voicePage(async text=>{sent.push(text);return '';},'en',{
-    liveTranscriber:Live,recordingData:true,micLevel:0.03,
-    checkVoiceTurn:async()=>({available:true,complete:false}),
+    liveTranscriber:Live,recordingData:true,micLevel:()=>level,clockOffset:()=>offset,
+    checkVoiceTurn:async()=>{checked=true;return {available:true,complete:false};},
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
-  await until(()=>live);live.options.onTranscript('A complete question');
+  await until(()=>live);await new Promise(resolve=>setTimeout(resolve,250));
+  level=0.1;live.options.onTranscript('A complete question');
+  await new Promise(resolve=>setTimeout(resolve,90));level=0.01;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=700;
+  await until(()=>checked);
+  assert.equal(page.recorders[0].state,'recording');
   live.options.onUtteranceEnd();await until(()=>sent.length);
   assert.deepEqual(sent,['A complete question']);
 });
@@ -914,9 +971,9 @@ test('resuming speech resets the quiet window',async t=>{
   level=0.12;live.options.onTranscript('The rest of my question');
   await new Promise(resolve=>setTimeout(resolve,60));offset=3100;
   await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
-  level=0.03;await new Promise(resolve=>setTimeout(resolve,60));offset=3190;
+  level=0.03;await new Promise(resolve=>setTimeout(resolve,60));offset=4000;
   await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sent.length,0);
-  offset=3490;await until(()=>sent.length);
+  offset=5050;await until(()=>sent.length);
   assert.deepEqual(sent,['The rest of my question']);
 });
 
@@ -934,7 +991,7 @@ test('closing Voice aborts a semantic request and ignores its late positive verd
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('Can you help me?');
   await new Promise(resolve=>setTimeout(resolve,250));level=0;
-  await until(()=>resolveCheck);page.overlay.close();
+  await until(()=>resolveCheck,1500);page.overlay.close();
   assert.equal(signal.aborted,true);resolveCheck({available:true,complete:true});await tick();
   assert.equal(sent.length,0);
 });
@@ -965,7 +1022,8 @@ test('loss of live captions cancels an incomplete semantic turn and recovers its
     transcribeAudio:async()=>({text:'A whole question recovered from audio'}),
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('An unfinished partial');
-  await new Promise(resolve=>setTimeout(resolve,250));level=0;await until(()=>checked);
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=700;await until(()=>checked);
   live.options.onError(new Error('Lost connection'));offset=2100;await until(()=>sent.length);
   assert.deepEqual(sent,['A whole question recovered from audio']);
 });
@@ -988,7 +1046,7 @@ test('without an AudioWorklet, quiet automatically sends the entire recording to
   await new Promise(resolve => setTimeout(resolve, 250));
   level = 0;
   await new Promise(resolve => setTimeout(resolve, 60));
-  offset = 1100;
+  offset = 1900;
   await until(() => sent.length);
   assert.deepEqual(sent, ['A complete recorded question']);
   assert.equal(page.recognitions.length, 0);
@@ -1007,7 +1065,8 @@ test('semantic service failure falls back to acoustic quiet without dropping the
     checkVoiceTurn:async()=>({available:false,complete:false}),
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})});t.after(()=>page.overlay.close());
   await until(()=>live);live.options.onTranscript('A question during a model outage');
-  await new Promise(resolve=>setTimeout(resolve,250));level=0;await until(()=>page.notices.length);
+  await new Promise(resolve=>setTimeout(resolve,250));level=0;
+  await new Promise(resolve=>setTimeout(resolve,60));offset=700;await until(()=>page.notices.length);
   assert.equal(sent.length,0);offset=2100;await until(()=>sent.length);
   assert.deepEqual(sent,['A question during a model outage']);assert.equal(page.notices.length,1);
 });

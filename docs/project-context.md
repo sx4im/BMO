@@ -37,13 +37,18 @@ through Graft and the current source before editing.
 - Voice calls use Deepgram Nova-3 for live transcription and recorded
   recovery through `/voice/transcribe`. Only finalized user text appears
   in the call. Auto uses Nova's multilingual mode. Urdu requires an
-  explicit selection. Capture closes after a 350ms quiet window on desktop
-  and touch devices. An 85 Hz high-pass filter reduces rumble in the detector.
+  explicit selection. Desktop and touch devices wait through 650 ms of
+  quiet before arming the semantic check, then give new speech another
+  300 ms to cancel it. The browser and Nova use a 1,800 ms quiet fallback.
+  Delayed provider endpoints cannot close a take during or directly after
+  resumed speech. An 85 Hz high-pass filter reduces rumble in the detector.
   Spoken cues require a search event.
-  Firefox verified the language label and released a synthetic microphone
-  384ms after silence. Provider responses were simulated. Recorded recovery
-  requires the updated API. The release passed 238 frontend and 634 backend
-  tests.
+  REA in Chromium and a Firefox check kept one synthetic mic recording
+  through a 600 ms pause and ignored stale endpoints. Mic release measured
+  1,028 ms in Chromium and 978 ms in Firefox with a positive semantic
+  verdict, and 1,823 ms in Firefox on recorded recovery. Provider responses
+  were simulated. Recorded recovery requires the updated API. All 241
+  frontend and 635 backend tests passed.
 - The voice call header and assistant use the name Bmo. The voice prompt
   identifies Bmo 6.0 when asked about the version. Only speech synthesis
   receives the letter-by-letter pronunciation. Tests verified the English

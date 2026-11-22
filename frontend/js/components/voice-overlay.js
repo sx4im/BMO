@@ -42,15 +42,14 @@ import { blobToWav16kMono } from "../audio-wav.js?v=30";
 // VAD is also no longer a hard gate: a take that has audio is transcribed even
 // if the VAD missed it (see onRecorderStop), so these thresholds only affect
 // HOW PROMPTLY a turn auto-ends, never whether speech is heard at all.
-// ponytail: these six constants ARE the calibration knob — if a noisy room
-// false-triggers, raise VAD_MIN_LEVEL/VAD_ENTER_FACTOR; if a soft talker still
-// isn't heard, lower them. No code change needed.
 const VAD_CALIBRATE_MS = 200;    // settle on the room level before judging speech
 const VAD_ENTER_FACTOR = 2.0;    // speech: level > floor * 2.0 (and > MIN)
 const VAD_EXIT_FACTOR  = 1.4;    // silence again below floor * 1.4 (hysteresis)
 const VAD_MIN_LEVEL    = 0.005;  // absolute gate so dead-quiet rooms don't fire on hiss
 const VAD_ENTER_FRAMES = 2;      // ~2 consecutive loud frames (~35 ms) to confirm speech
-const VAD_SILENCE_MS   = 350;   // bridge brief gaps without holding the mic open
+const SEMANTIC_QUIET_MS = 650;   // let a natural pause pass before checking completion
+const VAD_SILENCE_MS   = 1800;   // fallback when a completion verdict is missing or negative
+const MIN_RECORDING_MS = 350;   // ignore accidental taps on the recorded fallback
 const VAD_HIGHPASS_HZ  = 85;    // filter low room rumble for detection only
 const VAD_IDLE_ROTATE_MS = 60000; // renew silent backup recordings without ending the call
 const VAD_MAX_TURN_MS  = 5 * 60 * 1000;  // hard safety cap per turn
@@ -445,7 +444,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     setState("listening", "Listening…");
     if (typeof api.checkVoiceTurn === "function" && typeof AudioWorkletNode !== "undefined") {
       const detector = new SemanticTurnDetector({
-        settleMs: 180,
         check: (text, { signal }) => api.checkVoiceTurn(token, text.slice(-6000), previousAssistant.slice(-1200), { signal }),
         onComplete: () => {
           if (active && semanticTurn === detector && sequence === recorderSequence && state === "listening") {
@@ -462,7 +460,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       semanticTurn = detector;
     }
 
-    // Audio gates semantic checks and guarantees submission after a quiet pause.
+    // Audio gates both early semantic checks and delayed provider endpoints.
+    let lastAcousticSpeechAt = -Infinity;
     vadHadSpeech = false;
     interimTranscript = "";
     lastTranscriptChangeAt = 0;
@@ -562,20 +561,25 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           } else {
             loudFrames = 0;
           }
-        } else if (level <= exitAt) {
-          if (!silenceStart) silenceStart = now;
-          // New words can still indicate soft speech above the silence floor.
-          const quietSince = level > VAD_MIN_LEVEL * 0.7
-            ? Math.max(silenceStart, lastTranscriptChangeAt)
-            : silenceStart;
-          if (now - quietSince >= VAD_SILENCE_MS) {
-            stopRecorder();
-            return;
-          }
-        } else {
-          silenceStart = 0;
         }
-        if (speaking) semanticTurn?.setSpeaking(level > exitAt);
+
+        const captureSpeaking = level > (speaking ? exitAt : enterAt);
+        if (captureSpeaking) lastAcousticSpeechAt = now;
+        if (speaking) {
+          if (captureSpeaking) {
+            silenceStart = 0;
+            semanticTurn?.setSpeaking(true);
+          } else {
+            if (!silenceStart) silenceStart = now;
+            // New words can indicate continued speech even at a low audio level.
+            const quietFor = now - Math.max(silenceStart, lastTranscriptChangeAt);
+            semanticTurn?.setSpeaking(quietFor < SEMANTIC_QUIET_MS);
+            if (quietFor >= VAD_SILENCE_MS) {
+              stopRecorder();
+              return;
+            }
+          }
+        }
 
         // Silent recordings are renewed without a user turn; the call stays
         // ready while the user thinks, with bounded backup audio in memory.
@@ -618,9 +622,11 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
           }
         },
         onUtteranceEnd: () => {
-          // Provider speech endpoints also recover turns when the local VAD
-          // cannot separate speech from room noise. Semantic checks cannot veto.
-          if (active && liveInput === live && state === "listening") stopRecorder();
+          // A delayed endpoint may describe an earlier pause rather than the latest speech.
+          const quietFor = performance.now() - lastAcousticSpeechAt;
+          if (active && liveInput === live && state === "listening" && quietFor >= SEMANTIC_QUIET_MS) {
+            stopRecorder();
+          }
         },
         onError: error => {
           if (!active || liveInput !== live || error.name === "AbortError") return;
@@ -687,7 +693,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
     const took = recordStartedAt ? performance.now() - recordStartedAt : 0;
     recordStartedAt = 0;
-    if (!recorder?.liveResult && (!audioChunks.length || took < VAD_SILENCE_MS)) {
+    if (!recorder?.liveResult && (!audioChunks.length || took < MIN_RECORDING_MS)) {
       audioChunks = [];
       afterSpeaking();
       return;
