@@ -15,6 +15,8 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- WhatsApp Bmo defaults to casual, direct replies. Simple questions usually
+  get one to three sentences, with room for details or steps when needed.
 - Customize ships Caveman, No AI Slop, and Humanizer as read-only built-in
   Markdown skills. Migration `0010_builtin_skills.sql` saves explicit
   per-account opt-ins. Enabled skills remain per-message selections.
