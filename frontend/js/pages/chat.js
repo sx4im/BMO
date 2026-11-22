@@ -16,8 +16,8 @@ import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=3
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=69";
 import * as api from "../api.js?v=71";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=46";
-import { MessageFeed } from "../chat/message-feed.js?v=52";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=48";
+import { MessageFeed } from "../chat/message-feed.js?v=53";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=17";
 import {
   detectExportIntent,
@@ -640,7 +640,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     getAuthToken: () => auth.token,
   });
 
-  page.append(header, messageFeed.element, composer.element, ...composer.dropdownElements);
+  page.append(header, messageFeed.element, composer.element, composer.modelDropdown);
   host.append(page);
   messageFeed.mountScrollFollower(); // permanent pin/free-scroll + jump button
 
@@ -1003,7 +1003,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
           skill_ids: skills.map(skill => skill.id),
           model: activeModel,
           system_prompt: [conversation?.system_prompt, systemPrompt].filter(Boolean).join("\n\n") || undefined,
-          reasoning_effort: reasoningEffort || composer.getReasoningEffort(activeModel),
+          reasoning_effort: activeModel === "deep" ? "medium" : reasoningEffort ?? null,
           auto_search: autoSearch,
           incognito,
         },
@@ -1209,7 +1209,6 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
         text: message.content,
         attachments: message.attachments || [],
         model: composer.currentModel,
-        reasoningEffort: composer.getReasoningEffort(),
         autoSearch: composer.autoSearch,
       });
     }
@@ -1236,7 +1235,6 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
         text: userMsg.content,
         attachments: userMsg.attachments || [],
         model: composer.currentModel,
-        reasoningEffort: composer.getReasoningEffort(),
         autoSearch: composer.autoSearch,
       });
     }

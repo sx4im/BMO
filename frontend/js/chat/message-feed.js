@@ -14,6 +14,7 @@
  */
 
 import { el, clear } from "../utils.js?v=30";
+import { icon } from "../icons.js?v=73";
 import { readingOrb } from "../components/orb.js?v=3";
 import { searchCard } from "../components/search-card.js?v=4";
 import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=35";
@@ -36,41 +37,21 @@ export function emptyStreamView({ incognito, user, template } = {}) {
   ]);
 }
 
-// Paced to Iris 2.0's usual ~8s render; the last stage holds until it lands.
-const IMAGE_GEN_STAGES = [
-  [0, "Reading your prompt"],
-  [1800, "Sketching the scene"],
-  [4200, "Adding detail"],
-  [7000, "Finishing touches"],
-];
-
 export function imageGeneratingNode() {
-  const stageText = el("span", { class: "status-text image-gen-stage", text: IMAGE_GEN_STAGES[0][1] });
-  const node = el("article", { class: "message assistant searching" }, [
+  return el("article", { class: "message assistant searching" }, [
     el("div", { class: "body" }, [
       el("div", { class: "meta", role: "status" }, [
         el("span", { class: "author", text: "Bmo" }),
         el("span", { text: "·" }),
-        stageText,
+        el("span", { class: "status-text", text: "Generating image…" }),
       ]),
-      el("div", { class: "image-gen-placeholder", "aria-hidden": "true" }, [
-        el("span", { class: "image-gen-field" }),
-        el("span", { class: "image-gen-grain" }),
-        el("span", { class: "image-gen-pass" }),
-      ]),
+      el("div", {
+        class: "image-gen-placeholder",
+        "aria-hidden": "true",
+        html: icon("image", { width: 28, height: 28 }),
+      }),
     ]),
   ]);
-
-  for (const [delay, text] of IMAGE_GEN_STAGES.slice(1)) {
-    setTimeout(() => {
-      if (!node.isConnected) return;
-      stageText.classList.remove("swap");
-      void stageText.offsetWidth;
-      stageText.textContent = text;
-      stageText.classList.add("swap");
-    }, delay);
-  }
-  return node;
 }
 
 // Status row for a pasted link being fetched. A web search gets the richer

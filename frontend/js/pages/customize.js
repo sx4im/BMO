@@ -147,17 +147,15 @@ export async function renderCustomize(_params, { signal } = {}) {
     }
     uploadName.textContent = file.name;
     uploadName.title = file.name;
+    uploadTrack.setAttribute("aria-label", `Upload progress for ${file.name}`);
     progress.hidden = false;
     function updateProgress(fraction) {
       if (!isCurrent()) return;
       const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
       const checking = fraction >= 1;
       uploadStage.textContent = checking ? "Checking skill…" : `Uploading ${percent}%`;
-      uploadTrack.classList.toggle("processing", checking);
-      uploadTrack.setAttribute("aria-label", `${checking ? "Checking" : "Uploading"} ${file.name}`);
-      if (checking) uploadTrack.removeAttribute("aria-valuenow");
-      else uploadTrack.setAttribute("aria-valuenow", String(percent));
-      uploadFill.style.width = checking ? "35%" : `${percent}%`;
+      uploadTrack.setAttribute("aria-valuenow", String(percent));
+      uploadFill.style.width = `${percent}%`;
     }
     updateProgress(0);
     upload.disabled = true;

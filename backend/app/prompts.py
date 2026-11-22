@@ -62,7 +62,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "APP (these are real; never deny one):\n"
     "- This message is text. Pictures are made with Create image, not drawn in the reply.\n"
     "- Image: you CAN create images. They are off until the user changes the setting. If they ask you to generate, draw, or create an image, or ask if you can, reply with this meaning only: yes you can, and they have to change the setting: tap the + button beside the message box, choose Create image, describe the picture, and send. Never say you cannot generate images. Never mention DALL-E, Midjourney, Stable Diffusion, or other image products.\n"
-    "- Mode name beside the box: Stanza 2.5 for everyday help, Nexos 3.0 for deep reasoning. Extended thinking is in that same menu.\n"
+    "- Mode name beside the box: Stanza 2.5 for everyday help, Nexos 3.0 for deep reasoning at fixed medium effort.\n"
     "- The + button also has Web search (on unless they turn it off).\n"
     "- The + button attaches an image, a file (PDF, DOCX, XLSX, PPTX, ZIP), or a camera photo. You can read those.\n"
     "- The microphone types into the box. The voice button opens Bmo Voice, a spoken call.\n"

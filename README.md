@@ -34,7 +34,7 @@ The frontend runs directly in the browser with HTML, CSS, and ES modules. The Fl
 
 - **Passwordless authentication**: Sign in with Google through Supabase OAuth. Tokens are verified using ES256 JWTs against project JWKS keys.
 - **Live streaming**: Responses stream using Server-Sent Events with inline Markdown, syntax-highlighted code blocks, and KaTeX rendering.
-- **Model routing**: Switch between all-round help (Stanza 2.5, Mistral), deep reasoning with optional extended thinking (Nexos 3.0, Groq), and image generation (Iris 2.0, FLUX).
+- **Model routing**: Switch between all-round help (Stanza 2.5, Mistral), deep reasoning at fixed medium effort (Nexos 3.0, Groq), and image generation (Iris 2.0, FLUX).
 - **Projects and Customize**: Group chats with project instructions and knowledge files, set global instructions, and add text-only skills with `@` mentions in the composer.
 - **Sharing and export**: Share a read-only snapshot of a chat, branch a conversation, pin chats, and export answers to DOCX or PDF.
 - **WhatsApp**: Chat with Bmo (Aeon on Groq Qwen) through the Meta WhatsApp Cloud API.

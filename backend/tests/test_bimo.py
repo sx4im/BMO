@@ -1106,18 +1106,19 @@ def test_chat_default_reasoning_efforts(client, monkeypatch):
     assert captured_kwargs.get("reasoning_effort") == "low"
     assert captured_kwargs.get("thinking") is True
 
-    # 2. Nexos default reasoning effort is 'low'
-    resp = client.post(
-        "/chat",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"conversation_id": "c_2", "message": "explain gravity", "model": "deep"},
-    )
-    assert resp.status_code == 200
-    list(resp.response)
-    assert captured_kwargs.get("reasoning_effort") == "low"
-    assert captured_kwargs.get("thinking") is True
+    # Nexos uses medium even if an older client sends another effort.
+    for requested_effort in ({}, {"reasoning_effort": "low"}, {"reasoning_effort": "high"}):
+        resp = client.post(
+            "/chat",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"conversation_id": "c_2", "message": "explain gravity", "model": "deep", **requested_effort},
+        )
+        assert resp.status_code == 200
+        list(resp.response)
+        assert captured_kwargs.get("reasoning_effort") == "medium"
+        assert captured_kwargs.get("thinking") is True
 
-    # 3. Extended thinking sets reasoning effort to 'high' for both
+    # Stanza still accepts an explicit effort.
     resp = client.post(
         "/chat",
         headers={"Authorization": f"Bearer {token}"},
@@ -1127,16 +1128,7 @@ def test_chat_default_reasoning_efforts(client, monkeypatch):
     list(resp.response)
     assert captured_kwargs.get("reasoning_effort") == "high"
 
-    resp = client.post(
-        "/chat",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"conversation_id": "c_2", "message": "explain gravity", "model": "deep", "reasoning_effort": "high"},
-    )
-    assert resp.status_code == 200
-    list(resp.response)
-    assert captured_kwargs.get("reasoning_effort") == "high"
-
-    # 4. Voice assistant / client passing 'off' or 'none' is accepted and normalized
+    # Voice assistant clients can still disable reasoning.
     resp = client.post(
         "/chat",
         headers={"Authorization": f"Bearer {token}"},

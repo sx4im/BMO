@@ -1,6 +1,6 @@
 # BMO project context
 
-Updated 2026-11-21. Use this as an entry point; confirm implementation details
+Updated 2026-11-22. Use this as an entry point; confirm implementation details
 through Graft and the current source before editing.
 
 ## Architecture and deployment
@@ -15,6 +15,22 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- The Impeccable cleanup removes unused pulsing dots, colored shadows, and
+  decorative loading effects. Iris shows a static image tile with a live
+  generating status. Skill uploads fill to 100% before showing the
+  validation status, and the CSS voice fallback uses a single gradient.
+  The frontend entry page scan passed with no suppressions. Chromium
+  checked the image loading and download flow at desktop and mobile widths
+  with simulated image output. All 240 frontend and 632 backend tests passed.
+- The desktop compact chat composer centers its placeholder line in the
+  36px input alongside the controls. In an active chat it stays compact on
+  focus and while a draft fits beside the controls, then expands for
+  multiline drafts, attachments, or skill chips. The model and action
+  columns keep the fit measurement stable while the editor is expanded.
+  Chromium verified the width threshold, resizing, URL highlighting, image
+  upload and removal, the expanded new-chat composer, and mobile text growth.
+- The dark composer uses a `#333333` surface and brighter placeholders
+  for both the greeting and active chats.
 - A chat open in the browser queues one message when the browser reports it
   is offline. The message shows its status under the bubble and sends once
   on reconnection. Stop cancels a queued turn. Unconfirmed writes are kept
@@ -28,7 +44,10 @@ through Graft and the current source before editing.
   its precise cause unconfirmed.
 - Nexos 3.0 (`deep`) now uses Groq `openai/gpt-oss-120b`. It retains
   streamed reasoning, bounded continuation, and the existing first-output
-  fallback to Stanza. `GROQ_NEXOS_MODEL` sets the upstream model.
+  fallback to Stanza. The chat route pins reasoning effort to `medium`,
+  including requests from older clients. The composer model menu selects
+  models with a 30px-tall, rounded rectangular button. `GROQ_NEXOS_MODEL`
+  sets the upstream model.
 - Chat attachment turns and background image descriptions use Mistral
   `ministral-8b-2512` via `MISTRAL_VISION_MODEL`. Existing file extraction,
   PDF page rendering and batching, and saved attachment context are reused.

@@ -63,13 +63,6 @@ function highlightUrlsInText(text) {
   return result;
 }
 
-export const REASONING_EFFORT_OPTIONS = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "max", label: "Max" },
-];
-
 export const DEFAULT_AVAILABLE_MODELS = [
   { id: "thinking", label: "Stanza 2.5", description: "All-round help" },
   { id: "deep", label: "Nexos 3.0", description: "Deep reasoning", note: "This may take longer than usual." },
@@ -133,8 +126,6 @@ export class Composer {
     this.availableModels = DEFAULT_AVAILABLE_MODELS;
     this.currentModel = "thinking";
     this.defaultModel = "thinking";
-    this.extendedThinking = localStorage.getItem("bimo-extended-thinking") === "1";
-    this.reasoningEffort = this.getReasoningEffort();
     // Web search is on by default and autonomous: Bmo decides per turn
     // whether a question actually needs live results. Switching it off opts
     // the conversation out of searching entirely.
@@ -143,15 +134,12 @@ export class Composer {
     this.isImageGenerating = false;
     this.isRecording = false;
     this.hasMessages = false;
-    this.isEditing = false;
-    this._pressing = false;
     this._heightTimer = null;
     this._heightTransitionToken = 0;
 
 
     // Menus open state
     this.modelDropdownOpen = false;
-    this.effortDropdownOpen = false;
 
     // Voice recording state
     this.dictation = null;
@@ -181,22 +169,6 @@ export class Composer {
       el("span", { class: "caret", html: icon("chevronDown", { width: 14, height: 14 }) }),
     ]);
     this.modelBadgeWrap = el("div", { class: "model-badge-wrap" }, [this.modelBadge]);
-
-    // Effort badge & dropdown
-    this.effortBadgeLabel = el("span", { class: "effort-label", text: REASONING_EFFORT_OPTIONS.find((o) => o.value === this.reasoningEffort)?.label || "Medium" });
-    this.effortDropdown = el("div", { class: "effort-dropdown", role: "listbox", "aria-label": "Select reasoning effort" });
-    this.effortBadge = el("button", {
-      type: "button",
-      class: "effort-badge",
-      title: "Reasoning effort",
-      "aria-haspopup": "listbox",
-      "aria-expanded": "false",
-      onclick: () => this.effortDropdownOpen ? this.closeEffortDropdown() : this.openEffortDropdown(),
-    }, [
-      this.effortBadgeLabel,
-      el("span", { class: "caret", html: icon("chevronDown", { width: 12, height: 12 }) }),
-    ]);
-    this.effortBadgeWrap = el("div", { class: "effort-badge-wrap", style: "display:none" }, [this.effortBadge]);
 
     // Attachments & file inputs
     this.attachmentsBar = el("div", { class: "composer-attachments" });
@@ -305,7 +277,6 @@ export class Composer {
       placeholder: greetingPlaceholder(),
       "aria-label": "Message",
       oninput: (e) => {
-        this.isEditing = document.activeElement === this.textarea;
         this.autoSize(e.target);
         this.syncSendEnabled();
         this.syncUrlHighlight();
@@ -336,7 +307,6 @@ export class Composer {
         }
         if (!files.length) {
           setTimeout(() => {
-            this.isEditing = true;
             this.autoSize(this.textarea);
             this.syncSendEnabled();
             this.syncUrlHighlight();
@@ -357,10 +327,12 @@ export class Composer {
       this.textarea,
     ]);
     this.inputRow = el("div", { class: "composer-input-row" }, [this.skillPicker.chips, this.inputWrap]);
+    this.lineProbe = el("div", { class: "composer-line-probe", "aria-hidden": "true" });
     if (typeof ResizeObserver !== "undefined") {
       this.skillLayoutObserver = new ResizeObserver(() => this.syncSkillLayout());
       this.skillLayoutObserver.observe(this.inputRow);
       this.skillLayoutObserver.observe(this.skillPicker.chips);
+      this.skillLayoutObserver.observe(this.lineProbe);
     }
 
     this.sendBtn = el("button", {
@@ -391,7 +363,6 @@ export class Composer {
       el("div", { class: "composer-toolbar-left" }, [this.attachWrap]),
       el("div", { class: "composer-toolbar-actions" }, [
         this.modelBadgeWrap,
-        this.effortBadgeWrap,
         this.voiceBtn,
         this.voiceAssistantBtn,
         this.sendBtn,
@@ -403,47 +374,17 @@ export class Composer {
       this.skillPicker.preview,
       this.attachmentsBar,
       this.inputRow,
+      this.lineProbe,
       this.composerToolbar,
     ]);
 
-    this.composerBox.addEventListener("pointerdown", () => {
-      this._pressing = true;
-    });
-    this.composerBox.addEventListener("focusin", (e) => {
-      if (e.target === this.textarea) {
-        this.isEditing = true;
-        this.syncCompactState();
-      }
-    });
-    this.composerBox.addEventListener("focusout", (e) => {
-      const next = e.relatedTarget;
-      if (this._pressing || (next && (this.composerBox.contains(next) || this.modelDropdown.contains(next) || this.effortDropdown.contains(next)))) {
-        return;
-      }
-      Promise.resolve().then(() => {
-        const active = document.activeElement;
-        if (
-          this._pressing ||
-          this.modelDropdownOpen ||
-          this.effortDropdownOpen ||
-          this.attachmentMenu?.classList.contains("open") ||
-          (active && (this.composerBox.contains(active) || this.modelDropdown.contains(active) || this.effortDropdown.contains(active)))
-        ) {
-          return;
-        }
-        this.isEditing = false;
-        this.syncCompactState();
-      });
-    });
     this.composerBox.addEventListener("click", (e) => {
       if (e.target.closest("button, a, [role='menu'], [role='menuitem'], [role='option'], .composer-skill-chips, .skill-popup, .skill-description-preview, .composer-attachments")) {
         return;
       }
-      this.isEditing = true;
       if (document.activeElement !== this.textarea) {
         this.textarea.focus();
       }
-      this.syncCompactState();
     });
 
     this.composerBox.addEventListener("dragover", (e) => {
@@ -474,7 +415,6 @@ export class Composer {
         }
         if (!text && this.pendingAttachments.length === 0) return;
         this.textarea.value = "";
-        this.isEditing = false;
         this.skillPicker.close();
         this.autoSize(this.textarea);
         this.syncSendEnabled();
@@ -483,7 +423,6 @@ export class Composer {
           text,
           attachments: this.pendingAttachments.slice(),
           model: this.currentModel,
-          reasoningEffort: this.getReasoningEffort(),
           autoSearch: this.autoSearch,
           skills: this.skillPicker.selected,
         });
@@ -506,32 +445,21 @@ export class Composer {
     return this.composerWrap;
   }
 
-  get dropdownElements() {
-    return [this.modelDropdown, this.effortDropdown];
-  }
-
   isImageMode() {
     return this.currentModel === "image";
   }
 
-  getReasoningEffort(model = this.currentModel) {
-    if (model !== "deep") return null;
-    if (this.extendedThinking) {
-      return "high";
-    }
-    return "low";
-  }
-
   _isCompact() {
-    return Boolean(
-      this.hasMessages &&
-      !this.isEditing &&
-      !this.isRecording &&
-      !this.textarea.value.length &&
-      !this.pendingAttachments.length &&
-      !this.uploadingFiles.length &&
-      !this.skillPicker?.selectedIds?.length
-    );
+    if (!this.hasMessages || this.isRecording || this.pendingAttachments.length ||
+        this.uploadingFiles.length || this.skillPicker.selectedIds.length ||
+        window.matchMedia?.("(min-width: 769px)")?.matches === false) {
+      return false;
+    }
+    const draft = this.textarea.value;
+    if (draft.includes("\n")) return false;
+    // This element keeps the compact input width even when the editor spans the full row.
+    if (this.lineProbe.textContent !== draft) this.lineProbe.textContent = draft;
+    return this.lineProbe.scrollWidth <= this.lineProbe.clientWidth;
   }
 
   _clearHeightTransition() {
@@ -550,6 +478,7 @@ export class Composer {
 
   setConversationActive(active) {
     this.hasMessages = Boolean(active);
+    this.composer.classList.toggle("has-messages", this.hasMessages);
     this.updateComposerForMode();
     this.syncCompactState();
   }
@@ -662,9 +591,7 @@ export class Composer {
   }
 
   focus() {
-    this.isEditing = true;
     this.textarea.focus();
-    this.syncCompactState();
   }
 
   positionAttachMenu() {
@@ -795,36 +722,6 @@ export class Composer {
       ]);
       this.modelDropdown.append(item);
     }
-
-    if (this.currentModel !== "deep") return;
-
-    this.modelDropdown.append(el("div", { class: "model-dropdown-divider" }));
-
-    const extendedActive = Boolean(this.extendedThinking);
-    const extendedItem = el("button", {
-      type: "button",
-      class: `model-dropdown-item extended-thinking-item${extendedActive ? " active" : ""}`,
-      role: "checkbox",
-      "aria-checked": extendedActive ? "true" : "false",
-      onclick: (e) => {
-        e.stopPropagation();
-        this.toggleExtendedThinking();
-      },
-    }, [
-      el("span", { class: "menu-text" }, [
-        el("span", { class: "menu-title", text: "Extended thinking" }),
-        el("span", { class: "menu-sub", text: "Complex problem solving" }),
-      ]),
-    ]);
-    this.modelDropdown.append(extendedItem);
-  }
-
-  toggleExtendedThinking() {
-    this.extendedThinking = !this.extendedThinking;
-    localStorage.setItem("bimo-extended-thinking", this.extendedThinking ? "1" : "0");
-    this.reasoningEffort = this.getReasoningEffort();
-    this.closeModelDropdown();
-    this.renderModelBadge();
   }
 
   positionModelDropdown() {
@@ -863,17 +760,12 @@ export class Composer {
     this.modelDropdownOpen = false;
     this.modelDropdown.classList.remove("open");
     this.modelBadge.setAttribute("aria-expanded", "false");
-    if (document.activeElement !== this.textarea) {
-      this.isEditing = false;
-      this.syncCompactState();
-    }
   }
 
   selectModelFromDropdown(picked) {
     this.closeModelDropdown();
     if (!picked) return;
     this.currentModel = picked;
-    this.reasoningEffort = this.getReasoningEffort();
     this.renderModelBadge();
     this.renderAttachMenu();
     this.updateComposerForMode();
@@ -881,79 +773,9 @@ export class Composer {
     this.onModelChange?.(picked);
   }
 
-  renderEffortDropdown() {
-    clear(this.effortDropdown);
-    for (const opt of REASONING_EFFORT_OPTIONS) {
-      const active = opt.value === this.reasoningEffort;
-      const item = el("button", {
-        type: "button",
-        class: `effort-dropdown-item${active ? " active" : ""}`,
-        role: "option",
-        "aria-selected": active ? "true" : "false",
-        onclick: () => this.selectEffortFromDropdown(opt.value),
-      }, [
-        el("span", { class: "menu-text" }, [
-          el("span", { class: "menu-title", text: opt.label }),
-        ]),
-      ]);
-      this.effortDropdown.append(item);
-    }
-  }
-
-  positionEffortDropdown() {
-    const rect = this.effortBadge.getBoundingClientRect();
-    const margin = 8;
-    const width = Math.min(180, window.innerWidth - margin * 2);
-    let left = rect.left;
-    const maxLeft = window.innerWidth - width - margin;
-    if (left > maxLeft) left = Math.max(margin, maxLeft);
-    const isPageEmpty = document.querySelector(".chat-page.is-empty") !== null;
-    const isMobile = window.innerWidth <= 768;
-    const openDown = isPageEmpty && !isMobile;
-    if (openDown) {
-      this.effortDropdown.style.top = `${rect.bottom + 8}px`;
-      this.effortDropdown.style.bottom = "auto";
-    } else {
-      this.effortDropdown.style.bottom = `${window.innerHeight - rect.top + 8}px`;
-      this.effortDropdown.style.top = "auto";
-    }
-    this.effortDropdown.style.left = `${left}px`;
-    this.effortDropdown.style.right = "auto";
-    this.effortDropdown.style.width = `${width}px`;
-    this.effortDropdown.style.minWidth = "auto";
-  }
-
-  openEffortDropdown() {
-    if (this.isGenerating) return;
-    this.effortDropdownOpen = true;
-    this.renderEffortDropdown();
-    this.positionEffortDropdown();
-    this.effortDropdown.classList.add("open");
-    this.effortBadge.setAttribute("aria-expanded", "true");
-  }
-
-  closeEffortDropdown() {
-    this.effortDropdownOpen = false;
-    this.effortDropdown.classList.remove("open");
-    this.effortBadge.setAttribute("aria-expanded", "false");
-    if (document.activeElement !== this.textarea) {
-      this.isEditing = false;
-      this.syncCompactState();
-    }
-  }
-
-  selectEffortFromDropdown(value) {
-    this.closeEffortDropdown();
-    this.reasoningEffort = value;
-    localStorage.setItem("bimo-reasoning-effort", value);
-    const label = REASONING_EFFORT_OPTIONS.find((o) => o.value === value)?.label || value;
-    this.effortBadgeLabel.textContent = label;
-  }
-
   renderModelBadge(incognito = false) {
     if (incognito) {
       this.modelBadgeWrap.style.display = "none";
-      this.effortBadgeWrap.style.display = "none";
       return;
     }
     this.modelBadgeWrap.style.display = "";
@@ -963,7 +785,6 @@ export class Composer {
       const m = this.availableModels.find((x) => x.id === this.currentModel);
       this.modelBadgeLabel.textContent = m ? m.label : "Stanza 2.5";
     }
-    this.effortBadgeWrap.style.display = "none";
   }
 
   renderAttachmentsBar() {
@@ -1378,27 +1199,8 @@ export class Composer {
   _attachGlobalListeners() {
     this._onDocClick = (e) => {
       if (!this.attachWrap.contains(e.target)) this.toggleAttachMenu(false);
-      if (document.activeElement !== this.textarea && !this.modelDropdownOpen && !this.effortDropdownOpen &&
-          !this.attachmentMenu.classList.contains("open")) {
-        this.isEditing = false;
-        this.syncCompactState();
-      }
     };
     document.addEventListener("click", this._onDocClick);
-
-    this._onDocPointerEnd = () => {
-      if (!this._pressing) return;
-      setTimeout(() => {
-        this._pressing = false;
-        if (document.activeElement !== this.textarea && !this.modelDropdownOpen && !this.effortDropdownOpen &&
-            !this.attachmentMenu.classList.contains("open")) {
-          this.isEditing = false;
-          this.syncCompactState();
-        }
-      }, 0);
-    };
-    document.addEventListener("pointerup", this._onDocPointerEnd, true);
-    document.addEventListener("pointercancel", this._onDocPointerEnd, true);
 
     this._onGlobalPaste = (e) => {
       if (document.activeElement === this.textarea) return;
@@ -1421,9 +1223,6 @@ export class Composer {
       if (this.modelDropdownOpen && !this.modelBadge.contains(e.target) && !this.modelDropdown.contains(e.target)) {
         this.closeModelDropdown();
       }
-      if (this.effortDropdownOpen && !this.effortBadge.contains(e.target) && !this.effortDropdown.contains(e.target)) {
-        this.closeEffortDropdown();
-      }
     };
     document.addEventListener("pointerdown", this._onPointerDown, true);
   }
@@ -1436,8 +1235,6 @@ export class Composer {
     this.stopWaveMeter();
     this.discardRecording();
     document.removeEventListener("click", this._onDocClick);
-    document.removeEventListener("pointerup", this._onDocPointerEnd, true);
-    document.removeEventListener("pointercancel", this._onDocPointerEnd, true);
     document.removeEventListener("paste", this._onGlobalPaste);
     document.removeEventListener("pointerdown", this._onPointerDown, true);
   }

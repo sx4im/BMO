@@ -166,15 +166,9 @@
   background: var(--canvas);
 }
 
-/* NOTE: .composer-box deliberately NOT in this group — its background is
-   var(--input-bar) (#20201f, one step above the canvas, like claude.ai).
-   Putting it here silently flattened the composer onto the page bg. */
-
-
 /* Opaque floaters — must cover the content behind them. */
 :root[data-theme="dark"] .model-dropdown,
 :root[data-theme="dark"] .attachment-menu,
-:root[data-theme="dark"] .effort-dropdown,
 :root[data-theme="dark"] .sidebar-convo-menu,
 :root[data-theme="dark"] .chat-topbar-menu,
 :root[data-theme="dark"] .doc-card-dl-menu,
@@ -1433,7 +1427,6 @@ body:has(.app-shell),
   height: 6px;
   border-radius: 999px;
   background: var(--accent-teal);
-  box-shadow: 0 0 8px var(--accent-teal);
 }
 
 .preview-grid {
@@ -3748,29 +3741,6 @@ button:hover .icon-dislike,
   font-variant-numeric: tabular-nums;
 }
 
-.chat-topbar .model-badge .pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--success);
-  box-shadow: 0 0 0 0 rgba(93, 184, 114, 0.55);
-  animation: badge-pulse 2.2s ease-out infinite;
-}
-
-@keyframes badge-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(93, 184, 114, 0.55);
-  }
-
-  70% {
-    box-shadow: 0 0 0 6px rgba(93, 184, 114, 0);
-  }
-
-  100% {
-    box-shadow: 0 0 0 0 rgba(93, 184, 114, 0);
-  }
-}
-
 .chat-topbar .sep {
   width: 3px;
   height: 3px;
@@ -4466,72 +4436,6 @@ button:hover .icon-dislike,
 }
 
 
-.typing {
-  display: flex;
-  gap: 14px;
-  align-items: flex-end;
-}
-
-.typing .avatar.bot {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  color: var(--ink);
-  background: var(--surface-card);
-  border: 1px solid var(--hairline);
-  flex-shrink: 0;
-}
-
-.typing .avatar.bot svg {
-  width: 20px;
-  height: 20px;
-}
-
-.typing .bubble {
-  padding: 14px 18px;
-  border-radius: var(--r-lg);
-  border-top-left-radius: 4px;
-  background: var(--surface-card);
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--muted);
-}
-
-.typing .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentColor;
-  animation: typing 1.2s infinite ease-in-out;
-}
-
-.typing .dot:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.typing .dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes typing {
-
-  0%,
-  60%,
-  100% {
-    opacity: 0.3;
-    transform: translateY(0);
-  }
-
-  30% {
-    opacity: 1;
-    transform: translateY(-3px);
-  }
-}
-
-
 .file-name {
   font-family: var(--font-sans);
   font-size: 13px;
@@ -4692,46 +4596,86 @@ body:has(.chat-page.is-empty) .attachment-menu,
   transition: border-color 180ms ease;
 }
 
+:root[data-theme="dark"] .composer-box {
+  background-color: #333333;
+}
+
 .composer-box.is-resizing {
   overflow: hidden;
 }
 
+.composer-line-probe {
+  display: none;
+}
+
 @media (min-width: 769px) {
-  .composer.is-compact .composer-box {
-    flex-direction: row;
+  .composer.has-messages .composer-box {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "files files files"
+      "input input input"
+      "attach measure actions";
     align-items: center;
-    justify-content: flex-start;
-    gap: 4px;
+    gap: 0 4px;
+    padding-inline: 6px;
+  }
+
+  .composer.is-compact .composer-box {
+    grid-template-areas: "attach input actions";
     block-size: 50px;
     padding: 6px 6px;
     cursor: text;
   }
 
-  .composer.is-compact .composer-toolbar {
+  .composer.has-messages .composer-toolbar {
     display: contents;
   }
 
-  .composer.is-compact .composer-toolbar-left {
-    order: 1;
+  .composer.has-messages .composer-toolbar-left {
+    grid-area: attach;
   }
 
-  .composer.is-compact .composer-input-row {
-    order: 2;
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-  }
-
-  .composer.is-compact .composer-toolbar-actions {
-    order: 3;
-    flex-shrink: 0;
+  .composer.has-messages .composer-toolbar-actions {
+    grid-area: actions;
     gap: 2px;
   }
 
-  .composer.is-compact .composer-attach,
-  .composer.is-compact .composer-voice,
-  .composer.is-compact .voice-assistant-btn {
+  .composer.has-messages .composer-attachments {
+    grid-area: files;
+    width: auto;
+    margin: 0 8px 4px;
+  }
+
+  .composer.has-messages .composer-input-row {
+    grid-area: input;
+    min-width: 0;
+    margin: 0 8px 4px;
+  }
+
+  .composer.is-compact .composer-input-row {
+    margin: 0;
+  }
+
+  .composer.has-messages .composer-line-probe {
+    grid-area: measure;
+    display: block;
+    height: 0;
+    min-width: 0;
+    padding-inline: 4px;
+    font: 400 15px var(--font-sans);
+    white-space: pre;
+    overflow: hidden;
+    visibility: hidden;
+  }
+
+  .composer.is-compact .composer-line-probe {
+    grid-area: input;
+  }
+
+  .composer.has-messages .composer-attach,
+  .composer.has-messages .composer-voice,
+  .composer.has-messages .voice-assistant-btn {
     width: 36px;
     height: 36px;
     border-radius: 10px;
@@ -4740,9 +4684,14 @@ body:has(.chat-page.is-empty) .attachment-menu,
   .composer.is-compact textarea {
     height: 36px;
     min-height: 36px;
-    padding: 6px 4px;
+  }
+
+  .composer.is-compact textarea,
+  .composer.is-compact .composer-backdrop {
+    line-height: 36px;
+    padding: 0 4px;
     overflow: hidden;
-    white-space: nowrap;
+    white-space: pre;
     text-overflow: ellipsis;
   }
 }
@@ -4915,6 +4864,11 @@ body:has(.chat-page.is-empty) .attachment-menu,
   color: var(--muted-soft);
 }
 
+:root[data-theme="dark"] .composer textarea::placeholder {
+  color: var(--body);
+  opacity: 1;
+}
+
 .composer .send {
   width: 32px;
   height: 32px;
@@ -5019,113 +4973,16 @@ body:has(.chat-page.is-empty) .attachment-menu,
    ============================================================= */
 .image-gen-placeholder {
   margin-top: 6px;
-  /* Absolute width (not a %) — the message body is a shrink-wrapped flex column,
-     so a percentage width would collapse the box. Matches the generated image
-     size so the layout doesn't jump when the result arrives. */
+  /* Keep the generated image's width while the feed is waiting for it. */
   width: 220px;
   max-width: 100%;
   aspect-ratio: 1 / 1;
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   background: var(--surface-soft);
-}
-
-/* A slow-turning colour field comes into focus while the grain over it thins
-   out, so the box reads as an image being denoised. */
-.image-gen-field {
-  position: absolute;
-  inset: -40%;
-  background:
-    radial-gradient(circle at 32% 30%, var(--primary) 0, transparent 42%),
-    radial-gradient(circle at 70% 68%, var(--accent-teal) 0, transparent 44%),
-    radial-gradient(circle at 66% 28%, var(--accent-amber) 0, transparent 36%);
-  filter: blur(26px);
-  opacity: 0.18;
-  animation:
-    image-gen-turn 14s linear infinite,
-    image-gen-focus 9s cubic-bezier(0.3, 0, 0.2, 1) forwards;
-}
-
-@keyframes image-gen-turn {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes image-gen-focus {
-  to { opacity: 0.75; }
-}
-
-.image-gen-grain {
-  position: absolute;
-  inset: -50%;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='2.2' intercept='-.6'/%3E%3CfeFuncG type='linear' slope='2.2' intercept='-.6'/%3E%3CfeFuncB type='linear' slope='2.2' intercept='-.6'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 140px 140px;
-  mix-blend-mode: overlay;
-  opacity: 1;
-  animation:
-    image-gen-grain 0.6s steps(4) infinite,
-    image-gen-denoise 9s cubic-bezier(0.3, 0, 0.2, 1) forwards;
-}
-
-@keyframes image-gen-grain {
-  0% { transform: translate(0, 0); }
-  25% { transform: translate(-6%, 4%); }
-  50% { transform: translate(5%, -5%); }
-  75% { transform: translate(-3%, -7%); }
-  100% { transform: translate(6%, 5%); }
-}
-
-@keyframes image-gen-denoise {
-  to { opacity: 0.18; }
-}
-
-/* A soft light sweep, left to right. */
-.image-gen-pass {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 60%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  animation: image-gen-pass 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-
-@keyframes image-gen-pass {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(170%); }
-}
-
-@keyframes image-gen-shimmer {
-  from {
-    background-position: 180% 0;
-  }
-
-  to {
-    background-position: -80% 0;
-  }
-}
-
-.message .meta .image-gen-stage {
-  display: inline-block;
-  color: transparent;
-  background: linear-gradient(90deg, var(--muted) 35%, var(--ink) 50%, var(--muted) 65%);
-  background-size: 250% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: image-gen-text 2.2s linear infinite;
-}
-
-.message .meta .image-gen-stage.swap {
-  animation: image-gen-text 2.2s linear infinite, image-gen-stage-in 0.35s ease-out;
-}
-
-@keyframes image-gen-text {
-  from { background-position: 100% 0; }
-  to { background-position: 0% 0; }
-}
-
-@keyframes image-gen-stage-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
+  color: var(--muted);
 }
 
 /* The finished image develops from blur, once, when it first arrives. */
@@ -5182,22 +5039,8 @@ body:has(.chat-page.is-empty) .attachment-menu,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .image-gen-field,
-  .image-gen-grain,
-  .image-gen-pass,
-  .message .meta .image-gen-stage,
-  .message .meta .image-gen-stage.swap,
   .message.entering .generated-image img {
     animation: none;
-  }
-
-  .image-gen-field { opacity: 0.6; }
-  .image-gen-grain { opacity: 0.2; }
-  .image-gen-pass { display: none; }
-
-  .message .meta .image-gen-stage {
-    color: var(--muted);
-    background: none;
   }
 }
 
@@ -8650,7 +8493,7 @@ html {
 .architecture-card:hover,
 .roadmap-card:hover {
   transform: translateY(-6px) scale(1.01) !important;
-  box-shadow: 0 20px 40px -12px rgba(121, 121, 87, 0.15) !important;
+  box-shadow: var(--shadow-card-hover) !important;
   z-index: 2;
 }
 
@@ -9359,9 +9202,9 @@ em {
   appearance: none;
   background: transparent;
   border: none;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-md);
   padding: 5px 11px 5px 12px;
-  height: auto;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -9820,44 +9663,37 @@ em {
 }
 
 .model-dropdown-item.active,
-.attachment-menu-item.active,
-.effort-dropdown-item.active {
+.attachment-menu-item.active {
   background: var(--primary-soft);
 }
 
 .model-dropdown-item.active .menu-title,
-.attachment-menu-item.active .menu-title,
-.effort-dropdown-item.active .menu-title {
+.attachment-menu-item.active .menu-title {
   color: var(--primary);
 }
 
-.model-dropdown-item.active .menu-title,
-.effort-dropdown-item.active .menu-title {
+.model-dropdown-item.active .menu-title {
   font-weight: 600;
 }
 
 :root[data-theme="dark"] .model-dropdown-item.active,
-:root[data-theme="dark"] .attachment-menu-item.active,
-:root[data-theme="dark"] .effort-dropdown-item.active {
+:root[data-theme="dark"] .attachment-menu-item.active {
   background: rgba(217, 119, 87, 0.22);
 }
 
 :root[data-theme="dark"] .model-dropdown-item.active .menu-title,
-:root[data-theme="dark"] .attachment-menu-item.active .menu-title,
-:root[data-theme="dark"] .effort-dropdown-item.active .menu-title {
+:root[data-theme="dark"] .attachment-menu-item.active .menu-title {
   color: #f28b6d;
 }
 
 /* =============================================================
-   Composer dropdown menus — ONE shared anatomy for the model,
-   attachment, and effort menus. Same surface (canvas card,
+   Composer dropdown menus share the same surface (canvas card,
    12px radius, soft shadow) and the same item skeleton:
      [lead icon] · [title + sub] · [check when selected]
    Each menu's own block above only handles positioning.
    ============================================================= */
 .model-dropdown,
-.attachment-menu,
-.effort-dropdown {
+.attachment-menu {
   z-index: 200;
   background: var(--canvas);
   border: 1px solid var(--hairline-strong);
@@ -9873,16 +9709,14 @@ em {
 }
 
 .model-dropdown.open,
-.attachment-menu.open,
-.effort-dropdown.open {
+.attachment-menu.open {
   display: flex;
   opacity: 1;
   transform: translateY(0);
 }
 
 .model-dropdown-item,
-.attachment-menu-item,
-.effort-dropdown-item {
+.attachment-menu-item {
   appearance: none;
   background: transparent;
   border: 0;
@@ -9903,8 +9737,7 @@ em {
 }
 
 .model-dropdown-item:hover,
-.attachment-menu-item:hover,
-.effort-dropdown-item:hover {
+.attachment-menu-item:hover {
   background: var(--surface-soft);
 }
 
@@ -9920,8 +9753,7 @@ em {
 }
 
 .model-dropdown-item.active,
-.attachment-menu-item.active,
-.effort-dropdown-item.active {
+.attachment-menu-item.active {
   background: var(--primary-soft);
 }
 
@@ -10004,52 +9836,6 @@ em {
 :root[data-theme="dark"] .model-tag-new {
   background: rgba(255, 255, 255, 0.12);
   color: #e3e3e3;
-}
-
-/* =============================================================
-   Reasoning effort badge + dropdown (Nexos 2.0 only)
-   ============================================================= */
-
-.effort-badge-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.effort-badge {
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
-  padding: 3px 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--muted);
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.effort-badge:hover {
-  color: var(--ink);
-  border-color: var(--body);
-}
-
-.effort-badge .caret {
-  color: var(--muted);
-  display: inline-flex;
-  flex-shrink: 0;
-}
-
-/* Surface + item styling is shared (see "Composer dropdown menus"). This
-   block only positions the effort menu — top/left/width are set by JS
-   (openEffortDropdown). */
-.effort-dropdown {
-  position: fixed;
-  min-width: 179px;
 }
 
 /* =============================================================
@@ -10437,10 +10223,7 @@ body.voice-open { overflow: hidden; }
 }
 
 .voice-orb-canvas[data-renderer="fallback"] {
-  background:
-    radial-gradient(ellipse at 28% 60%, #fff7ee 0%, #ffe3cddd 18%, transparent 47%),
-    radial-gradient(ellipse at 70% 88%, #f8d7bb 0%, #f0c1a1cc 25%, transparent 57%),
-    linear-gradient(#d97757 20%, #e7a17f 52%, #f5d2b5 90%);
+  background: linear-gradient(#d97757 20%, #e7a17f 52%, #f5d2b5 90%);
 }
 
 .voice-status {
@@ -11992,8 +11775,6 @@ body.voice-open { overflow: hidden; }
 .skill-upload-stage { font-size: 12px; font-variant-numeric: tabular-nums; }
 .skill-upload-track { height: 4px; overflow: hidden; border-radius: 4px; background: var(--hairline); }
 .skill-upload-fill { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width 120ms ease; }
-.skill-upload-track.processing .skill-upload-fill { animation: skill-upload-processing 1.2s ease-in-out infinite; }
-@keyframes skill-upload-processing { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 .skill-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .skill-card .skill-card-actions { gap: 6px; margin-top: auto; padding-top: 18px; }
 .skill-card-actions .btn { font-size: 12px; padding: 7px 12px; }
@@ -12092,5 +11873,4 @@ body.voice-open { overflow: hidden; }
   .skill-toggle span { transition: none; }
   .customize-loading .spinner-blade { animation: none; background-color: var(--muted); opacity: 0.5; }
   .skill-upload-fill { transition: none; }
-  .skill-upload-track.processing .skill-upload-fill { animation: none; transform: none; }
 }

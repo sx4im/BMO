@@ -536,11 +536,10 @@ def chat(user):
     if conversation_is_visual:
         chosen_model = get_vision_model()
 
-    if reasoning_effort is None:
-        if chosen_friendly == "thinking":
-            reasoning_effort = "low"
-        elif chosen_friendly == "deep":
-            reasoning_effort = "low"
+    if chosen_friendly == "deep":
+        reasoning_effort = "medium"
+    elif chosen_friendly == "thinking" and reasoning_effort is None:
+        reasoning_effort = "low"
 
     use_thinking = True
     if chosen_friendly == "aeon":

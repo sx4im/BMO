@@ -328,7 +328,8 @@ test("skill uploads show real progress, preserve inline errors across list loadi
   assert.equal(track.getAttribute("aria-valuenow"), "42");
   assert.equal(doc.querySelector(".skill-upload-fill").style.width, "42%");
   requests[0].progress(1);
-  assert.equal(track.hasAttribute("aria-valuenow"), false);
+  assert.equal(track.getAttribute("aria-valuenow"), "100");
+  assert.equal(doc.querySelector(".skill-upload-fill").style.width, "100%");
   assert.match(doc.querySelector(".skill-upload-stage").textContent, /Checking skill/);
   requests[0].reject(Error("description is required"));
   await new Promise(resolve => setImmediate(resolve));
