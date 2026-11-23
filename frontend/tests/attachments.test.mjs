@@ -19,6 +19,7 @@ async function composerWithUpload(uploadAttachment) {
   const composer = Object.create(Composer.prototype);
   Object.assign(composer, {
     uploadingFiles: [], pendingAttachments: [],
+    activeAttachmentUploads: 0, attachmentUploadQueue: [],
     attachmentOrder: new WeakMap(), nextAttachmentOrder: 0,
     attachmentsBar: dom.window.document.createElement("div"),
     getAuthToken: () => "test", syncSendEnabled() {},
@@ -84,9 +85,14 @@ test("a draft accepts six images across pending selections and keeps document sl
   }));
   const first = composer.uploadFiles(images.slice(0, 4));
   const second = composer.uploadFiles([...images.slice(4), { name: "notes.pdf", size: 20 }]);
-  assert.deepEqual(inFlight.map(({ file }) => file.name), [...images.slice(0, 6).map(file => file.name), "notes.pdf"]);
+  assert.deepEqual(inFlight.map(({ file }) => file.name), images.slice(0, 2).map(file => file.name));
+  assert.equal(composer.uploadingFiles.length, 7);
   assert.deepEqual(notifications, ["You can attach up to 6 images per message"]);
-  inFlight.slice().reverse().forEach(({ finish }) => finish());
+  for (let start = 0; start < 7; start += 2) {
+    assert.equal(inFlight.length, Math.min(start + 2, 7));
+    inFlight.slice(start).reverse().forEach(({ finish }) => finish());
+    await new Promise(setImmediate);
+  }
   await Promise.all([first, second]);
   assert.deepEqual(Array.from(composer.pendingAttachments, a => a.filename),
     [...images.slice(0, 6).map(file => file.name), "notes.pdf"]);
@@ -116,6 +122,21 @@ test("image uploads use a square loading tile and an accessible preview without 
   assert.equal(ready.querySelector("button[aria-label='Preview diagram.png'] img").alt, "diagram.png");
   ready.querySelector("[aria-label='Remove attachment']").click();
   assert.equal(composer.attachmentsBar.childElementCount, 0);
+});
+
+test("canceling a queued image prevents its network upload", async () => {
+  const requests = [];
+  const { composer } = await composerWithUpload((_token, file) => new Promise(resolve => {
+    requests.push({ filename: file.name, resolve });
+  }));
+  const pending = composer.uploadFiles(["one", "two", "three"].map(name => ({
+    name: `${name}.png`, type: "image/png", size: 20,
+  })));
+  composer.attachmentsBar.querySelectorAll("[aria-label='Cancel upload']")[2].click();
+  for (const { filename, resolve } of requests) resolve({ filename });
+  await pending;
+  assert.deepEqual(requests.map(request => request.filename), ["one.png", "two.png"]);
+  assert.equal(composer.uploadingFiles.length, 0);
 });
 
 test("flat icons stay identical in both themes, with safe accessible labels", () => {

@@ -123,6 +123,7 @@ export class StreamHandler {
 
   cancel() {
     const partial = { content: this.streamingText, reasoning: this.streamingReasoning };
+    const retryMessageId = this.run?.retryMessageId;
     const token = this.getAuthToken();
     if (this.currentStreamId && token) {
       api.cancelChat(token, this.currentStreamId).catch(() => {});
@@ -132,7 +133,7 @@ export class StreamHandler {
     }
     this.cleanup();
     if (partial.content.trim() || partial.reasoning.trim()) {
-      this.onError(new DOMException("Response stopped", "AbortError"), partial);
+      this.onError(new DOMException("Response stopped", "AbortError"), partial, retryMessageId);
     }
   }
 
@@ -155,7 +156,7 @@ export class StreamHandler {
     onVoiceStyle,
   }) {
     this.cleanup();
-    const run = {};
+    const run = { retryMessageId: payload.retry_message_id };
     this.run = run;
     const ownsRun = () => this.run === run;
     const controller = new AbortController();
@@ -177,7 +178,7 @@ export class StreamHandler {
       errorReported = true;
       const partial = { content: this.streamingText, reasoning: this.streamingReasoning };
       this.cleanup();
-      this.onError(err, partial);
+      this.onError(err, partial, payload.retry_message_id);
     };
     const firstOutputTimer = setTimeout(() => {
       if (!ownsRun()) return;
@@ -272,13 +273,16 @@ export class StreamHandler {
               msg.reasoning = this.streamingReasoning;
             }
             this.cleanup({ invalidate: false });
-            this.onAssistantMessage(msg);
+            this.onAssistantMessage(msg, payload.retry_message_id);
           },
           onError: reportError,
         }
       );
-      if (ownsRun() && !receivedAssistant && !errorReported && (this.streamingText.trim() || this.streamingReasoning.trim())) {
-        reportError(new Error("The connection closed before saving was confirmed. Keep this page open and copy the answer if needed."));
+      if (ownsRun() && !receivedAssistant && !errorReported) {
+        const hasOutput = this.streamingText.trim() || this.streamingReasoning.trim();
+        reportError(new Error(hasOutput
+          ? "The connection closed before saving was confirmed. Keep this page open and copy the answer if needed."
+          : "The connection closed before Bmo replied. Try again."));
       }
     } catch (err) {
       if (err?.name !== "AbortError") reportError(err);

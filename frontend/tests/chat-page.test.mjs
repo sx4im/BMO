@@ -521,8 +521,8 @@ test("a pending save reconciliation cannot overwrite a branched conversation", a
   t.after(page.unmount); await page.turn("Explain");
   page.app.dom.window.dispatchEvent(new page.app.dom.window.Event("online"));
   await new Promise(setImmediate);
-  const pending = page.rendered().messages.find(m => m.unsaved);
-  await page.feed.callbacks.onRetryAssistantMessage(pending);
+  await page.feed.callbacks.onEditMessage(user);
+  await page.turn("Edited question");
   await new Promise(setImmediate);
   finishRead({ messages: [user, { id: "old-assistant", role: "assistant", content: "Original answer" }] });
   await new Promise(setImmediate);
@@ -557,14 +557,16 @@ test("feedback never sends an unconfirmed local ID when saving is still pending"
   assert.equal(page.feedbackCalls.length,0);assert.match(page.notices.at(-1),/saving/i);
 });
 
-test("retrying an unconfirmed reply branches at its saved question, never its local ID",async t=>{
+test("retrying an unconfirmed reply reuses its saved question, never its local ID",async t=>{
   const page=await chatPage({streamChat:async(_token,_payload,cb)=>{
     cb.onConversation({id:"saved-chat",model:"thinking"});cb.onUserMessage({id:"saved-user",role:"user",content:"Explain"});
     cb.onToken({delta:"Visible answer"});cb.onError(new Error("Saving delayed"));
   }});t.after(page.unmount);await page.turn("Explain");
   await page.feed.callbacks.onRetryAssistantMessage(page.rendered().messages.find(m=>m.unsaved));
   await new Promise(setImmediate);
-  assert.equal(page.branchCalls[0].messageId,"saved-user");assert.equal(page.payloads.length,2);
+  assert.equal(page.branchCalls.length,0);assert.equal(page.payloads.length,2);
+  assert.equal(page.payloads[1].retry_message_id,"saved-user");
+  assert.equal(page.payloads[1].conversation_id,"saved-chat");
 });
 
 
@@ -629,9 +631,10 @@ test('old Stop finalizer preserves the next composer run', async t => {
 for (const busy of ['draft', 'voice', 'upload', 'attachment', 'dictation', 'image']) {
   test(`reload defers during ${busy}`, async t => {
     const page = await chatPage(); t.after(page.unmount);
+    const uploadController = new AbortController();
     if (busy === 'draft') page.composer.textarea.value = 'Unsent';
     if (busy === 'voice') page.composer.onOpenVoiceAssistant();
-    if (busy === 'upload') page.composer.uploadingFiles.push({});
+    if (busy === 'upload') page.composer.uploadingFiles.push({ controller: uploadController });
     if (busy === 'attachment') page.composer.pendingAttachments.push({});
     if (busy === 'dictation') page.composer.dictation = {};
     if (busy === 'image') page.composer.isImageGenerating = true;
@@ -639,6 +642,7 @@ for (const busy of ['draft', 'voice', 'upload', 'attachment', 'dictation', 'imag
     assert.equal(page.app.dom.window.dispatchEvent(event), false);
     if (busy === 'dictation') page.composer.dictation = null;
     page.unmount();
+    if (busy === 'upload') assert.equal(uploadController.signal.aborted, true);
     assert.equal(page.app.dom.window.dispatchEvent(new page.app.dom.window.Event('bmo:before-reload', { cancelable: true })), true);
   });
 }
@@ -992,4 +996,36 @@ test("project icon animation is scoped to sidebar nav links and static in chat m
   assert.equal(styles.includes(".icon-galleryVerticalEnd:hover"), false);
   assert.equal(styles.includes(".icon-projects:hover"), false);
   assert.match(styles, /\.sidebar-nav a:hover \.icon-projects \.gallery-line-1/);
+});
+
+test("a second image with a closed stream can be retried in the same chat", async t => {
+  const first = { filename: "derivative.png", path: "owner/derivative.png" };
+  const second = { filename: "integral.png", path: "owner/integral.png" };
+  let attempts = 0;
+  const page = await chatPage({
+    id: "original", hash: "#/app/chat/original",
+    messages: [
+      { id: "first", role: "user", content: "solve a", attachments: [first] },
+      { id: "first-reply", role: "assistant", content: "Derivative" },
+    ],
+    streamChat: async (_token, payload, cb) => {
+      cb.onUserMessage({ id: "second", role: "user", content: payload.message, attachments: payload.attachments });
+      if (++attempts === 1) return;
+      cb.onAssistantMessage({ id: "second-reply", role: "assistant", content: attempts === 2 ? "Integral" : "Regenerated integral" });
+    },
+  });
+  t.after(page.unmount);
+  await page.turn("solve g", { attachments: [second] });
+  assert.match(page.notices.at(-1) || "", /closed before Bmo replied/i);
+  await page.feed.callbacks.onRetryMessage(page.rendered().messages.at(-1));
+  assert.equal(page.branchCalls.length, 0);
+  assert.equal(page.app.dom.window.location.hash, "#/app/chat/original");
+  assert.equal(page.payloads.at(-1).conversation_id, "original");
+  assert.equal(page.payloads.at(-1).retry_message_id, "second");
+  assert.deepEqual(page.payloads.at(-1).attachments, [second]);
+  assert.deepEqual(Array.from(page.rendered().messages, m => m.id), ["first", "first-reply", "second", "second-reply"]);
+  await page.feed.callbacks.onRetryAssistantMessage(page.rendered().messages.at(-1));
+  assert.equal(page.branchCalls.length, 0);
+  assert.deepEqual(Array.from(page.rendered().messages, m => m.id), ["first", "first-reply", "second", "second-reply"]);
+  assert.equal(page.rendered().messages.at(-1).content, "Regenerated integral");
 });

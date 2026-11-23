@@ -15,6 +15,7 @@ import * as api from "../api.js?v=66";
 import { SkillPicker } from "./skill-picker.js?v=6";
 
 const MAX_IMAGES_PER_MESSAGE = 6;
+const MAX_CONCURRENT_ATTACHMENT_UPLOADS = 2;
 
 function isImageAttachment(name, mime) {
   return mime?.toLowerCase().startsWith("image/") ||
@@ -121,6 +122,8 @@ export class Composer {
 
     this.pendingAttachments = [];
     this.uploadingFiles = [];
+    this.activeAttachmentUploads = 0;
+    this.attachmentUploadQueue = [];
     this.attachmentOrder = new WeakMap();
     this.nextAttachmentOrder = 0;
     this.availableModels = DEFAULT_AVAILABLE_MODELS;
@@ -908,7 +911,13 @@ export class Composer {
     this.renderAttachmentsBar();
     this.syncSendEnabled();
 
+    if (this.activeAttachmentUploads >= MAX_CONCURRENT_ATTACHMENT_UPLOADS) {
+      await new Promise(resolve => this.attachmentUploadQueue.push(resolve));
+    } else {
+      this.activeAttachmentUploads++;
+    }
     try {
+      if (controller.signal.aborted) return;
       const attachment = await api.uploadAttachment(token, file, controller.signal);
       if (!controller.signal.aborted) {
         this.attachmentOrder.set(attachment, this.attachmentOrder.get(uploadEntry));
@@ -918,6 +927,9 @@ export class Composer {
     } catch (err) {
       if (!controller.signal.aborted) toast(err.message || "Upload failed", { tone: "error" });
     } finally {
+      const nextUpload = this.attachmentUploadQueue.shift();
+      if (nextUpload) nextUpload();
+      else this.activeAttachmentUploads--;
       this.uploadingFiles = this.uploadingFiles.filter((x) => x !== uploadEntry);
       this.renderAttachmentsBar();
       this.syncSendEnabled();
@@ -1228,6 +1240,7 @@ export class Composer {
   }
 
   destroy() {
+    for (const upload of this.uploadingFiles) upload.controller.abort();
     this._clearHeightTransition();
     this.skillLayoutObserver?.disconnect();
     this.skillPicker.destroy();

@@ -16,9 +16,9 @@ import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=3
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=73";
 import * as api from "../api.js?v=71";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=48";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=49";
 import { MessageFeed } from "../chat/message-feed.js?v=56";
-import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=17";
+import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=18";
 import {
   detectExportIntent,
   buildCanonicalMarkdown,
@@ -580,14 +580,16 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       messageFeed.finishStreamingBubble(streamHandler.streamingText, streamHandler.streamingReasoning);
       messageFeed.setStatusText("Done");
     },
-    onAssistantMessage: (m) => {
+    onAssistantMessage: (m, retryMessageId) => {
       // Hand the card to the reply it produced so it stays above the answer
       // instead of trailing below it once the message lands.
       if (searchCardData && !searchCardData.searching) {
         m.search = searchCardData;
         searchCardData = null;
       }
-      messages.push(m);
+      const retryIndex = retryMessageId ? messages.findIndex(msg => msg.id === retryMessageId) : -1;
+      if (retryIndex < 0) messages.push(m);
+      else messages.splice(retryIndex + 1, messages[retryIndex + 1]?.role === "assistant" ? 1 : 0, m);
       // The answer is already visible; a save acknowledgment is not an entrance.
       enteringId = null;
       composer.isGenerating = false;
@@ -595,9 +597,11 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       renderUI();
       loadConversations();
     },
-    onError: (err, partial) => {
+    onError: (err, partial, retryMessageId) => {
       if (unmounted) return;
-      if (partial?.content?.trim() || partial?.reasoning?.trim()) {
+      const retryIndex = retryMessageId ? messages.findIndex(msg => msg.id === retryMessageId) : -1;
+      const hasPreviousReply = retryIndex >= 0 && messages[retryIndex + 1]?.role === "assistant";
+      if (!hasPreviousReply && (partial?.content?.trim() || partial?.reasoning?.trim())) {
         messages.push({ id: `unsaved_${uid()}`, role: "assistant", ...partial, unsaved: true });
       }
       if (err?.name !== "AbortError") toast(err.message || "Couldn't connect", { tone: "error" });
@@ -877,13 +881,13 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
     if (queuedTurn) return;
     const revision = ++submitRevision;
     const ownsSubmit = () => !unmounted && revision === submitRevision;
-    const { text, attachments, model, reasoningEffort, autoSearch = true, systemPrompt } = turn;
+    const { text, attachments, model, reasoningEffort, autoSearch = true, systemPrompt, retryMessageId } = turn;
     const skills = turn.skills || composer.skillPicker.selected;
     composer.skillPicker.setSelected([]);
 
     // Detect export intent on completed turn
     const exportIntent = detectExportIntent(text);
-    if (model !== "image" && exportIntent.exportOnly && !attachments.length) {
+    if (!retryMessageId && model !== "image" && exportIntent.exportOnly && !attachments.length) {
       const latestAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.content?.trim());
       if (!latestAssistant) {
         toast("There is no completed response to export yet", { tone: "error" });
@@ -929,8 +933,10 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       ))
       : undefined;
     while (incognitoHistory?.length && JSON.stringify(incognitoHistory).length > 200000) incognitoHistory.shift();
-    messages.push(optimisticUser);
-    enteringId = optimisticUser.id;
+    if (!retryMessageId) {
+      messages.push(optimisticUser);
+      enteringId = optimisticUser.id;
+    }
     searchPreamble = "";
     streamHandler.streamingText = "";
     streamHandler.streamingReasoning = "";
@@ -1005,6 +1011,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
           message: text,
           augmented_message: llmMessage !== text ? llmMessage : undefined,
           conversation_id: (!incognito && id) ? id : undefined,
+          retry_message_id: retryMessageId,
           project_id: (!incognito && activeProjectId) ? activeProjectId : undefined,
           attachments,
           history: incognitoHistory,
@@ -1222,21 +1229,32 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
   }
 
   async function retryMessage(message) {
-    if (queuedTurn || streamHandler.isStreaming || imageGenerating || branching) return;
+    if (composer.isGenerating || streamHandler.isStreaming || imageGenerating || branching) return;
     const idx = messages.findIndex((x) => x.id === message.id);
     if (idx === -1) return;
-    if (!await branchBeforeMessage(message)) return;
-    messages = messages.slice(0, idx);
-    renderUI();
-    composer.skillPicker.setSelected((message.skills || []).map(skill => skill.id));
+    const inPlace = !incognito && id && !composer.isImageMode()
+      && !message.delivery_status && !String(message.id).startsWith("tmp_")
+      && idx === messages.findLastIndex(m => m.role === "user");
+    if (inPlace && navigator.onLine === false) {
+      toast("Reconnect to retry this message.");
+      return;
+    }
+    if (!inPlace) {
+      if (!await branchBeforeMessage(message) || unmounted) return;
+      messages = messages.slice(0, idx);
+      renderUI();
+    }
+    const skillIds = (message.skills || []).map(skill => skill.id);
     if (composer.isImageMode()) {
-      sendImageMessage(message.content, message.attachments || []);
+      await sendImageMessage(message.content, message.attachments || []);
     } else {
-      handleComposerSubmit({
+      composer.skillPicker.setSelected(skillIds);
+      await handleComposerSubmit({
         text: message.content,
         attachments: message.attachments || [],
         model: composer.currentModel,
         autoSearch: composer.autoSearch,
+        retryMessageId: inPlace ? message.id : undefined,
       });
     }
   }
@@ -1250,21 +1268,7 @@ export async function renderChat({ id, incognito }, { signal } = {}) {
       if (messages[i].role === "user") { userIdx = i; break; }
     }
     if (userIdx === -1) return;
-    const userMsg = messages[userIdx];
-    if (!await branchBeforeMessage(userMsg)) return;
-    messages = messages.slice(0, userIdx);
-    renderUI();
-    composer.skillPicker.setSelected((userMsg.skills || []).map(skill => skill.id));
-    if (composer.isImageMode()) {
-      sendImageMessage(userMsg.content, userMsg.attachments || []);
-    } else {
-      handleComposerSubmit({
-        text: userMsg.content,
-        attachments: userMsg.attachments || [],
-        model: composer.currentModel,
-        autoSearch: composer.autoSearch,
-      });
-    }
+    await retryMessage(messages[userIdx]);
   }
 
   function findSavedReply(message, stored) {

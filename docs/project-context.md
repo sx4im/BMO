@@ -1,6 +1,6 @@
 # BMO project context
 
-Updated 2026-11-22. Use this as an entry point; confirm implementation details
+Updated 2026-11-23. Use this as an entry point; confirm implementation details
 through Graft and the current source before editing.
 
 ## Architecture and deployment
@@ -14,6 +14,34 @@ through Graft and the current source before editing.
 - Never commit environment variables, API keys, or generated Graft caches.
 
 ## Recent behavior and decisions
+
+- Attachment upload and signed-URL creation retry transient storage
+  disconnects independently. An upload retry reuses the same scoped object
+  path and bytes, including when the first request wrote the object before
+  disconnecting. Render returned two upload errors during a concurrent
+  image batch before this change. A regression test verifies recovery with
+  one stored object. The composer queues at most two active attachment transfers
+  across selections, while preserving all previews and attachment order.
+
+- Vision chats keep the six-image upload cap. Oversized inference copies are
+  bounded to 1.5 MiB each and the stored originals are retained. Mistral vision
+  requests use up to 4,096 output tokens per completion window, and background
+  descriptions use one batch for the images on a message. Vision usage applies
+  the same quota weight for either selected chat model and sums provider token
+  totals across completion windows and PDF batches. When totals are unavailable,
+  the meter estimates text tokens and adds 1,024 per image part. Background
+  descriptions and pre-output rejected retries do not add to the user's quota.
+  The Mistral account's provider limits stay separate from the app's quota.
+
+- Retry on the latest saved chat turn reuses the conversation, question, and
+  attachments. A successful regeneration updates the existing reply, and an
+  interrupted regeneration preserves the previous reply. Retrying earlier
+  turns still branches so later messages are preserved. A stream that closes
+  before any output now reports an error. Render logs on November 23 confirmed
+  repeated Mistral HTTP 429 responses and zero answer characters on the
+  original conversation. Vision turns now allow one additional rate-limit
+  retry within the first-output window and show a waiting status for longer
+  delays. The recovery path was exercised with simulated provider responses.
 
 - WhatsApp Bmo defaults to casual, direct replies. Simple questions usually
   get one to three sentences, with room for details or steps when needed.
