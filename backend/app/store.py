@@ -746,6 +746,17 @@ def download_attachment(path: str, user_id: str) -> bytes:
 
 
 
+def _retry_attachment_storage(operation):
+    for delay in (0.25, 0.75, None):
+        try:
+            return operation()
+        except Exception as exc:
+            if delay is None or not is_transient_persistence_error(exc):
+                raise
+            logger.warning("Attachment storage transport interrupted (%s), retrying", type(exc).__name__)
+            time.sleep(delay)
+
+
 def upload_attachment_for_user(
     user_id: str,
     *,
@@ -764,13 +775,15 @@ def upload_attachment_for_user(
     bucket = attachments_bucket()
     safe_name = filename.replace("\\", "_").split("/")[-1] or "file"
     path = f"{user_id}/{secrets.token_hex(8)}/{safe_name}"
-    sb = supabase()
-    sb.storage.from_(bucket).upload(
+    storage = supabase().storage.from_(bucket)
+    # This request owns the random path and always retries with the same
+    # bytes, including when storage accepted the first write before disconnecting.
+    _retry_attachment_storage(lambda: storage.upload(
         path=path,
         file=file_bytes,
-        file_options={"content-type": content_type, "upsert": "false"},
-    )
-    signed = sb.storage.from_(bucket).create_signed_url(path, expires_in)
+        file_options={"content-type": content_type, "upsert": "true"},
+    ))
+    signed = _retry_attachment_storage(lambda: storage.create_signed_url(path, expires_in))
     if isinstance(signed, dict):
         url = signed.get("signedURL") or signed.get("signed_url") or signed.get("signedUrl")
     else:

@@ -1,7 +1,9 @@
 """Text attachments use the same upload/processing flow as office documents."""
 import io
 import time
+from types import SimpleNamespace
 
+import httpx
 import jwt
 import pytest
 
@@ -35,3 +37,36 @@ def test_text_attachment_upload_and_extraction(client, monkeypatch, extension, c
 def test_text_attachment_validation_rejects_binary_payloads(extension, content):
     from app.config import upload_magic_ok
     assert not upload_magic_ok(content, f"file.{extension}")
+
+
+def test_attachment_recovers_from_storage_disconnect_with_one_object(monkeypatch):
+    objects = {}
+    uploaded = []
+    signed = []
+
+    def upload(*, path, file, file_options):
+        uploaded.append(path)
+        assert path.startswith("owner/")
+        if path in objects:
+            assert file_options["upsert"] == "true"
+        objects[path] = file
+        if len(uploaded) == 1:
+            raise httpx.RemoteProtocolError("Server disconnected after accepting file")
+
+    def sign(path, expires):
+        signed.append(path)
+        if len(signed) == 1:
+            raise httpx.RemoteProtocolError("Server disconnected before signing")
+        return {"signedURL": "https://example.invalid/signed"}
+
+    bucket = SimpleNamespace(upload=upload, create_signed_url=sign)
+    monkeypatch.setattr(store, "supabase", lambda: SimpleNamespace(
+        storage=SimpleNamespace(from_=lambda name: bucket),
+    ))
+    monkeypatch.setattr(store.time, "sleep", lambda duration: None)
+    attachment = store.upload_attachment_for_user(
+        "owner", filename="card.png", file_bytes=b"card", content_type="image/png",
+    )
+    assert uploaded == signed == [attachment["path"]] * 2
+    assert objects == {attachment["path"]: b"card"}
+    assert attachment["url"] == "https://example.invalid/signed"
