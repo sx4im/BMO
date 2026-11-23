@@ -41,7 +41,9 @@ through Graft and the current source before editing.
   repeated Mistral HTTP 429 responses and zero answer characters on the
   original conversation. Vision turns now allow one additional rate-limit
   retry within the first-output window and show a waiting status for longer
-  delays. The recovery path was exercised with simulated provider responses.
+  delays. The final retry without a provider delay hint uses the remaining
+  response budget after attachment preparation. The recovery path was
+  exercised with simulated provider responses.
 
 - WhatsApp Bmo defaults to casual, direct replies. Simple questions usually
   get one to three sentences, with room for details or steps when needed.

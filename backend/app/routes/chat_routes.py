@@ -912,7 +912,11 @@ def chat(user):
                         if not streamed and details["retryable"] and attempt < (len(retry_delays) if vision_rate_limit else 2):
                             delay = details.get("retry_after", retry_delays[attempt])
                             max_wait = min(60.0, 75.0 - (time.time() - t0)) if vision_rate_limit else 5.0
-                            if delay <= max_wait:
+                            if vision_rate_limit and attempt == len(retry_delays) - 1 and "retry_after" not in details:
+                                # Attachment preparation can consume some of the
+                                # waiting window before the SSE response starts.
+                                delay = min(delay, max_wait)
+                            if max_wait > 0 and delay <= max_wait:
                                 logger.warning(
                                     "chat: model %s busy (attempt %d), retrying in %.1fs: %s",
                                     chosen_model, attempt + 1, delay, exc,

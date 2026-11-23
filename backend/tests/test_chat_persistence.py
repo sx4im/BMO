@@ -441,7 +441,12 @@ def test_retry_latest_image_keeps_conversation_and_reuses_saved_turn(gateway, he
     assert store.get_messages("chat") == saved_rows
 
 
-def test_second_image_waits_for_provider_rate_limit_reset(gateway, headers, db, monkeypatch):
+@pytest.mark.parametrize("preparation_seconds, final_wait", [(0, 60.0), (25, 50.0)])
+def test_second_image_waits_for_provider_rate_limit_reset(
+    gateway, headers, db, monkeypatch, preparation_seconds, final_wait,
+):
+    from types import SimpleNamespace
+
     db.rows["conversations"] = [conversation()]
     monkeypatch.setattr(store, "download_attachment", lambda path, user_id: path.encode())
     monkeypatch.setattr(chat_routes, "_describe_attachments_in_background", lambda *args: None)
@@ -457,9 +462,14 @@ def test_second_image_waits_for_provider_rate_limit_reset(gateway, headers, db, 
     monkeypatch.setattr(chat_routes, "_register_cancel", lambda *args: TestCancelEvent())
     monkeypatch.setattr(chat_routes, "_unregister_cancel", lambda event: None)
     inputs = []
+    now = time.time()
+    monkeypatch.setattr(chat_routes, "time", SimpleNamespace(time=lambda: now))
 
     def respond(messages, **kwargs):
+        nonlocal now
         inputs.append(messages)
+        if len(inputs) == 2:
+            now += preparation_seconds
         if 2 <= len(inputs) <= 4:
             raise RuntimeError("Mistral rate limit exceeded (429)")
         yield {"type": "delta", "data": "Answer"}
@@ -479,7 +489,7 @@ def test_second_image_waits_for_provider_rate_limit_reset(gateway, headers, db, 
         received = list(events(response))
         assert any(e["type"] == "assistant_message" for e in received)
         assert not any(e["type"] == "error" for e in received)
-    assert waits == [1.5, 3.0, 60.0]
+    assert waits == [1.5, 3.0, final_wait]
     assert inputs[1:] == [inputs[1]] * 4
     assert sum(part["type"] == "image_url" for part in inputs[1][-1]["content"]) == 6
     assert meter == [("owner", "vision", 1500), ("owner", "vision", 6500)]
