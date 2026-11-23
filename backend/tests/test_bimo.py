@@ -2210,7 +2210,7 @@ def test_image_description_retries_past_a_brief_provider_rate_limit(monkeypatch)
 
     monkeypatch.setattr(chat_routes.time, "sleep", delays.append)
     monkeypatch.setattr(chat_routes.nvidia_client, "describe_image", describe)
-    assert chat_routes._describe_with_retry({"type": "image_url"}) == "A red diagram."
+    assert chat_routes._describe_with_retry([{"type": "image_url"}]) == ["A red diagram."]
     assert delays == [2.0, 5.0, 60.0]
 
 
@@ -2274,12 +2274,19 @@ def test_chat_sends_all_images_and_pdf_pages_to_mistral_then_reuses_saved_text(c
         saved.set()
 
     monkeypatch.setattr(store, "update_message_attachments", update)
+    metered = []
+    monkeypatch.setattr(store, "record_usage", lambda *args: metered.append(args))
 
     def upstream(**kwargs):
-        return iter([types.SimpleNamespace(model=kwargs["model"], choices=[types.SimpleNamespace(
-            delta=types.SimpleNamespace(content="Red figure. Revenue report."),
-            finish_reason="stop",
-        )])])
+        content = "Red figure. Revenue report."
+        if kwargs.get("max_tokens") == 6 * 600:
+            content = json.dumps([f"Red figure {i}" for i in range(6)])
+        return iter([
+            types.SimpleNamespace(model=kwargs["model"], choices=[types.SimpleNamespace(
+                delta=types.SimpleNamespace(content=content), finish_reason="stop",
+            )]),
+            types.SimpleNamespace(choices=[], usage={"total_tokens": 2700}),
+        ])
 
     mistral_api = Mock()
     mistral_api.chat.completions.create.side_effect = upstream
@@ -2305,7 +2312,9 @@ def test_chat_sends_all_images_and_pdf_pages_to_mistral_then_reuses_saved_text(c
     assert saved.wait(5)
     groq_api.chat.completions.create.assert_not_called()
     calls = [call.kwargs for call in mistral_api.chat.completions.create.call_args_list]
-    assert [call["model"] for call in calls] == ["ministral-8b-2512"] * 8
+    assert [call["model"] for call in calls] == ["ministral-8b-2512"] * 3
+    assert [call["max_tokens"] for call in calls[:2]] == [4096, 4096]
+    assert metered == [("test_autosearch_user", "vision", 5400)]
     urls = [
         part["image_url"] for message in calls[0]["messages"] if isinstance(message["content"], list)
         for part in message["content"] if part["type"] == "image_url"
@@ -2321,6 +2330,8 @@ def test_chat_sends_all_images_and_pdf_pages_to_mistral_then_reuses_saved_text(c
     ) == 4
     assert "Revenue page 6" in str(calls[1]["messages"])
     assert all(a.get("text_context") for a in history[-2]["attachments"])
+    for i, attachment in enumerate(history[-2]["attachments"][:6]):
+        assert f"Red figure {i}" in attachment["text_context"]
 
     download.reset_mock()
     followup = client.post(
@@ -2336,8 +2347,31 @@ def test_chat_sends_all_images_and_pdf_pages_to_mistral_then_reuses_saved_text(c
     assert "Red figure" in str(request["messages"])
     assert "Revenue page 6" in str(request["messages"])
     assert not _has_image_part(request["messages"])
-    assert mistral_api.chat.completions.create.call_count == 8
+    assert mistral_api.chat.completions.create.call_count == 3
     download.assert_not_called()
+
+
+def test_chat_bounds_large_image_bytes_for_six_image_requests(monkeypatch):
+    import base64
+    import io
+
+    from PIL import Image
+    from app.routes import chat_routes
+
+    with io.BytesIO() as output:
+        noise = Image.effect_noise((2048, 2048), 100)
+        noise.save(output, format="PNG")
+        raw = output.getvalue()
+    assert len(raw) > chat_routes._VISION_IMAGE_LIMIT
+    monkeypatch.setattr(chat_routes.store, "download_attachment", lambda *args, **kwargs: raw)
+
+    part = chat_routes._image_part({"path": "owner/large.png", "content_type": "image/png"}, "owner")
+    url = part["image_url"]["url"]
+    assert len(url) * 6 < 15 * 1024 * 1024
+    encoded = base64.b64decode(url.split(",", 1)[1])
+    with Image.open(io.BytesIO(encoded)) as transformed:
+        assert max(transformed.size) <= 2048
+        assert len(encoded) <= chat_routes._VISION_IMAGE_LIMIT
 
 
 @pytest.mark.parametrize('outcome', ['ok', 'empty', 'unavailable'])

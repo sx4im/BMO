@@ -112,7 +112,7 @@ UI_MODELS = [
 ]
 
 # Usage limits and quotas
-USAGE_WEIGHTS = {"thinking": 1.0, "deep": 5.0, "image": 5.0, "aeon": 1.0}
+USAGE_WEIGHTS = {"thinking": 1.0, "deep": 5.0, "image": 5.0, "aeon": 1.0, "vision": 1.0}
 IMAGE_USAGE_TOKENS = 3000  # x5 weight = 15,000 per image
 SESSION_WINDOW_S = 5 * 3600
 WEEKLY_WINDOW_S = 7 * 24 * 3600

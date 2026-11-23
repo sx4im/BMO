@@ -210,6 +210,7 @@ def iter_response(
         "messages": cleaned_messages,
         "temperature": temperature,
         "stream": True,
+        "stream_options": {"include_usage": True},
     }
     call_kwargs["max_tokens"] = max_tokens if max_tokens is not None else 16384
 

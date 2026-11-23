@@ -101,6 +101,7 @@ def test_mistral_streaming_success(monkeypatch):
     call_kwargs = mock_client.chat.completions.create.call_args.kwargs
     assert call_kwargs["model"] == "codestral-2508"
     assert call_kwargs["stream"] is True
+    assert call_kwargs["stream_options"] == {"include_usage": True}
     assert call_kwargs["max_tokens"] == 16384
     assert call_kwargs["messages"] == messages
     # Codestral defaults to 0.2 temperature for lower latency / precise code

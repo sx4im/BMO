@@ -11,7 +11,7 @@ class GenerationFailure(RuntimeError):
         self.retryable = retryable
 
 
-def iter_completed_response(messages, *, cancel_event=None, max_continuations=2, **options):
+def iter_completed_response(messages, *, cancel_event=None, max_continuations=2, on_usage=None, **options):
     """Continue a length-limited answer without restarting text already emitted.
 
     Adapters enforce transport completion. This layer owns the answer across
@@ -80,6 +80,8 @@ def iter_completed_response(messages, *, cancel_event=None, max_continuations=2,
             close = getattr(stream, "close", None)
             if close:
                 close()
+            if on_usage and (terminal is not None or segment_text or segment_reasoning):
+                on_usage((terminal or {}).get("usage"), current_messages, segment_text, segment_reasoning)
         text += segment_text
         reasoning += segment_reasoning
         if terminal is None:

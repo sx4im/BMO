@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import html
 import io
+import json
 import logging
 import os
 import queue
@@ -553,6 +554,28 @@ def describe_image(image_part: dict) -> str:
         if ev["type"] == "done":
             content = ev["content"] or ""
     return content.strip()
+
+
+def describe_images(image_parts: list[dict]) -> list[str]:
+    if len(image_parts) == 1:
+        return [describe_image(image_parts[0])]
+    prompt = (
+        f"Describe each of the {len(image_parts)} images independently. "
+        "Return only a JSON array of strings, one per image in the order supplied. "
+        f"For each image: {IMAGE_CONTEXT_PROMPT}"
+    )
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, *image_parts]}]
+    for event in mistral_client.iter_response(messages, model=get_vision_model(), max_tokens=600 * len(image_parts)):
+        if event["type"] != "done" or not event.get("complete"):
+            continue
+        try:
+            descriptions = json.loads(event["content"])
+        except (TypeError, ValueError):
+            break
+        if (isinstance(descriptions, list) and len(descriptions) == len(image_parts)
+                and all(isinstance(text, str) for text in descriptions)):
+            return descriptions
+    return []
 
 
 def generate_title(user_message: str, assistant_reply: str) -> Optional[str]:

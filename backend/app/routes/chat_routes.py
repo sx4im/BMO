@@ -59,6 +59,8 @@ chat_bp = Blueprint("chat_routes", __name__)
 SSE_HEARTBEAT_SECONDS = 15.0
 MAX_IMAGES_PER_MESSAGE = 6
 _MAX_VISION_IMAGES_PER_REQUEST = 8
+_VISION_OUTPUT_TOKENS = 4096
+_ESTIMATED_VISION_TOKENS_PER_IMAGE = 1024
 
 # ---------- PDF batching helpers ----------
 
@@ -121,7 +123,7 @@ def _split_doc_parts_into_batches(
 TEXT_CONTEXT_KEY = "text_context"
 MAX_DOC_CONTEXT_CHARS = 8000
 _VISION_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
-_VISION_IMAGE_LIMIT = 20_000_000
+_VISION_IMAGE_LIMIT = 1536 * 1024
 _ATTACHMENT_TAG_RE = re.compile(r"^<attachment_data[^>]*>\n|\n</attachment_data>$")
 _describing: set[str] = set()
 _describing_lock = threading.Lock()
@@ -186,13 +188,27 @@ def _image_part(a: dict, user_id: str) -> dict | None:
             img_bytes = store.download_attachment(path, user_id=user_id)
             mime = _image_mime(a)
             if mime not in _VISION_IMAGE_TYPES or len(img_bytes) > _VISION_IMAGE_LIMIT:
-                # Keep the stored original and send a bounded, lossless PNG of
-                # the first frame when Mistral cannot accept the original.
+                # Keep the stored original. Bound each inference image so a
+                # six-image turn fits comfortably after base64 encoding.
                 with Image.open(io.BytesIO(img_bytes)) as img, io.BytesIO() as encoded:
                     img.thumbnail((2048, 2048))
-                    img.convert("RGBA").save(encoded, format="PNG")
+                    first_frame = img.convert("RGBA")
+                    first_frame.save(encoded, format="PNG")
                     img_bytes = encoded.getvalue()
                 mime = "image/png"
+                if len(img_bytes) > _VISION_IMAGE_LIMIT:
+                    rgb = Image.new("RGB", first_frame.size, "white")
+                    rgb.paste(first_frame, mask=first_frame.getchannel("A"))
+                    for max_edge in (2048, 1280):
+                        rgb.thumbnail((max_edge, max_edge))
+                        with io.BytesIO() as encoded:
+                            rgb.save(encoded, format="JPEG", quality=85, optimize=True)
+                            img_bytes = encoded.getvalue()
+                        if len(img_bytes) <= _VISION_IMAGE_LIMIT:
+                            break
+                    mime = "image/jpeg"
+                    if len(img_bytes) > _VISION_IMAGE_LIMIT:
+                        return None
             b64 = base64.b64encode(img_bytes).decode("ascii")
             return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
         except Exception as exc:  # noqa: BLE001
@@ -203,10 +219,10 @@ def _image_part(a: dict, user_id: str) -> dict | None:
     return None
 
 
-def _describe_with_retry(image_part: dict) -> str:
+def _describe_with_retry(image_parts: list[dict]) -> list[str]:
     for delay in (2.0, 5.0, 60.0, None):
         try:
-            return nvidia_client.describe_image(image_part)
+            return nvidia_client.describe_images(image_parts)
         except Exception as exc:  # noqa: BLE001
             if not is_transient_model_error(exc):
                 raise
@@ -218,7 +234,7 @@ def _describe_with_retry(image_part: dict) -> str:
             wait = max(delay, min(details.get("retry_after", 0), 60.0))
             logger.warning("chat: image description busy, retrying in %ss: %s", wait, exc)
             time.sleep(wait)
-    return ""
+    return []
 
 
 def _describe_attachments_in_background(message_id: str, user_id: str, attachments) -> None:
@@ -233,16 +249,21 @@ def _describe_attachments_in_background(message_id: str, user_id: str, attachmen
     def run():
         try:
             updated = [dict(a) if isinstance(a, dict) else a for a in attachments]
-            changed = False
+            images = []
+            parts = []
             for a in _images_missing_context(updated):
                 part = _image_part(a, user_id)
-                if not part:
-                    continue
-                text = _describe_with_retry(part)
-                if text:
-                    a[TEXT_CONTEXT_KEY] = wrap_attachment_content(a.get("filename") or "image", text)
-                    changed = True
-            if changed:
+                if part:
+                    images.append(a)
+                    parts.append(part)
+            if not parts:
+                return
+            for attachment, description in zip(images, _describe_with_retry(parts)):
+                if description.strip():
+                    attachment[TEXT_CONTEXT_KEY] = wrap_attachment_content(
+                        attachment.get("filename") or "image", description.strip(),
+                    )
+            if any(a.get(TEXT_CONTEXT_KEY) for a in images):
                 store.update_message_attachments(message_id, user_id, updated)
                 logger.info("chat: saved image text context for message=%s", message_id)
         except Exception as exc:  # noqa: BLE001
@@ -275,6 +296,7 @@ def chat(user):
     project_id = payload.get("project_id")
     augmented_message = payload.get("augmented_message")
     stream_id = payload.get("stream_id")
+    retry_message_id = payload.get("retry_message_id")
     auto_search = payload.get("auto_search", True)
     force_search = payload.get("force_search", False)
 
@@ -290,6 +312,25 @@ def chat(user):
             return err
     if stream_id is not None and (not isinstance(stream_id, str) or len(stream_id) > 100):
         return bad_request("stream_id must be a short string", 422)
+    existing_conversation = None
+    retry_user = retry_reply = None
+    retry_history = []
+    if conversation_id is not None and not isinstance(conversation_id, str):
+        return bad_request("conversation_id must be a string", 422)
+    if retry_message_id is not None:
+        if not isinstance(retry_message_id, str) or not retry_message_id or not conversation_id or is_incognito:
+            return bad_request("Retry requires a saved message and conversation.", 422)
+        existing_conversation = store.get_conversation(conversation_id, user.id)
+        if not existing_conversation:
+            return bad_request("conversation not found", 404)
+        retry_history = store.get_messages(conversation_id, limit=200)
+        if retry_history and retry_history[-1]["role"] == "assistant":
+            retry_reply = retry_history.pop()
+        if not retry_history or retry_history[-1]["role"] != "user" or retry_history[-1]["id"] != retry_message_id:
+            return bad_request("Only the latest turn can be retried here. Reload the conversation and try again.", 409)
+        retry_user = retry_history.pop()
+        message_text = retry_user["content"] or ""
+        attachments = [dict(a) for a in retry_user.get("attachments") or []]
     if not isinstance(attachments, list) or not all(isinstance(a, dict) for a in attachments):
         return bad_request("attachments must be a list", 422)
     image_attachments = [a for a in attachments if _is_image(a)]
@@ -316,8 +357,6 @@ def chat(user):
         return bad_request("system_prompt must be a string", 422)
     if system_prompt and len(system_prompt) > 8000:
         return bad_request("system prompt too long (max 8000 chars)", 422)
-    if conversation_id is not None and not isinstance(conversation_id, str):
-        return bad_request("conversation_id must be a string", 422)
     if augmented_message is not None and not isinstance(augmented_message, str):
         return bad_request("augmented_message must be a string", 422)
     if not message_text and not attachments:
@@ -346,8 +385,7 @@ def chat(user):
             attachment.pop(TEXT_CONTEXT_KEY, None)
     t_validation = time.time()
 
-    existing_conversation = None
-    if conversation_id and not is_incognito:
+    if conversation_id and not is_incognito and existing_conversation is None:
         existing_conversation = store.get_conversation(conversation_id, user.id)
         if not existing_conversation:
             return bad_request("conversation not found", 404)
@@ -405,14 +443,14 @@ def chat(user):
             if convo_patch:
                 convo = store.update_conversation(conversation_id, user.id, convo_patch) or convo
 
-            history = store.get_messages(convo["id"], limit=200)
-            user_message = {
+            history = retry_history if retry_user else store.get_messages(convo["id"], limit=200)
+            user_message = retry_user or {
                 "id": f"msg_pending_{uuid.uuid4().hex[:8]}",
                 "role": "user",
                 "content": message_text,
                 "attachments": attachments or None,
             }
-            defer_user_persist = True
+            defer_user_persist = retry_user is None
         else:
             title_seed = (message_text or "Image conversation").strip().replace("\n", " ")[:80] or "New conversation"
             convo = {
@@ -436,7 +474,7 @@ def chat(user):
         logger.exception("chat: persistence failed for user=%s: %s", user.id, exc)
         return bad_request(f"Could not save conversation. {friendly_error(exc)}", 500)
 
-    if skill_labels:
+    if skill_labels and not retry_user:
         user_message["skills"] = skill_labels
 
     model_text = augmented_message or message_text
@@ -545,7 +583,7 @@ def chat(user):
     if chosen_friendly == "aeon":
         use_thinking = False
 
-    is_first_turn = not history
+    is_first_turn = not history and not retry_reply
     try:
         cancel_event = _register_cancel(stream_id, user.id) if stream_id else threading.Event()
     except ValueError as exc:
@@ -568,8 +606,10 @@ def chat(user):
         yield sse_event({"type": "user_message", "data": user_message})
 
         durable_conversation_id = str(uuid.uuid4()) if convo.get("_new") else convo["id"]
-        durable_user_id = str(uuid.uuid4())
-        durable_assistant_id = str(uuid.uuid4())
+        durable_user_id = retry_user["id"] if retry_user else str(uuid.uuid4())
+        # The original stream and an overlapping retry reconcile to the same
+        # assistant row even if neither has acknowledged an insert yet.
+        durable_assistant_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bmo-chat-assistant:{durable_user_id}"))
         touch_scheduled = False
 
         def materialize_user_turn():
@@ -593,6 +633,7 @@ def chat(user):
                 sse_queue.put(sse_event({"type": "user_message", "data": user_message}))
 
         def write_assistant(previous, content, reasoning):
+            previous = previous or retry_reply
             if previous is None:
                 return store.add_message(
                     convo["id"], user.id, role="assistant", content=nvidia_client.sanitize_reply(content),
@@ -609,20 +650,45 @@ def chat(user):
         generation_error = None
         finalized = False
         metered = False
+        vision_tokens = 0
+
+        def meter_vision_window(usage, messages, reply, reasoning):
+            nonlocal vision_tokens
+            reported = (usage or {}).get("total_tokens")
+            if isinstance(reported, int) and reported > 0:
+                vision_tokens += reported
+                return
+            vision_tokens += estimate_tokens(reply, reasoning)
+            for message in messages:
+                content = message["content"]
+                if isinstance(content, str):
+                    vision_tokens += estimate_tokens(content)
+                else:
+                    for part in content:
+                        if part.get("type") == "image_url":
+                            vision_tokens += _ESTIMATED_VISION_TOKENS_PER_IMAGE
+                        elif part.get("type") == "text":
+                            vision_tokens += estimate_tokens(part.get("text", ""))
 
         def checkpoint():
-            if writer:
+            if writer and not retry_user:
                 writer.submit(full_reply, full_reasoning)
 
         def record_turn_usage():
             nonlocal metered
-            if metered or not (full_reply.strip() or full_reasoning.strip()):
+            if metered or not (vision_tokens or full_reply.strip() or full_reasoning.strip()):
                 return
             metered = True
             try:
-                store.record_usage(user.id, chosen_friendly, estimate_tokens(message_text, full_reply, full_reasoning))
+                if vision_tokens:
+                    store.record_usage(user.id, "vision", vision_tokens)
+                else:
+                    store.record_usage(user.id, "vision" if conversation_is_visual else chosen_friendly,
+                                       estimate_tokens(message_text, full_reply, full_reasoning))
             except Exception:
                 logger.exception("usage recording failed for convo=%s", convo.get("id"))
+
+        completed = False
 
         def persist_reply():
             nonlocal finalized, touch_scheduled
@@ -630,6 +696,9 @@ def chat(user):
                 return None
             finalized = True
             # Close the writer even if usage metering fails afterward.
+            if writer and retry_user and (generation_error or cancel_event.is_set() or not completed):
+                writer.finish("", "")
+                return None
             assistant_message = writer.finish(
                 nvidia_client.sanitize_reply(full_reply), full_reasoning,
             ) if writer else None
@@ -759,10 +828,14 @@ def chat(user):
                     yield sse_event({"type": "token", "data": {"delta": header}})
 
                 batch_reply = ""
-                max_tokens_override = 450 if chosen_friendly == "aeon" else None
+                max_tokens_override = _VISION_OUTPUT_TOKENS if conversation_is_visual else None
+                if chosen_friendly == "aeon":
+                    max_tokens_override = 450
                 voice_filter = VoiceReplyFilter() if chosen_friendly == "aeon" else None
                 prose_filter = ProseDashFilter(enabled=not long_dashes_allowed)
-                retry_delays = (1.5, 3.0)
+                # Give vision turns one more chance across a per-minute quota
+                # reset, within the browser's 90-second first-output deadline.
+                retry_delays = (1.5, 3.0, 60.0) if conversation_is_visual else (1.5, 3.0)
                 for attempt in range(len(retry_delays) + 1):
                     if cancel_event.is_set():
                         return
@@ -775,6 +848,7 @@ def chat(user):
                             reasoning_effort=reasoning_effort,
                             thinking=use_thinking,
                             max_tokens=max_tokens_override,
+                            on_usage=meter_vision_window if conversation_is_visual else None,
                         ):
                             if cancel_event.is_set():
                                 logger.info("chat: generation cancelled by user for convo=%s", convo.get("id"))
@@ -833,19 +907,21 @@ def chat(user):
                         break
                     except Exception as exc:  # noqa: BLE001
                         # Retrying after tokens reached the client would duplicate them.
-                        if not streamed and attempt < len(retry_delays) and is_transient_model_error(exc):
-                            logger.warning(
-                                "chat: model %s busy (attempt %d), retrying: %s",
-                                chosen_model, attempt + 1, exc,
-                            )
-                            details = model_error_details(exc)
+                        details = model_error_details(exc)
+                        vision_rate_limit = conversation_is_visual and details["code"] == "rate_limited"
+                        if not streamed and details["retryable"] and attempt < (len(retry_delays) if vision_rate_limit else 2):
                             delay = details.get("retry_after", retry_delays[attempt])
-                            if delay > 5:
-                                generation_error = details
-                                break
-                            if cancel_event.wait(delay):
-                                return
-                            continue
+                            max_wait = min(60.0, 75.0 - (time.time() - t0)) if vision_rate_limit else 5.0
+                            if delay <= max_wait:
+                                logger.warning(
+                                    "chat: model %s busy (attempt %d), retrying in %.1fs: %s",
+                                    chosen_model, attempt + 1, delay, exc,
+                                )
+                                if delay > 5:
+                                    yield sse_event({"type": "search_status", "status": "rate_limited", "label": "Waiting for the image model to be available…"})
+                                if cancel_event.wait(delay):
+                                    return
+                                continue
                         logger.warning(
                             "chat: model %s failed for convo=%s batch=%d: %s",
                             chosen_model, convo.get("id"), batch_idx + 1, exc,
@@ -855,7 +931,7 @@ def chat(user):
                         checkpoint()
                         if delta:
                             yield sse_event({"type": "token", "data": {"delta": delta}})
-                        generation_error = model_error_details(exc)
+                        generation_error = details
                         break
                 if generation_error:
                     break
@@ -868,6 +944,7 @@ def chat(user):
             full_reply = nvidia_client.sanitize_reply(full_reply)
 
             if generation_error is None:
+                completed = True
                 yield sse_event({"type": "complete", "finish_reason": "stop"})
 
             assistant_message = persist_reply()
@@ -886,7 +963,7 @@ def chat(user):
                 if generation_error:
                     yield sse_event({"type": "error", **generation_error})
             else:
-                if not assistant_message and (full_reply.strip() or full_reasoning.strip()):
+                if not assistant_message and not (retry_user and generation_error) and (full_reply.strip() or full_reasoning.strip()):
                     yield sse_event({"type": "error", "detail": "Your response could not be fully saved. Please keep this page open and copy it if needed."})
                 if assistant_message:
                     if generation_error:

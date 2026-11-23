@@ -383,3 +383,104 @@ def test_slow_successful_save_is_acknowledged_after_the_old_two_second_deadline(
         release.set()
         assert saved.wait(1)
         response.close()
+
+
+def test_retry_latest_image_keeps_conversation_and_reuses_saved_turn(gateway, headers, db, monkeypatch):
+    first = {"path": "owner/derivative.png", "content_type": "image/png"}
+    second = {"path": "owner/integral.png", "content_type": "image/png"}
+    db.rows["conversations"] = [conversation()]
+    monkeypatch.setattr(store, "download_attachment", lambda path, user_id: path.encode())
+    monkeypatch.setattr(chat_routes, "_describe_attachments_in_background", lambda *args: None)
+    captured = []
+
+    def stream(messages, **kwargs):
+        captured.append(messages)
+        if len(captured) == 2:
+            raise ValueError("Simulated provider failure")
+        if len(captured) == 4:
+            yield {"type": "delta", "data": "Interrupted replacement"}
+            raise ValueError("Simulated provider failure")
+        yield {"type": "delta", "data": "Derivative" if len(captured) == 1 else "Integral"}
+        yield {"type": "done", "content": "Complete", "finish_reason": "stop"}
+
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
+
+    def send(**payload):
+        response = gateway.post("/chat", headers=headers, json={
+            "conversation_id": "chat", "auto_search": False, **payload,
+        })
+        assert response.status_code == 200
+        return list(events(response))
+
+    send(message="solve a", attachments=[first])
+    failed = send(message="solve g", attachments=[second])
+    assert any(e["type"] == "error" for e in failed)
+    unanswered = store.get_messages("chat")
+    assert len(unanswered) == 3
+    retried = send(retry_message_id=unanswered[-1]["id"])
+    rows = store.get_messages("chat")
+    assert len(rows) == 4
+    assert rows[-1]["content"] == "Integral"
+    assert captured[0][-1]["content"] != captured[1][-1]["content"]
+    failed_replacement = send(retry_message_id=rows[2]["id"])
+    assert any(e["type"] == "error" for e in failed_replacement)
+    assert store.get_messages("chat") == rows
+    regenerated = send(retry_message_id=rows[2]["id"])
+    saved_rows = store.get_messages("chat")
+    assert len(saved_rows) == len(rows)
+    assert saved_rows[:-1] == rows[:-1]
+    assert saved_rows[-1]["content"] == "Integral"
+    assert len(db.rows["conversations"]) == 1
+    assert next(e["data"]["id"] for e in retried if e["type"] == "assistant_message") == rows[3]["id"]
+    assert next(e["data"]["id"] for e in regenerated if e["type"] == "assistant_message") == rows[3]["id"]
+    assert captured[1:] == [captured[1]] * 4
+    stale_retry = gateway.post("/chat", headers=headers, json={
+        "conversation_id": "chat", "retry_message_id": rows[0]["id"],
+    })
+    assert stale_retry.status_code == 409
+    assert store.get_messages("chat") == saved_rows
+
+
+def test_second_image_waits_for_provider_rate_limit_reset(gateway, headers, db, monkeypatch):
+    db.rows["conversations"] = [conversation()]
+    monkeypatch.setattr(store, "download_attachment", lambda path, user_id: path.encode())
+    monkeypatch.setattr(chat_routes, "_describe_attachments_in_background", lambda *args: None)
+    waits = []
+    meter = []
+    monkeypatch.setattr(store, "record_usage", lambda *args: meter.append(args))
+
+    class TestCancelEvent(threading.Event):
+        def wait(self, timeout=None):
+            waits.append(timeout)
+            return self.is_set()
+
+    monkeypatch.setattr(chat_routes, "_register_cancel", lambda *args: TestCancelEvent())
+    monkeypatch.setattr(chat_routes, "_unregister_cancel", lambda event: None)
+    inputs = []
+
+    def respond(messages, **kwargs):
+        inputs.append(messages)
+        if 2 <= len(inputs) <= 4:
+            raise RuntimeError("Mistral rate limit exceeded (429)")
+        yield {"type": "delta", "data": "Answer"}
+        tokens = 1500 if len(inputs) == 1 else 6500
+        yield {"type": "done", "content": "Answer", "finish_reason": "stop", "usage": {"total_tokens": tokens}}
+
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", respond)
+    for image in ("first.png", "second.png"):
+        response = gateway.post("/chat", headers=headers, json={
+            "conversation_id": "chat", "message": f"Solve {image}", "auto_search": False, "model": "deep",
+            "attachments": [
+                {"path": f"owner/{i}-{image}", "content_type": "image/png"}
+                for i in range(1 if image == "first.png" else 6)
+            ],
+            "stream_id": image,
+        })
+        received = list(events(response))
+        assert any(e["type"] == "assistant_message" for e in received)
+        assert not any(e["type"] == "error" for e in received)
+    assert waits == [1.5, 3.0, 60.0]
+    assert inputs[1:] == [inputs[1]] * 4
+    assert sum(part["type"] == "image_url" for part in inputs[1][-1]["content"]) == 6
+    assert meter == [("owner", "vision", 1500), ("owner", "vision", 6500)]
+    assert len(store.get_messages("chat")) == 4
