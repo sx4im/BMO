@@ -120,8 +120,8 @@ through Graft and the current source before editing.
   verdict, and 1,823 ms in Firefox on recorded recovery. Provider responses
   were simulated. Recorded recovery requires the updated API. All 241
   frontend and 635 backend tests passed.
-- The voice call header and assistant use the name Bmo. The voice prompt
-  identifies Bmo 6.0 when asked about the version. Only speech synthesis
+- The voice call header reads Bmo Voice. The assistant uses the name Bmo. The
+  voice prompt identifies Bmo 6.0 when asked about the version. Only speech synthesis
   receives the letter-by-letter pronunciation. Tests verified the English
   speech payload, with live synthesis outside the test.
 - The Impeccable cleanup removed unused pulsing dots, colored shadows, and

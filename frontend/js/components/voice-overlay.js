@@ -247,11 +247,12 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     onclick: () => close(), html: icon("x", { width: 22, height: 22 }),
   });
 
+  const title = "Bmo Voice";
   const overlay = el("div", {
-    class: "voice-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Bmo",
+    class: "voice-overlay", role: "dialog", "aria-modal": "true", "aria-label": title,
   }, [
     el("header", { class: "voice-header" }, [
-      el("span", { class: "voice-title", text: "Bmo" }),
+      el("span", { class: "voice-title", text: title }),
     ]),
     el("div", { class: "voice-stage" }, [globe, statusText, transcriptText]),
     el("div", { class: "voice-bar" }, [

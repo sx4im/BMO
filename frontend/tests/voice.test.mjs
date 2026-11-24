@@ -180,7 +180,7 @@ test('closing voice aborts speech recovery and discards its audio', async t => {
   assert.deepEqual(played, []);
 });
 
-test('voice displays Bmo and sends its letter names to speech synthesis', async t => {
+test('voice displays Bmo Voice and sends the assistant name as letters to speech synthesis', async t => {
   const reply = "I'm Bmo. BMO is here to help.";
   const page = await voicePage(async (_text, handlers) => {
     handlers.onDelta("I'm B");
@@ -190,8 +190,8 @@ test('voice displays Bmo and sends its letter names to speech synthesis', async 
   t.after(() => page.overlay.close());
 
   const dialog = page.dom.window.document.querySelector('.voice-overlay');
-  assert.equal(dialog.getAttribute('aria-label'), 'Bmo');
-  assert.equal(dialog.querySelector('.voice-title').textContent, 'Bmo');
+  assert.equal(dialog.getAttribute('aria-label'), 'Bmo Voice');
+  assert.equal(dialog.querySelector('.voice-title').textContent, 'Bmo Voice');
 
   page.submit('Who are you?');
   await until(() => page.commands.some(command => command.type === 'Flush'));

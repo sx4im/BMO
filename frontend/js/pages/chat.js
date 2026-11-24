@@ -13,7 +13,7 @@ import { openConfirmModal, openPromptModal } from "../components/confirm-modal.j
 import { openShareModal } from "../components/share-modal.js?v=7";
 import { openMoveChatModal } from "./projects.js?v=8";
 import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=37";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=77";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=78";
 import * as api from "../api.js?v=76";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=53";
