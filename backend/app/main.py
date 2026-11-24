@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 
 from dotenv import load_dotenv
@@ -77,6 +78,20 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 52 * 1024 * 1024
     CORS(app, resources={r"/*": {"origins": cors_origins()}}, supports_credentials=False)
+
+    @app.before_request
+    def _trace_gateway_probe():
+        # Correlate synthetic probes before auth and rate limiting, even if
+        # the connection closes before the access logger can record a response.
+        trace = request.args.get("bmo_trace", "")
+        if request.url_rule is None or not re.fullmatch(r"[0-9a-f]{32}", trace):
+            return
+        ray = request.headers.get("CF-Ray", "")
+        logger.info(
+            "Gateway probe entered Flask method=%s route=%s trace=%s cf_ray=%s",
+            request.method, request.url_rule.rule, trace,
+            ray if re.fullmatch(r"[0-9a-f]{16}-[A-Z]{3}", ray) else "-",
+        )
 
     # ---------- Rate Limiting ----------
     app.config["RATELIMIT_ENABLED"] = os.getenv("RATELIMIT_ENABLED", "1") == "1"

@@ -16,6 +16,15 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- A synthetic gateway request with a 32-character lowercase hex `bmo_trace`
+  query value logs its route template, HTTP method and validated `CF-Ray` as
+  soon as it reaches Flask. This works for CORS preflights and logs neither
+  the request body nor credentials. On November 24, clean Brave, Chrome and
+  Firefox sessions all reproduced intermittent public API timeouts. Two
+  Chrome HTTP/2 streams sent headers while sibling streams on the same
+  connection received responses. Both routes reached the same Render
+  revision on successful probes. The precise failing hop remains unverified.
+
 - Production chat history, model catalog, chat streams, and voice setup use
   the same-origin `/bmo-api` Vercel rewrite to Render. This removes browser
   CORS preflights from those requests. The Vercel project uses `frontend/` as
