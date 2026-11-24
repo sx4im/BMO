@@ -16,8 +16,8 @@
 import { el } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
 import { toast } from "./toast.js?v=59";
-import * as api from "../api.js?v=75";
-import { LiveTranscriber } from "../chat/live-transcriber.js?v=8";
+import * as api from "../api.js?v=76";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=9";
 import { getRandomPhrase } from "../chat/waiting-phrases.js?v=2";
 import { SemanticTurnDetector } from "../chat/turn-detector.js?v=2";
 import { VOICE_LANGUAGES, normalizeVoiceLanguage } from "./voice-languages.js?v=3";
@@ -775,7 +775,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       }
       pendingText = reply;
       pushReply();
-      speech.finish(reply);
+      speech.finish(reply, { recover: true });
       let timeout;
       await Promise.race([speech.done(), new Promise(resolve => { timeout = setTimeout(resolve, 300000); })])
         .finally(() => clearTimeout(timeout));
@@ -823,6 +823,8 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     let finishTimer = null;
     let hasSentFirstChunk = false;
     let completed = false;
+    let recoveryText = "";
+    let recovery = null;
     const queuedSources = [];
     const pendingTextQueue = [];
     let resolveDone;
@@ -850,7 +852,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
 
     function checkDone() {
-      if (cancelled || completed) return;
+      if (cancelled || completed || recovery) return;
       if (isAudioPlaying()) {
         if (queuedSources.length === 0 && audioCtx && nextPlayTime > audioCtx.currentTime) {
           const waitMs = Math.max(20, Math.ceil((nextPlayTime - audioCtx.currentTime) * 1000) + 40);
@@ -862,17 +864,46 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       if (!finished) return;
 
       if (!ws || serverAudioDone || wsClosed) {
-        complete();
+        recoverOrComplete();
         return;
       }
 
       if (!finishTimer) {
         const stallMs = hasReceivedAudio ? 2500 : 8000;
         finishTimer = setTimeout(() => {
-          if (!cancelled && !isAudioPlaying()) {
-            complete();
-          }
+          if (!isAudioPlaying()) recoverOrComplete();
         }, stallMs);
+      }
+    }
+
+    async function recoverOrComplete() {
+      if (cancelled || completed || recovery) return;
+      if (hasReceivedAudio || !recoveryText) {
+        complete();
+        return;
+      }
+      const text = recoveryText;
+      recoveryText = "";
+      recovery = new AbortController();
+      clearTimeout(finishTimer);
+      finishTimer = null;
+      wsClosed = true;
+      try { ws?.close(); } catch {}
+      const timer = setTimeout(() => recovery.abort(), 15_000);
+      try {
+        const bytes = await api.synthesizeSpeech(token, text, { voice: activeLang.model, signal: recovery.signal });
+        if (cancelled || !active) return;
+        const buffer = await audioCtx.decodeAudioData(bytes);
+        queueAudioBuffer(buffer);
+      } catch (error) {
+        if (!cancelled && active) {
+          console.warn("[bimo-voice] Speech recovery failed:", error);
+          toast("Couldn't play the reply. Try speaking again.", { tone: "error" });
+        }
+      } finally {
+        clearTimeout(timer);
+        recovery = null;
+        checkDone();
       }
     }
 
@@ -889,7 +920,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       }
 
       ws.onopen = () => {
-        if (cancelled) return;
+        if (cancelled || wsClosed) return;
         while (pendingTextQueue.length) {
           const chunk = pendingTextQueue.shift();
           try { ws.send(JSON.stringify({ type: "Speak", text: chunk })); } catch {}
@@ -901,7 +932,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       };
 
       ws.onmessage = (event) => {
-        if (cancelled || completed || !active) return;
+        if (cancelled || completed || wsClosed || !active) return;
         if (typeof event.data === "string") {
           try {
             const data = JSON.parse(event.data);
@@ -1047,8 +1078,9 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       }
     }
 
-    function finish(finalText) {
+    function finish(finalText, { recover = false } = {}) {
       if (cancelled || completed) { resolveDone(); return; }
+      if (recover) recoveryText = stripForSpeech(finalText, true, activeLang.id).trim().slice(0, 4000);
       if (typeof finalText === "string" && finalText.length > offset) {
         const remaining = finalText.slice(offset);
         offset = finalText.length;
@@ -1067,6 +1099,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     function cancel() {
       if (cancelled) return;
       cancelled = true;
+      recovery?.abort();
       if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
       pendingTextQueue.length = 0;
       for (const s of queuedSources) {

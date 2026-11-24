@@ -1,4 +1,4 @@
-import * as api from '../api.js?v=75';
+import * as api from '../api.js?v=76';
 
 const CONNECTION_TIMEOUT_MS = 10000;
 const FINAL_TIMEOUT_MS = 5000;

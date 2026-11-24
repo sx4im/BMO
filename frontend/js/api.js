@@ -587,16 +587,14 @@ export async function transcribeAudio(token, audioBlob, { language, deepgramOnly
 
 // ---------- voice synthesis (text-to-speech) ----------
 
-// Returns the assistant reply spoken by magpie-tts-multilingual as a WAV
-// ArrayBuffer. We hand back the raw bytes so the caller can decode them with
-// the Web Audio API (no <audio> element, so it stays within the CSP and lets
-// us drive the globe from the audio amplitude).
-export async function synthesizeSpeech(token, text, { voice, language } = {}) {
+// Return a Deepgram WAV for Web Audio playback if the speech stream fails.
+export async function synthesizeSpeech(token, text, { voice, language, signal } = {}) {
   const execute = async (t) => {
-    const response = await fetch(`${config.apiUrl}/tts`, {
+    const response = await fetch(`${chatGatewayUrl()}/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders(t) },
       body: JSON.stringify({ text, voice, language }),
+      signal,
     });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));

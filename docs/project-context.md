@@ -16,6 +16,14 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Voice retries synthesis once through the same-origin speech endpoint if
+  its reply WebSocket closes, errors, or stalls before delivering audio.
+  Recovery uses the selected language's voice and stops if the user interrupts
+  or closes the overlay. Streaming replies that received audio and search
+  acknowledgments skip recovery. Mobile Chromium decoded and played one WAV
+  after a simulated WebSocket failure. Live playback on the affected phone
+  requires a separate check.
+
 - A synthetic gateway request with a 32-character lowercase hex `bmo_trace`
   query value logs its route template, HTTP method and validated `CF-Ray` as
   soon as it reaches Flask. This works for CORS preflights and logs neither

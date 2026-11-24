@@ -33,6 +33,7 @@ test('production chat and voice setup use same-origin while speech sockets and o
   await api.streamChat('test', { message: 'Hello', incognito: true });
   await api.cancelChat('test', 'stream');
   await api.checkVoiceTurn('test', 'Hello', '');
+  await api.synthesizeSpeech('test', 'Hello');
   assert.deepEqual(requested, [
     'https://bimo.qzz.io/bmo-api/conversations',
     'https://bimo.qzz.io/bmo-api/transcribe/token',
@@ -42,6 +43,7 @@ test('production chat and voice setup use same-origin while speech sockets and o
     'https://bimo.qzz.io/bmo-api/chat/incognito',
     'https://bimo.qzz.io/bmo-api/chat/stream/cancel',
     'https://bimo.qzz.io/bmo-api/voice/turn',
+    'https://bimo.qzz.io/bmo-api/tts',
   ]);
   assert.equal(new URL(api.ttsStreamUrl('test')).host, 'bimo-backend-4a4g.onrender.com');
 

@@ -16,6 +16,10 @@ async function voicePage(sendTurn, language='en', options = {}) {
     constructor(url) { this.url=url; sockets.push(this);queueMicrotask(()=>{if(this.readyState===0){this.readyState=1;this.onopen?.();}}); }
     send(raw) {
       const command=JSON.parse(raw);commands.push({...command,url:this.url});
+      if (options.closeSpeechSocket) {
+        queueMicrotask(() => this.close());
+        return;
+      }
       if(command.type==='Speak' && !(options.silentFirstSpeech && commands.filter(c=>c.type==='Speak').length===1)) queueMicrotask(()=>this.onmessage?.({data:new Int16Array(240).buffer}));
       if(command.type==='Flush' && !(options.silentFirstSpeech && commands.filter(c=>c.type==='Speak').length===1)) queueMicrotask(()=>this.onmessage?.({data:JSON.stringify({type:this.url.includes('aura')?'Flushed':'SpeechMetadata'})}));
     }
@@ -45,10 +49,12 @@ async function voicePage(sendTurn, language='en', options = {}) {
     createBufferSource(){
       const context=this;
       return {connect(){},disconnect(){},start(){
+        options.onPlayback?.(this.buffer);
         context.playing++;
         setTimeout(()=>{context.playing--;this.onended?.();},50).unref();
       },stop(){}};
     }
+    async decodeAudioData(bytes) { return { duration: 0.05, bytes }; }
     resume(){return Promise.resolve();} close(){return Promise.resolve();}
   }
   class Recorder {
@@ -67,6 +73,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
   const app=moduleLoader({
     ...(options.liveTranscriber ? {'live-transcriber.js':{LiveTranscriber:options.liveTranscriber}} : {}),
     'api.js':{health:async()=>({tts:'configured'}),ttsStreamUrl:(_token,options)=>'wss://voice.invalid/?'+new URLSearchParams(options),
+      synthesizeSpeech: options.synthesizeSpeech,
       transcribeAudio: options.transcribeAudio,
       ...(options.checkVoiceTurn ? {checkVoiceTurn: options.checkVoiceTurn} : {})},
     'audio-wav.js':{blobToWav16kMono: options.convertRecording || (async blob => blob)},
@@ -109,7 +116,10 @@ test('voice uses restrained documented delivery settings',async t=>{
 
 test('voice opens a speech socket only for audio and releases it after playback', async t => {
   let resolveReply;
-  const page = await voicePage(() => new Promise(resolve => { resolveReply = resolve; }));
+  let recoveryCalls = 0;
+  const page = await voicePage(() => new Promise(resolve => { resolveReply = resolve; }), 'en', {
+    synthesizeSpeech: async () => { recoveryCalls++; },
+  });
   t.after(() => page.overlay.close());
   assert.equal(page.sockets.length, 0);
 
@@ -126,6 +136,48 @@ test('voice opens a speech socket only for audio and releases it after playback'
   assert.match(page.sockets[0].url, /model=flux-arnaud-fr/);
   assert.equal(page.sockets[0].readyState, 1);
   await until(() => page.sockets[0].readyState === 3);
+  assert.equal(recoveryCalls, 0);
+});
+
+test('voice plays one HTTP synthesis fallback when the socket closes without any audio', async t => {
+  const calls = [];
+  const played = [];
+  const bytes = new ArrayBuffer(64);
+  const page = await voicePage(async () => 'Bonjour, voici une réponse.', 'fr', {
+    closeSpeechSocket: true,
+    synthesizeSpeech: async (token, text, options) => {
+      calls.push({ token, text, voice: options.voice });
+      return bytes;
+    },
+    onPlayback: buffer => played.push(buffer),
+  });
+  t.after(() => page.overlay.close());
+  page.submit('Bonjour');
+  await until(() => played.length > 0);
+  assert.deepEqual(calls, [{ token: 'test', text: 'Bonjour, voici une réponse.', voice: 'flux-arnaud-fr' }]);
+  assert.deepEqual(played.map(buffer => buffer.bytes), [bytes]);
+});
+
+test('closing voice aborts speech recovery and discards its audio', async t => {
+  let finishRecovery;
+  let signal;
+  const played = [];
+  const page = await voicePage(async () => 'Here is a reply.', 'en', {
+    closeSpeechSocket: true,
+    synthesizeSpeech: (_token, _text, options) => {
+      signal = options.signal;
+      return new Promise(resolve => { finishRecovery = resolve; });
+    },
+    onPlayback: buffer => played.push(buffer),
+  });
+  t.after(() => page.overlay.close());
+  page.submit('Hello');
+  await until(() => finishRecovery);
+  page.overlay.close();
+  assert.equal(signal.aborted, true);
+  finishRecovery(new ArrayBuffer(64));
+  await tick();
+  assert.deepEqual(played, []);
 });
 
 test('voice displays Bmo and sends its letter names to speech synthesis', async t => {

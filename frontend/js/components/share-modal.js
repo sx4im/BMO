@@ -6,7 +6,7 @@
 import { el } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
 import { toast } from "./toast.js?v=59";
-import * as api from "../api.js?v=75";
+import * as api from "../api.js?v=76";
 
 let activeOverlay = null;
 
