@@ -3,8 +3,8 @@
 // Dismiss with the X, a backdrop click, or Escape; navigate rows with the
 // arrow keys and Enter.
 
-import { el, clear, formatTitle } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=69";
+import { el, clear, formatTitle } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
 
 let activeOverlay = null;
 let keyHandler = null;

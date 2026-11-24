@@ -1,11 +1,11 @@
-import { $, el, clear } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=30";
-import { logo } from "../components/logo.js?v=32";
-import { toast } from "../components/toast.js?v=58";
-import { signInWithGoogle, signInWithGithub, isConfigured } from "../auth.js";
-import { navigate } from "../router.js";
-import { tearDownShell } from "../app-shell.js?v=4";
-import { getThemePref, setThemePref } from "../prefs.js";
+import { $, el, clear } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { logo } from "../components/logo.js?v=33";
+import { toast } from "../components/toast.js?v=59";
+import { signInWithGoogle, signInWithGithub, isConfigured } from "../auth.js?v=1";
+import { navigate } from "../router.js?v=1";
+import { tearDownShell } from "../app-shell.js?v=5";
+import { getThemePref, setThemePref } from "../prefs.js?v=1";
 
 
 export async function renderLanding() {

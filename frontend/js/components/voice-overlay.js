@@ -13,19 +13,19 @@
 // than an <audio> element: that keeps it inside the site CSP (the fetch is a
 // normal API call) and lets an AnalyserNode drive the globe animation.
 
-import { el } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=73";
-import { toast } from "./toast.js?v=58";
-import * as api from "../api.js?v=72";
-import { LiveTranscriber } from "../chat/live-transcriber.js?v=5";
-import { getRandomPhrase } from "../chat/waiting-phrases.js?v=1";
-import { SemanticTurnDetector } from "../chat/turn-detector.js?v=1";
-import { VOICE_LANGUAGES, normalizeVoiceLanguage } from "./voice-languages.js?v=2";
-import { getVoiceAcknowledgment } from "./voice-acknowledgments.js?v=1";
+import { el } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { toast } from "./toast.js?v=59";
+import * as api from "../api.js?v=73";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=6";
+import { getRandomPhrase } from "../chat/waiting-phrases.js?v=2";
+import { SemanticTurnDetector } from "../chat/turn-detector.js?v=2";
+import { VOICE_LANGUAGES, normalizeVoiceLanguage } from "./voice-languages.js?v=3";
+import { getVoiceAcknowledgment } from "./voice-acknowledgments.js?v=2";
 export { VOICE_LANGUAGES };
-import { createVoiceOrb } from "./voice-orb.js?v=4";
-import { createAudioMeter } from "./voice-audio-meter.js?v=3";
-import { blobToWav16kMono } from "../audio-wav.js?v=30";
+import { createVoiceOrb } from "./voice-orb.js?v=5";
+import { createAudioMeter } from "./voice-audio-meter.js?v=4";
+import { blobToWav16kMono } from "../audio-wav.js?v=31";
 
 // ---------- voice-activity detection (VAD) tuning ----------
 // The mic may be at arm's length (laptop) OR close to the mouth (phone), so the

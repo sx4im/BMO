@@ -4,15 +4,15 @@
  * voice recording bar, and submit/stop state.
  */
 
-import { el, clear } from "../utils.js?v=20";
-import { icon } from "../icons.js?v=73";
-import { FileIcon } from "../components/file-icon.js?v=6";
-import { toast } from "../components/toast.js?v=58";
-import { openImageModal } from "../components/image-modal.js?v=18";
-import { blobToWav16kMono } from "../audio-wav.js?v=30";
-import { getAuth } from "../auth.js";
-import * as api from "../api.js?v=66";
-import { SkillPicker } from "./skill-picker.js?v=6";
+import { el, clear } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { FileIcon } from "../components/file-icon.js?v=7";
+import { toast } from "../components/toast.js?v=59";
+import { openImageModal } from "../components/image-modal.js?v=31";
+import { blobToWav16kMono } from "../audio-wav.js?v=31";
+import { getAuth } from "../auth.js?v=1";
+import * as api from "../api.js?v=73";
+import { SkillPicker } from "./skill-picker.js?v=7";
 
 const MAX_IMAGES_PER_MESSAGE = 6;
 const MAX_CONCURRENT_ATTACHMENT_UPLOADS = 2;

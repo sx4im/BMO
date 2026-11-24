@@ -3,22 +3,22 @@
  * Coordinates the message feed, composer, stream handler, voice assistant, and image generation.
  */
 
-import { el, clear, formatTitle } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=73";
-import { getAuth } from "../auth.js";
-import { navigate } from "../router.js";
-import { mountAppShell } from "../app-shell.js?v=4";
-import { toast } from "../components/toast.js?v=58";
-import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
-import { openShareModal } from "../components/share-modal.js?v=3";
-import { openMoveChatModal } from "./projects.js?v=3";
-import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=36";
-import { openVoiceOverlay } from "../components/voice-overlay.js?v=73";
-import * as api from "../api.js?v=71";
+import { el, clear, formatTitle } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { getAuth } from "../auth.js?v=1";
+import { navigate } from "../router.js?v=1";
+import { mountAppShell } from "../app-shell.js?v=5";
+import { toast } from "../components/toast.js?v=59";
+import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=59";
+import { openShareModal } from "../components/share-modal.js?v=4";
+import { openMoveChatModal } from "./projects.js?v=5";
+import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=37";
+import { openVoiceOverlay } from "../components/voice-overlay.js?v=74";
+import * as api from "../api.js?v=73";
 
-import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=49";
-import { MessageFeed } from "../chat/message-feed.js?v=57";
-import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=18";
+import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=50";
+import { MessageFeed } from "../chat/message-feed.js?v=58";
+import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=19";
 import {
   detectExportIntent,
   buildCanonicalMarkdown,
@@ -26,7 +26,7 @@ import {
   downloadBlob,
   buildClientDocxBlob,
   printDocumentToPdf,
-} from "../export.js?v=6";
+} from "../export.js?v=7";
 
 
 

@@ -3,9 +3,9 @@
  * Captures microphone stream, converts to 16 kHz mono WAV, and transcribes via API.
  */
 
-import { blobToWav16kMono } from "../audio-wav.js?v=30";
-import { toast } from "../components/toast.js?v=58";
-import * as api from "../api.js?v=56";
+import { blobToWav16kMono } from "../audio-wav.js?v=31";
+import { toast } from "../components/toast.js?v=59";
+import * as api from "../api.js?v=73";
 
 export class AudioRecorder {
   constructor({ onStateChange, onTranscription, getAuthToken }) {

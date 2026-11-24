@@ -1,5 +1,5 @@
-import { $, el } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=57";
+import { $, el } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
 
 // Claude-style: outlined status glyphs (no filled badge circle).
 const ICONS = {

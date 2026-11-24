@@ -1,7 +1,7 @@
 // Inline SVG icons (Lucide). No external runtime dependency.
 // Each function returns a complete SVG string. Use via `el("span", { html: icon("settings") })`.
 
-import { MARK_PATHS } from "./components/logo.js?v=31";
+import { MARK_PATHS } from "./components/logo.js?v=33";
 const SVG_BASE = (paths, { width = 16, height = 16, stroke = 2, name = "", className = "" } = {}) => {
   const cls = ["lucide-icon", name ? `icon-${name}` : "", className].filter(Boolean).join(" ");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" class="${cls}" aria-hidden="true">${paths}</svg>`;

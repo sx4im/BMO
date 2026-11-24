@@ -1,8 +1,8 @@
 // Modal dialog for picking the AI mode per conversation.
 // Returns a Promise that resolves with the chosen mode id, or null on cancel.
 
-import { el, clear } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=30";
+import { el, clear } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
 
 export function openModelPicker({ models = [], defaultModel = null, currentModel = null } = {}) {
   return new Promise((resolve) => {

@@ -30,7 +30,7 @@ if (typeof customElements !== "undefined" && !customElements.get("bmo-image-gene
       signal.addEventListener("abort", () => resources.abort(), { once: true });
       let canvas;
       try {
-        const engine = await import("../vendor/img-fx/engine.js?v=1");
+        const engine = await import("../vendor/img-fx/engine.js?v=2");
         if (signal.aborted || motion.matches || expired) return;
 
         const presets = engine.PRESETS["pixels-mechanic"].modes;

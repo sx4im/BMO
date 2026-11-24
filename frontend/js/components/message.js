@@ -1,11 +1,11 @@
-import { el, clear } from "../utils.js?v=30";
-import { FileIcon } from "./file-icon.js?v=6";
-import { thoughtOrb } from "./orb.js?v=3";
-import { searchCard } from "./search-card.js?v=3";
-import { icon } from "../icons.js?v=30";
-import { avatar } from "./avatar.js?v=30";
-import { renderMarkdown } from "./markdown.js?v=36";
-import { openImageModal } from "./image-modal.js?v=30";
+import { el, clear } from "../utils.js?v=52";
+import { FileIcon } from "./file-icon.js?v=7";
+import { thoughtOrb } from "./orb.js?v=4";
+import { searchCard } from "./search-card.js?v=5";
+import { icon } from "../icons.js?v=77";
+import { avatar } from "./avatar.js?v=31";
+import { renderMarkdown } from "./markdown.js?v=37";
+import { openImageModal } from "./image-modal.js?v=31";
 
 export function reasoningDetails({ reasoning, durationText = "", live = false, hasAnswerText = false, open = false }) {
   const mark = el("span", { class: live ? "icon-pulse orb-slot" : "orb-slot" });

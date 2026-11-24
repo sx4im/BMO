@@ -10,7 +10,8 @@ through Graft and the current source before editing.
 - Frontend: Vercel, `https://bimo.qzz.io`. Backend: Render,
   `https://bimo-backend-4a4g.onrender.com`; see `render.yaml`.
 - Frontend modules and styles use query-string cache versions. Bump affected
-  imports and entry-point versions when shipping frontend changes.
+  imports and entry-point versions when shipping frontend changes. Keep all
+  imports of each module on the same version so they share one browser instance.
 - Never commit environment variables, API keys, or generated Graft caches.
 
 ## Recent behavior and decisions

@@ -7,15 +7,15 @@
  *   manager with live token meter, and project chats list with "New chat".
  */
 
-import { el, clear, formatTitle } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=73";
-import { FileIcon } from "../components/file-icon.js?v=6";
-import { toast } from "../components/toast.js?v=58";
-import { openConfirmModal } from "../components/confirm-modal.js?v=58";
-import * as api from "../api.js?v=64";
-import { getAuth } from "../auth.js";
-import { navigate } from "../router.js";
-import { mountAppShell, loadConversations } from "../app-shell.js?v=4";
+import { el, clear, formatTitle } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { FileIcon } from "../components/file-icon.js?v=7";
+import { toast } from "../components/toast.js?v=59";
+import { openConfirmModal } from "../components/confirm-modal.js?v=59";
+import * as api from "../api.js?v=73";
+import { getAuth } from "../auth.js?v=1";
+import { navigate } from "../router.js?v=1";
+import { mountAppShell, loadConversations } from "../app-shell.js?v=5";
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;

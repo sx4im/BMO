@@ -1,4 +1,4 @@
-import { el, initialsFromName } from "../utils.js?v=30";
+import { el, initialsFromName } from "../utils.js?v=52";
 
 export function avatar(name, size = "md", imageUrl = null) {
   if (imageUrl) {

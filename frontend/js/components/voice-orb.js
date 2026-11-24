@@ -1,4 +1,4 @@
-import { vertexShader, fragmentShader } from './voice-orb-shaders.js?v=4';
+import { vertexShader, fragmentShader } from './voice-orb-shaders.js?v=5';
 
 const STATES = {
   idle: { speed: 0.22, activity: 0 },

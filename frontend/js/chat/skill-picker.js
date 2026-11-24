@@ -1,5 +1,5 @@
-import { el } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=76";
+import { el } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
 
 let sequence = 0;
 

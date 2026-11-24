@@ -2,8 +2,8 @@
 // composer attachment chips) to open it here; dismiss with the X button, a
 // click on the backdrop, or Escape.
 
-import { el } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=30";
+import { el } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
 
 let activeOverlay = null;
 

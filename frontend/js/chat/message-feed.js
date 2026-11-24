@@ -13,17 +13,17 @@
  * finished conversation.
  */
 
-import { el, clear } from "../utils.js?v=30";
-import { createOrb, readingOrb } from "../components/orb.js?v=3";
-import { searchCard } from "../components/search-card.js?v=4";
-import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=36";
-import { messageBubble, reasoningDetails } from "../components/message.js?v=82";
-import { EXPORT_FORMATS, downloadBlob } from "../export.js?v=6";
-import { StreamingRenderer } from "./stream-renderer.js?v=16";
-import { stripStrayCursors } from "./caret.js?v=1";
-import { ScrollFollower } from "./scroll-follower.js?v=7";
-import { getGreeting, getRandomGreetingTemplate, getPageGreetingTemplate, getFirstName } from "./greetings.js?v=4";
-import "../components/image-generation-effect.js?v=2";
+import { el, clear } from "../utils.js?v=52";
+import { createOrb, readingOrb } from "../components/orb.js?v=4";
+import { searchCard } from "../components/search-card.js?v=5";
+import { renderMarkdown, whenMarkdownReady } from "../components/markdown.js?v=37";
+import { messageBubble, reasoningDetails } from "../components/message.js?v=83";
+import { EXPORT_FORMATS, downloadBlob } from "../export.js?v=7";
+import { StreamingRenderer } from "./stream-renderer.js?v=17";
+import { stripStrayCursors } from "./caret.js?v=2";
+import { ScrollFollower } from "./scroll-follower.js?v=8";
+import { getGreeting, getRandomGreetingTemplate, getPageGreetingTemplate, getFirstName } from "./greetings.js?v=5";
+import "../components/image-generation-effect.js?v=3";
 
 export function emptyStreamView({ incognito, user, template } = {}) {
   if (incognito) {

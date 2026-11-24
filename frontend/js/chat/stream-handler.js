@@ -3,9 +3,9 @@
  * Manages token assembly, reasoning timer, background buffering, status phrases, and stream cancellation.
  */
 
-import * as api from "../api.js?v=69";
-import { getRandomPhrase } from "./waiting-phrases.js?v=1";
-export { ROTATING_PHRASES, getRandomPhrase } from "./waiting-phrases.js?v=1";
+import * as api from "../api.js?v=73";
+import { getRandomPhrase } from "./waiting-phrases.js?v=2";
+export { ROTATING_PHRASES, getRandomPhrase } from "./waiting-phrases.js?v=2";
 
 // Shown for the moment between "Bmo decided to search" and the results
 // landing. Transient chrome, never persisted into the reply.

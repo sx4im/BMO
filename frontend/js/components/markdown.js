@@ -10,8 +10,8 @@
 // plain-text fallback, and registered callbacks (whenMarkdownReady) re-render
 // to upgrade it once the libraries land.
 
-import { icon } from "../icons.js?v=30";
-import { escapeHtml } from "../utils.js?v=30";
+import { icon } from "../icons.js?v=77";
+import { escapeHtml } from "../utils.js?v=52";
 
 const CDN = {
   marked: "https://esm.sh/marked@13",

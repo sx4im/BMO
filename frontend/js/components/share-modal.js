@@ -3,10 +3,10 @@
  * Allows users to generate, copy, update, or revoke a public snapshot link for any chat.
  */
 
-import { el } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=72";
-import { toast } from "./toast.js?v=58";
-import * as api from "../api.js?v=62";
+import { el } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { toast } from "./toast.js?v=59";
+import * as api from "../api.js?v=73";
 
 let activeOverlay = null;
 

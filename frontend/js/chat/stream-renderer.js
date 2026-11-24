@@ -27,10 +27,10 @@
  * chase the bottom while it paints. `feed` is injected by the caller.
  */
 
-import { renderMarkdown } from "../components/markdown.js?v=36";
-import { splitStreamBlocks } from "./stream-splitter.js?v=2";
-import { stripStrayCursors } from "./caret.js?v=1";
-import { el, clear } from "../utils.js?v=30";
+import { renderMarkdown } from "../components/markdown.js?v=37";
+import { splitStreamBlocks } from "./stream-splitter.js?v=3";
+import { stripStrayCursors } from "./caret.js?v=2";
+import { el, clear } from "../utils.js?v=52";
 
 // Typewriter pacing: floor speed keeps slow drips flowing; proportional
 // drain eats bursts fast (~130ms exponential catch-up time constant) so

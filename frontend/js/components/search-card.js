@@ -3,9 +3,9 @@
 // both phases — placeholder rows while the search is in flight, then the results
 // — so it fills in rather than being swapped out under the reader.
 
-import { el } from "../utils.js?v=30";
-import { icon } from "../icons.js?v=48";
-import { searchOrb } from "./orb.js?v=3";
+import { el } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { searchOrb } from "./orb.js?v=4";
 
 const COLLAPSED_COUNT = 3;
 

@@ -1,11 +1,11 @@
-import { el, clear, formatTitle } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=75";
-import { avatar } from "./avatar.js?v=30";
-import { getRoute, navigate } from "../router.js";
-import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=58";
-import { openShareModal } from "./share-modal.js?v=2";
-import { openMoveChatModal, openProjectModal } from "../pages/projects.js";
-import { getAuth } from "../auth.js";
+import { el, clear, formatTitle } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { avatar } from "./avatar.js?v=31";
+import { getRoute, navigate } from "../router.js?v=1";
+import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=59";
+import { openShareModal } from "./share-modal.js?v=4";
+import { openMoveChatModal, openProjectModal } from "../pages/projects.js?v=5";
+import { getAuth } from "../auth.js?v=1";
 
 const NAV = [
   { hash: "#/app/chat", label: "Search", icon: "search" },

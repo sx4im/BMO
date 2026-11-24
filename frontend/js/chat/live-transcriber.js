@@ -1,4 +1,4 @@
-import * as api from '../api.js?v=67';
+import * as api from '../api.js?v=73';
 
 const CONNECTION_TIMEOUT_MS = 10000;
 const FINAL_TIMEOUT_MS = 5000;
@@ -35,7 +35,7 @@ export class LiveTranscriber {
       // Resume inside the originating user gesture, before network awaits.
       const resumed = this.context.resume();
       this.connectTimer = setTimeout(() => this.fail(Error('Microphone connection timed out. Please try again.')), CONNECTION_TIMEOUT_MS);
-      await Promise.all([resumed, this.context.audioWorklet.addModule('/js/chat/pcm-capture-worklet.js?v=1')]);
+      await Promise.all([resumed, this.context.audioWorklet.addModule('/js/chat/pcm-capture-worklet.js?v=2')]);
       if (this.done) return;
       this.source = this.context.createMediaStreamSource(stream);
       this.capture = new AudioWorkletNode(this.context, 'bimo-pcm-capture');

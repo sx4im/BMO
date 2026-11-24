@@ -4,9 +4,9 @@
 // hits Supabase Postgres directly: all reads/writes go through the gateway,
 // which validates the JWT and uses the service role on the server side.
 
-import { config } from "./config.js?v=30";
-import { getAuth, refreshSession } from "./auth.js";
-import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js";
+import { config } from "./config.js?v=31";
+import { getAuth, refreshSession } from "./auth.js?v=1";
+import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js?v=1";
 
 function authHeaders(token) {
   const t = getAuth().auth?.token || token;

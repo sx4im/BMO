@@ -7,7 +7,7 @@
 // Sizes are free-form: the library tunes particle density from the nearest
 // preset bucket (<=32px -> compact tune) and draws scaled to the box.
 
-import "../vendor/thinking-orbs/web-component.js"; // idempotent customElements.define
+import "../vendor/thinking-orbs/web-component.js?v=1"; // idempotent customElements.define
 
 /**
  * Create a thinking-orb <thinking-orb> element.

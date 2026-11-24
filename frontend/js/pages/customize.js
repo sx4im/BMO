@@ -1,10 +1,10 @@
-import { el, clear } from "../utils.js?v=51";
-import { icon } from "../icons.js?v=75";
-import { getAuth } from "../auth.js";
-import { mountAppShell } from "../app-shell.js?v=4";
-import * as api from "../api.js?v=64";
-import { openConfirmModal } from "../components/confirm-modal.js?v=58";
-import { downloadBlob } from "../export.js?v=6";
+import { el, clear } from "../utils.js?v=52";
+import { icon } from "../icons.js?v=77";
+import { getAuth } from "../auth.js?v=1";
+import { mountAppShell } from "../app-shell.js?v=5";
+import * as api from "../api.js?v=73";
+import { openConfirmModal } from "../components/confirm-modal.js?v=59";
+import { downloadBlob } from "../export.js?v=7";
 
 export async function renderCustomize(_params, { signal } = {}) {
   const { auth } = getAuth();
