@@ -4,7 +4,7 @@ import { logo } from "../components/logo.js?v=33";
 import { toast } from "../components/toast.js?v=59";
 import { signInWithGoogle, signInWithGithub, isConfigured } from "../auth.js?v=2";
 import { navigate } from "../router.js?v=1";
-import { tearDownShell } from "../app-shell.js?v=6";
+import { tearDownShell } from "../app-shell.js?v=7";
 import { getThemePref, setThemePref } from "../prefs.js?v=1";
 
 

@@ -16,12 +16,13 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
-- Production chat history and model catalog reads use the same-origin
-  `/bmo-api` Vercel rewrite to Render. This removes browser CORS preflights from
-  those reads. The live Vercel project uses `frontend/` as its root, so the
-  rewrite and its private cache policy are declared in `frontend/vercel.json`.
-  Chat submissions, voice WebSockets, custom API overrides, and local
-  development use their direct gateway URLs.
+- Production chat history, model catalog, chat streams, and voice setup use
+  the same-origin `/bmo-api` Vercel rewrite to Render. This removes browser
+  CORS preflights from those requests. The Vercel project uses `frontend/` as
+  its root, so `frontend/vercel.json` declares the rewrite and private cache policy.
+  Voice WebSockets, media uploads, custom API overrides, and local development
+  use their direct gateway URLs. Live verification exercised a complete Aeon
+  chat stream through the rewrite with a temporary test account.
 - A disconnected Supabase read gets one retry on chat setup and history paths.
   A voice overlay opens its synthesis WebSocket when text is ready to speak
   and closes it when playback ends or is canceled, freeing its Gunicorn thread.

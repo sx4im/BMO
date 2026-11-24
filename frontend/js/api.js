@@ -13,6 +13,10 @@ function authHeaders(token) {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+function chatGatewayUrl() {
+  return config.sameOriginApiUrl ?? config.apiUrl;
+}
+
 async function request(path, { method = "GET", body, blob = false, token, signal, baseUrl = config.apiUrl } = {}) {
   const execute = async (t) => {
     console.debug(`[bimo-api] ${method} ${path} auth=${t ? "yes" : "none"}`);
@@ -78,7 +82,7 @@ export async function listConversations(token) {
 
 export async function getMessages(token, conversationId, signal) {
   const path = `/conversations/${conversationId}/messages`;
-  return signal ? request(path, { token, signal, baseUrl: config.sameOriginApiUrl ?? config.apiUrl }) : readChat(path, token);
+  return signal ? request(path, { token, signal, baseUrl: chatGatewayUrl() }) : readChat(path, token);
 }
 
 async function readChat(path, token) {
@@ -87,7 +91,7 @@ async function readChat(path, token) {
   // window for the second attempt and never replay chat submissions here.
   const deadline = AbortSignal.timeout(21_000);
   try {
-    return await request(path, { token, signal: AbortSignal.timeout(6_000), baseUrl: config.sameOriginApiUrl ?? config.apiUrl });
+    return await request(path, { token, signal: AbortSignal.timeout(6_000), baseUrl: chatGatewayUrl() });
   } catch (error) {
     const interrupted = error.name === "TimeoutError" || error.name === "TypeError" ||
       [502, 503, 504].includes(error.status);
@@ -304,7 +308,7 @@ export async function streamChat(token, payload, handlers = {}) {
   delete bodyPayload.incognito;
 
   const execute = async (t) => {
-    const endpoint = isIncognito ? `${config.apiUrl}/chat/incognito` : `${config.apiUrl}/chat`;
+    const endpoint = `${chatGatewayUrl()}${isIncognito ? "/chat/incognito" : "/chat"}`;
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -438,7 +442,7 @@ export async function streamChat(token, payload, handlers = {}) {
 export async function cancelChat(token, streamId) {
   if (!streamId) return;
   try {
-    await request(`/chat/${encodeURIComponent(streamId)}/cancel`, { method: "POST", token });
+    await request(`/chat/${encodeURIComponent(streamId)}/cancel`, { method: "POST", token, baseUrl: chatGatewayUrl() });
   } catch {
     /* best-effort */
   }
@@ -527,11 +531,12 @@ export async function listModels(token) {
 
 export async function checkVoiceTurn(token, transcript, previousAssistant, { signal } = {}) {
   return request("/voice/turn", { method: "POST", token, signal,
+    baseUrl: chatGatewayUrl(),
     body: { transcript, previous_assistant: previousAssistant } });
 }
 
 export async function createTranscriptionToken(token, { signal } = {}) {
-  return request("/transcribe/token", { method: "POST", token, signal });
+  return request("/transcribe/token", { method: "POST", token, signal, baseUrl: chatGatewayUrl() });
 }
 
 export async function transcribeAudio(token, audioBlob, { language, deepgramOnly, signal } = {}) {
@@ -785,7 +790,7 @@ export async function deleteProjectFile(token, projectId, fileId) {
 
 export async function health() {
   try {
-    const response = await fetch(`${config.apiUrl}/health`);
+    const response = await fetch(`${chatGatewayUrl()}/health`);
     if (!response.ok) return { status: "down" };
     return response.json();
   } catch {

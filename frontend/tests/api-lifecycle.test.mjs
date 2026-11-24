@@ -11,12 +11,12 @@ async function apiFixture(fetch, globals = {}) {
   return app.load('js/api.js');
 }
 
-test('production reads use same-origin and writes and voice keep their direct routes', async t => {
+test('production chat and voice setup use same-origin while speech sockets and overrides keep their direct routes', async t => {
   const requested = [];
   const app = moduleLoader({
     'auth.js': { getAuth: () => ({ auth: null }), refreshSession: async () => null },
     'supabaseClient.js': { isSupabaseConfigured: () => false, supabaseClient() {} },
-  }, { globals: { fetch: async url => {
+  }, { globals: { TextDecoder, fetch: async url => {
     requested.push(url);
     if (url.includes('/bmo-api/conversations/') && requested.length === 3) throw new TypeError('Network unavailable');
     return new Response('[]');
@@ -30,12 +30,18 @@ test('production reads use same-origin and writes and voice keep their direct ro
   await api.createTranscriptionToken('test');
   await api.getMessages('test', 'chat');
   await api.listModels('test');
+  await api.streamChat('test', { message: 'Hello', incognito: true });
+  await api.cancelChat('test', 'stream');
+  await api.checkVoiceTurn('test', 'Hello', '');
   assert.deepEqual(requested, [
     'https://bimo.qzz.io/bmo-api/conversations',
-    'https://bimo-backend-4a4g.onrender.com/transcribe/token',
+    'https://bimo.qzz.io/bmo-api/transcribe/token',
     'https://bimo.qzz.io/bmo-api/conversations/chat/messages',
     'https://bimo-backend-4a4g.onrender.com/conversations/chat/messages',
     'https://bimo.qzz.io/bmo-api/models',
+    'https://bimo.qzz.io/bmo-api/chat/incognito',
+    'https://bimo.qzz.io/bmo-api/chat/stream/cancel',
+    'https://bimo.qzz.io/bmo-api/voice/turn',
   ]);
   assert.equal(new URL(api.ttsStreamUrl('test')).host, 'bimo-backend-4a4g.onrender.com');
 

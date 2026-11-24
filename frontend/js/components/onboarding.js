@@ -2,7 +2,7 @@
 import { el } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
 import { getAuth } from "../auth.js?v=2";
-import { saveOnboarding } from "../api.js?v=74";
+import { saveOnboarding } from "../api.js?v=75";
 
 const RELEASE = "6.0";
 const seenKey = auth => `bmo-release-${RELEASE}:${auth?.user?.id || ""}`;

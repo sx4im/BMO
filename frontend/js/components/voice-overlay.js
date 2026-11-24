@@ -16,8 +16,8 @@
 import { el } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
 import { toast } from "./toast.js?v=59";
-import * as api from "../api.js?v=74";
-import { LiveTranscriber } from "../chat/live-transcriber.js?v=7";
+import * as api from "../api.js?v=75";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=8";
 import { getRandomPhrase } from "../chat/waiting-phrases.js?v=2";
 import { SemanticTurnDetector } from "../chat/turn-detector.js?v=2";
 import { VOICE_LANGUAGES, normalizeVoiceLanguage } from "./voice-languages.js?v=3";

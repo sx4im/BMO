@@ -1,12 +1,12 @@
 import { el, clear } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
-import { mountAppShell, tearDownShell, getShellState } from "../app-shell.js?v=6";
+import { mountAppShell, tearDownShell, getShellState } from "../app-shell.js?v=7";
 import { getAuth, signOut, setUserDisplayName } from "../auth.js?v=2";
 import { getThemePref, setThemePref } from "../prefs.js?v=1";
 import { avatar } from "../components/avatar.js?v=31";
 import { toast } from "../components/toast.js?v=59";
 import { openConfirmModal } from "../components/confirm-modal.js?v=59";
-import * as api from "../api.js?v=74";
+import * as api from "../api.js?v=75";
 
 // Segmented System / Light / Dark control (mirrors the reference Appearance row).
 function appearanceControl() {
