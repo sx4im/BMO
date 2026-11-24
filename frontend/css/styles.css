@@ -8796,6 +8796,11 @@ em {
   border-radius: 0;
 }
 
+/* Keep native MathML visible on its own while KaTeX's stylesheet is unavailable. */
+:root:not(.katex-css-ready) .katex > .katex-html {
+  display: none;
+}
+
 /* KaTeX math — never put overflow on .katex itself; it clips the overlay glyphs
    (\neq slash, \frac, \sqrt) into stray pieces (the "/" bug). Only the DISPLAY
    wrapper scrolls, and horizontally only — mixing overflow-x:auto with

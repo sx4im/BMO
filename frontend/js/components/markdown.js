@@ -55,14 +55,17 @@ function ensureCodeCopyHandler() {
   });
 }
 
-// Inject KaTeX's stylesheet only once the math library is actually in use.
-// Kept out of index.html so it never render-blocks the initial paint.
+// Load KaTeX's styles in the background. Until they arrive, the app
+// stylesheet shows native MathML on its own.
 function injectKatexCss() {
   if (document.querySelector("link[data-katex-css]")) return;
   const link = document.createElement("link");
   link.rel = "stylesheet";
   link.href = KATEX_CSS;
   link.setAttribute("data-katex-css", "");
+  link.addEventListener("load", () => {
+    document.documentElement.classList.add("katex-css-ready");
+  }, { once: true });
   document.head.appendChild(link);
 }
 

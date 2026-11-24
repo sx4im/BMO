@@ -12,12 +12,12 @@ import { toast } from "../components/toast.js?v=58";
 import { openConfirmModal, openPromptModal } from "../components/confirm-modal.js?v=58";
 import { openShareModal } from "../components/share-modal.js?v=3";
 import { openMoveChatModal } from "./projects.js?v=3";
-import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=35";
+import { whenMarkdownReady, renderMarkdown } from "../components/markdown.js?v=36";
 import { openVoiceOverlay } from "../components/voice-overlay.js?v=73";
 import * as api from "../api.js?v=71";
 
 import { Composer, DEFAULT_AVAILABLE_MODELS, extractUrls } from "../chat/composer.js?v=49";
-import { MessageFeed } from "../chat/message-feed.js?v=56";
+import { MessageFeed } from "../chat/message-feed.js?v=57";
 import { StreamHandler, getRandomPhrase } from "../chat/stream-handler.js?v=18";
 import {
   detectExportIntent,
@@ -26,7 +26,7 @@ import {
   downloadBlob,
   buildClientDocxBlob,
   printDocumentToPdf,
-} from "../export.js?v=5";
+} from "../export.js?v=6";
 
 
 

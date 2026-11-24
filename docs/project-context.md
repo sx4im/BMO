@@ -1,6 +1,6 @@
 # BMO project context
 
-Updated 2026-11-23. Use this as an entry point; confirm implementation details
+Updated 2026-11-24. Use this as an entry point; confirm implementation details
 through Graft and the current source before editing.
 
 ## Architecture and deployment
@@ -14,6 +14,13 @@ through Graft and the current source before editing.
 - Never commit environment variables, API keys, or generated Graft caches.
 
 ## Recent behavior and decisions
+
+- Chat math shows native MathML until KaTeX's stylesheet loads, including
+  when the stylesheet request fails. Once loaded, KaTeX typesets the same
+  equations and keeps MathML available to assistive technology. Chromium
+  reproduced the duplicate `log 0` and `sin 0` before the fix and verified
+  one visible copy with delayed, loaded, and blocked CSS. The browser check
+  used fixture replies rather than a live model turn.
 
 - Attachment upload and signed-URL creation retry transient storage
   disconnects independently. An upload retry reuses the same scoped object

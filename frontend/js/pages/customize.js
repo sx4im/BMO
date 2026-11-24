@@ -4,7 +4,7 @@ import { getAuth } from "../auth.js";
 import { mountAppShell } from "../app-shell.js?v=4";
 import * as api from "../api.js?v=64";
 import { openConfirmModal } from "../components/confirm-modal.js?v=58";
-import { downloadBlob } from "../export.js?v=5";
+import { downloadBlob } from "../export.js?v=6";
 
 export async function renderCustomize(_params, { signal } = {}) {
   const { auth } = getAuth();

@@ -6,8 +6,8 @@
 import { el, clear, formatTitle } from "../utils.js?v=51";
 import { icon } from "../icons.js?v=73";
 import { brandMark, logo } from "../components/logo.js?v=32";
-import { messageBubble } from "../components/message.js?v=81";
-import { whenMarkdownReady } from "../components/markdown.js?v=35";
+import { messageBubble } from "../components/message.js?v=82";
+import { whenMarkdownReady } from "../components/markdown.js?v=36";
 import { navigate } from "../router.js";
 import * as api from "../api.js?v=64";
 
