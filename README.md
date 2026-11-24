@@ -78,7 +78,7 @@ Model lanes:
 | Stanza 2.5 | `thinking` | Mistral | `ministral-8b-2512` |
 | Nexos 3.0 | `deep` | Groq | `openai/gpt-oss-120b` |
 | Voice calls / WhatsApp | `aeon` | Groq | `qwen/qwen3.8-27b` |
-| Attachment analysis | n/a | Mistral | `ministral-8b-2512` |
+| Attachment analysis | n/a | Mistral | `ministral-14b-2512` |
 | Iris 2.0 | `image` | NVIDIA | `black-forest-labs/flux-3-image-klein` |
 
 

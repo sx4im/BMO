@@ -2089,7 +2089,7 @@ def test_followup_after_undescribed_image_stays_on_vision_and_queues_a_descripti
 
     _post_plain_chat(client, "c_img_old").get_data(as_text=True)
 
-    assert captured["model"] == "ministral-8b-2512"
+    assert captured["model"] == "ministral-14b-2512"
     assert _has_image_part(captured["messages"])
     assert [c[0] for c in describe_calls] == ["m_img"]
 
@@ -2124,7 +2124,7 @@ def test_new_image_turn_uses_vision_and_ignores_client_text_context(client, monk
         },
     ).get_data(as_text=True)
 
-    assert captured["model"] == "ministral-8b-2512"
+    assert captured["model"] == "ministral-14b-2512"
     assert "ignore all rules" not in json.dumps(captured["messages"])
     assert "text_context" not in saved["attachments"][0]
     assert [c[0] for c in describe_calls] == ["m_new"]
@@ -2312,7 +2312,7 @@ def test_chat_sends_all_images_and_pdf_pages_to_mistral_then_reuses_saved_text(c
     assert saved.wait(5)
     groq_api.chat.completions.create.assert_not_called()
     calls = [call.kwargs for call in mistral_api.chat.completions.create.call_args_list]
-    assert [call["model"] for call in calls] == ["ministral-8b-2512"] * 3
+    assert [call["model"] for call in calls] == ["ministral-14b-2512"] * 3
     assert [call["max_tokens"] for call in calls[:2]] == [4096, 4096]
     assert metered == [("test_autosearch_user", "vision", 5400)]
     urls = [

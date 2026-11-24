@@ -123,11 +123,13 @@ through Graft and the current source before editing.
   models with a 30px-tall, rounded rectangular button. `GROQ_NEXOS_MODEL`
   sets the upstream model.
 - Chat attachment turns and background image descriptions use Mistral
-  `ministral-8b-2512` via `MISTRAL_VISION_MODEL`. Existing file extraction,
+  `ministral-14b-2512` via `MISTRAL_VISION_MODEL`. Existing file extraction,
   PDF page rendering and batching, and saved attachment context are reused.
   Regular chat follow-ups use saved text and the selected chat model once
   descriptions are available. Unsupported or oversized chat images are
   converted to a bounded PNG for inference, with the original kept in storage.
+  Simulated Mistral requests verified the model for new image turns,
+  follow-ups awaiting descriptions, mixed PDF batches, and background descriptions.
 - A chat message accepts up to six uploaded images. The composer counts ready
   and in-flight images across selections, and both chat endpoints enforce the
   limit. Documents keep their own upload limits. Mixed image/PDF turns batch
