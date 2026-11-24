@@ -64,6 +64,15 @@ def _execute(builder, *, max_retries: int = 2, delay: float = 0.35):
             raise
 
 
+def _execute_read(builder):
+    """Retry one disconnected PostgREST read."""
+    try:
+        return _execute(builder)
+    except httpx.RemoteProtocolError:
+        logger.warning("Supabase disconnected during a read; retrying once")
+        return _execute(builder)
+
+
 def is_transient_persistence_error(exc: Exception) -> bool:
     """Only transport failures and explicitly retryable database errors qualify."""
     if isinstance(exc, (ConnectionError, TimeoutError, httpx.TransportError)):
@@ -103,7 +112,7 @@ def _fetch_all(query, *, page_size: int = 200) -> list[dict]:
     """Read past PostgREST's row cap using a deterministically ordered query."""
     rows = []
     while True:
-        page = _execute(query.range(len(rows), len(rows) + page_size - 1)).data or []
+        page = _execute_read(query.range(len(rows), len(rows) + page_size - 1)).data or []
         rows.extend(page)
         if len(page) < page_size:
             return rows
@@ -162,7 +171,7 @@ def mark_release_seen(user_id: str, release: str) -> None:
 # ---------- conversations ----------
 
 def list_conversations(user_id: str, *, limit: int = 100) -> list[dict]:
-    res = _execute(
+    res = _execute_read(
         supabase()
         .table("conversations")
         .select("*")
@@ -175,7 +184,7 @@ def list_conversations(user_id: str, *, limit: int = 100) -> list[dict]:
 
 
 def get_conversation(conversation_id: str, user_id: str) -> Optional[dict]:
-    res = _execute(
+    res = _execute_read(
         supabase()
         .table("conversations")
         .select("*")
@@ -415,7 +424,7 @@ def get_messages(conversation_id: str, *, limit: Optional[int] = None) -> list[d
     )
     if limit is None:
         return _fetch_all(query)
-    return list(reversed(_execute(query.limit(limit)).data or []))
+    return list(reversed(_execute_read(query.limit(limit)).data or []))
 
 
 def add_message(
@@ -569,7 +578,7 @@ def upsert_feedback(
 
 
 def user_feedback(user_id: str) -> list[dict]:
-    res = _execute(supabase().table("feedback").select("*").eq("user_id", user_id))
+    res = _execute_read(supabase().table("feedback").select("*").eq("user_id", user_id))
     return res.data or []
 
 
@@ -595,7 +604,7 @@ def record_usage(user_id: str, model: str, tokens: int) -> None:
 def recent_usage_events(user_id: str, since_iso: str) -> list[dict]:
     """All of a user's usage rows since ``since_iso`` (the widest window we
     report). The gateway slices the shorter session window in Python."""
-    res = _execute(
+    res = _execute_read(
         supabase()
         .table("usage_events")
         .select("model,tokens,created_at")
@@ -929,12 +938,12 @@ def list_projects(user_id: str, *, include_archived: bool = False) -> list[dict]
     query = supabase().table("projects").select("*").eq("user_id", user_id)
     if not include_archived:
         query = query.eq("archived", False)
-    res = _execute(query.order("updated_at", desc=True))
+    res = _execute_read(query.order("updated_at", desc=True))
     return res.data or []
 
 
 def get_project(project_id: str, user_id: str) -> Optional[dict]:
-    res = _execute(
+    res = _execute_read(
         supabase()
         .table("projects")
         .select("*")
@@ -1013,7 +1022,7 @@ _FILE_LIST_COLUMNS = "id, project_id, filename, mime_type, size_bytes, token_est
 
 def list_project_files(project_id: str, user_id: str, *, include_text: bool = False) -> list[dict]:
     cols = "*" if include_text else _FILE_LIST_COLUMNS
-    res = _execute(
+    res = _execute_read(
         supabase()
         .table("project_files")
         .select(cols)
@@ -1109,7 +1118,7 @@ def get_project_token_usage(project_id: str, user_id: str) -> int:
 
 def get_projects_file_stats(user_id: str) -> dict[str, dict[str, int]]:
     """Return {project_id: {"file_count": int, "tokens_used": int}} for all files owned by user."""
-    res = _execute(
+    res = _execute_read(
         supabase()
         .table("project_files")
         .select("project_id, token_estimate")
@@ -1128,7 +1137,7 @@ def get_projects_file_stats(user_id: str) -> dict[str, dict[str, int]]:
 
 def get_projects_chat_stats(user_id: str) -> dict[str, int]:
     """Return {project_id: chat_count} for all conversations owned by user."""
-    res = _execute(
+    res = _execute_read(
         supabase()
         .table("conversations")
         .select("project_id")
@@ -1159,7 +1168,7 @@ def list_project_conversations(project_id: str, user_id: str) -> list[dict]:
 # ---------- Customize ----------
 
 def get_preferences(user_id: str) -> dict:
-    rows = _execute(supabase().table("preferences").select("instructions").eq("user_id", user_id).limit(1)).data
+    rows = _execute_read(supabase().table("preferences").select("instructions").eq("user_id", user_id).limit(1)).data
     return (rows or [{"instructions": ""}])[0]
 
 
@@ -1176,7 +1185,7 @@ def list_skills(user_id: str) -> list[dict]:
 
 
 def list_enabled_builtin_skills(user_id: str) -> set[str]:
-    rows = _execute(supabase().table("enabled_builtin_skills").select("skill_id").eq("user_id", user_id)).data
+    rows = _execute_read(supabase().table("enabled_builtin_skills").select("skill_id").eq("user_id", user_id)).data
     return {row["skill_id"] for row in rows or []}
 
 
@@ -1189,7 +1198,7 @@ def set_builtin_skill_enabled(user_id: str, skill_id: str, enabled: bool) -> Non
 
 
 def get_skill(skill_id: str, user_id: str) -> Optional[dict]:
-    rows = _execute(supabase().table("skills").select("*").eq("id", skill_id).eq("user_id", user_id).limit(1)).data
+    rows = _execute_read(supabase().table("skills").select("*").eq("id", skill_id).eq("user_id", user_id).limit(1)).data
     return (rows or [None])[0]
 
 

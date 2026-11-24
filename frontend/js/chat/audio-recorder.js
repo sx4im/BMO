@@ -5,7 +5,7 @@
 
 import { blobToWav16kMono } from "../audio-wav.js?v=31";
 import { toast } from "../components/toast.js?v=59";
-import * as api from "../api.js?v=73";
+import * as api from "../api.js?v=74";
 
 export class AudioRecorder {
   constructor({ onStateChange, onTranscription, getAuthToken }) {

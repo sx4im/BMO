@@ -16,6 +16,21 @@ through Graft and the current source before editing.
 
 ## Recent behavior and decisions
 
+- Production chat history and model catalog reads use the same-origin
+  `/bmo-api` Vercel rewrite to Render. This removes browser CORS preflights from
+  those reads. The live Vercel project uses `frontend/` as its root, so the
+  rewrite and its private cache policy are declared in `frontend/vercel.json`.
+  Chat submissions, voice WebSockets, custom API overrides, and local
+  development use their direct gateway URLs.
+- A disconnected Supabase read gets one retry on chat setup and history paths.
+  A voice overlay opens its synthesis WebSocket when text is ready to speak
+  and closes it when playback ends or is canceled, freeing its Gunicorn thread.
+  A browser trace caught two history preflights that never appeared in Render
+  application logs. A separate local Gunicorn check showed that eight idle
+  voice sockets could block an eight-thread worker. Conversation list,
+  history, and model catalog reads retry once through the direct gateway
+  within a 21-second budget.
+
 - Chat math shows native MathML until KaTeX's stylesheet loads, including
   when the stylesheet request fails. Once loaded, KaTeX typesets the same
   equations and keeps MathML available to assistive technology. Chromium

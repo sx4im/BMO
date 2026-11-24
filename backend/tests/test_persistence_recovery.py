@@ -4,11 +4,88 @@ from __future__ import annotations
 import threading
 import uuid
 
+import httpx
 import pytest
 from postgrest.exceptions import APIError
 
-from app import chat_persistence, store
-from tests.test_regressions import MemoryQuery, conversation, db
+from app import chat_persistence, nvidia_client, store
+from tests.test_regressions import MemoryQuery, conversation, db, gateway, headers, message
+
+
+@pytest.fixture
+def disconnect_once(monkeypatch):
+    def install(table):
+        original = MemoryQuery.execute
+        attempts = []
+
+        def execute(query):
+            if query.table == table and query.action == "select":
+                attempts.append(True)
+                if len(attempts) == 1:
+                    raise httpx.RemoteProtocolError("Server disconnected during the read")
+            return original(query)
+
+        monkeypatch.setattr(MemoryQuery, "execute", execute)
+        return attempts
+
+    return install
+
+
+@pytest.mark.parametrize("path,table", [
+    ("/conversations", "conversations"),
+    ("/conversations/chat/messages", "messages"),
+    ("/conversations/chat/messages", "feedback"),
+    ("/skills", "enabled_builtin_skills"),
+])
+def test_chat_reads_recover_from_one_supabase_disconnect(gateway, headers, db, disconnect_once, path, table):
+    db.rows["conversations"] = [conversation(), conversation("other", "other-user")]
+    db.rows["messages"] = [message(1)]
+    attempts = disconnect_once(table)
+
+    response = gateway.get(path, headers=headers)
+
+    assert response.status_code == 200
+    assert len(attempts) == 2
+    if path == "/conversations":
+        assert [row["id"] for row in response.json] == ["chat"]
+    elif path.endswith("/messages"):
+        assert [row["id"] for row in response.json["messages"]] == [message(1)["id"]]
+
+
+@pytest.mark.parametrize("table", ["preferences", "usage_events", "messages"])
+def test_chat_reaches_model_after_recovering_setup_read(gateway, headers, db, disconnect_once, monkeypatch, table):
+    db.rows["conversations"] = [conversation()]
+    db.rows["messages"] = [message(1)]
+    attempts = disconnect_once(table)
+
+    def stream(*args, **kwargs):
+        yield {"type": "delta", "data": "Recovered reply"}
+        yield {"type": "done", "content": "Recovered reply", "finish_reason": "stop"}
+
+    monkeypatch.setattr(nvidia_client, "iter_response_with_fallback", stream)
+    response = gateway.post("/chat", headers=headers, json={
+        "conversation_id": "chat", "message": "Hello", "auto_search": False,
+    })
+
+    assert response.status_code == 200
+    assert "Recovered reply" in response.get_data(as_text=True)
+    assert len(attempts) == 2
+
+
+def test_repeated_disconnect_retries_a_read_once_and_never_replays_a_write(db, monkeypatch):
+    actions = []
+
+    def disconnected(query):
+        actions.append(query.action)
+        raise httpx.RemoteProtocolError("Server disconnected")
+
+    monkeypatch.setattr(MemoryQuery, "execute", disconnected)
+    with pytest.raises(httpx.RemoteProtocolError):
+        store.get_preferences("owner")
+    with pytest.raises(httpx.RemoteProtocolError):
+        store.save_preferences("owner", "A custom preference")
+
+    assert actions == ["select", "select", "upsert"]
 
 
 @pytest.mark.parametrize("table,role", [("conversations", None), ("messages", "user"), ("messages", "assistant")])

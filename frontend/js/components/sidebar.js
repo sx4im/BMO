@@ -3,9 +3,9 @@ import { icon } from "../icons.js?v=77";
 import { avatar } from "./avatar.js?v=31";
 import { getRoute, navigate } from "../router.js?v=1";
 import { openConfirmModal, openPromptModal } from "./confirm-modal.js?v=59";
-import { openShareModal } from "./share-modal.js?v=4";
-import { openMoveChatModal, openProjectModal } from "../pages/projects.js?v=5";
-import { getAuth } from "../auth.js?v=1";
+import { openShareModal } from "./share-modal.js?v=5";
+import { openMoveChatModal, openProjectModal } from "../pages/projects.js?v=6";
+import { getAuth } from "../auth.js?v=2";
 
 const NAV = [
   { hash: "#/app/chat", label: "Search", icon: "search" },

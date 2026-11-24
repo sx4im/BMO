@@ -1,8 +1,8 @@
 import { el, clear } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
-import { getAuth } from "../auth.js?v=1";
-import { mountAppShell } from "../app-shell.js?v=5";
-import * as api from "../api.js?v=73";
+import { getAuth } from "../auth.js?v=2";
+import { mountAppShell } from "../app-shell.js?v=6";
+import * as api from "../api.js?v=74";
 import { openConfirmModal } from "../components/confirm-modal.js?v=59";
 import { downloadBlob } from "../export.js?v=7";
 

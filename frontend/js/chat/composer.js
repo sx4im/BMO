@@ -10,8 +10,8 @@ import { FileIcon } from "../components/file-icon.js?v=7";
 import { toast } from "../components/toast.js?v=59";
 import { openImageModal } from "../components/image-modal.js?v=31";
 import { blobToWav16kMono } from "../audio-wav.js?v=31";
-import { getAuth } from "../auth.js?v=1";
-import * as api from "../api.js?v=73";
+import { getAuth } from "../auth.js?v=2";
+import * as api from "../api.js?v=74";
 import { SkillPicker } from "./skill-picker.js?v=7";
 
 const MAX_IMAGES_PER_MESSAGE = 6;

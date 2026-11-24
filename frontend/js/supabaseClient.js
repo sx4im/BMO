@@ -3,7 +3,7 @@
 // using whatever URL + anon key are configured at runtime (config.js).
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { config } from "./config.js?v=31";
+import { config } from "./config.js?v=32";
 
 let _client = null;
 let _signature = null;

@@ -4,19 +4,19 @@
 // hits Supabase Postgres directly: all reads/writes go through the gateway,
 // which validates the JWT and uses the service role on the server side.
 
-import { config } from "./config.js?v=31";
-import { getAuth, refreshSession } from "./auth.js?v=1";
-import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js?v=1";
+import { config } from "./config.js?v=32";
+import { getAuth, refreshSession } from "./auth.js?v=2";
+import { supabaseClient, isSupabaseConfigured } from "./supabaseClient.js?v=2";
 
 function authHeaders(token) {
   const t = getAuth().auth?.token || token;
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-async function request(path, { method = "GET", body, blob = false, token, signal } = {}) {
+async function request(path, { method = "GET", body, blob = false, token, signal, baseUrl = config.apiUrl } = {}) {
   const execute = async (t) => {
     console.debug(`[bimo-api] ${method} ${path} auth=${t ? "yes" : "none"}`);
-    const response = await fetch(`${config.apiUrl}${path}`, {
+    const response = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -73,16 +73,27 @@ export async function saveOnboarding(token, payload) {
 // ---------- conversations ----------
 
 export async function listConversations(token) {
-  return request("/conversations", { token, signal: chatReadSignal() });
+  return readChat("/conversations", token);
 }
 
 export async function getMessages(token, conversationId, signal) {
-  return request(`/conversations/${conversationId}/messages`, { token, signal: signal ?? chatReadSignal() });
+  const path = `/conversations/${conversationId}/messages`;
+  return signal ? request(path, { token, signal, baseUrl: config.sameOriginApiUrl ?? config.apiUrl }) : readChat(path, token);
 }
 
-function chatReadSignal() {
+async function readChat(path, token) {
   if (navigator.onLine === false) throw new Error("Waiting for an internet connection.");
-  return AbortSignal.timeout(15_000);
+  // Try another connection after a short stall. Reserve the normal read
+  // window for the second attempt and never replay chat submissions here.
+  const deadline = AbortSignal.timeout(21_000);
+  try {
+    return await request(path, { token, signal: AbortSignal.timeout(6_000), baseUrl: config.sameOriginApiUrl ?? config.apiUrl });
+  } catch (error) {
+    const interrupted = error.name === "TimeoutError" || error.name === "TypeError" ||
+      [502, 503, 504].includes(error.status);
+    if (!interrupted || deadline.aborted) throw error;
+    return request(path, { token, signal: deadline, baseUrl: config.apiUrl });
+  }
 }
 
 export async function deleteConversation(token, conversationId) {
@@ -509,7 +520,7 @@ export async function uploadAttachment(token, file, signal) {
 // ---------- models ----------
 
 export async function listModels(token) {
-  return request("/models", { token });
+  return readChat("/models", token);
 }
 
 // ---------- voice transcription ----------

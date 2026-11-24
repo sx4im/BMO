@@ -16,8 +16,8 @@
 import { el } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
 import { toast } from "./toast.js?v=59";
-import * as api from "../api.js?v=73";
-import { LiveTranscriber } from "../chat/live-transcriber.js?v=6";
+import * as api from "../api.js?v=74";
+import { LiveTranscriber } from "../chat/live-transcriber.js?v=7";
 import { getRandomPhrase } from "../chat/waiting-phrases.js?v=2";
 import { SemanticTurnDetector } from "../chat/turn-detector.js?v=2";
 import { VOICE_LANGUAGES, normalizeVoiceLanguage } from "./voice-languages.js?v=3";
@@ -161,41 +161,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     currentLangId = code;
     try { localStorage.setItem("bimo-voice-lang", code); } catch {}
     langBtn.setAttribute("aria-label", `Language: Automatic (${getLangConfig().label})`);
-    ensureTTSWS();
   }
-
-  // Persistent Deepgram TTS WebSocket across turns
-  let ttsWS = null;
-  let ttsSignature = "";
-
-  function ensureTTSWS() {
-    if (!active) return null;
-    const activeLang = getLangConfig();
-    const delivery = voiceDelivery(currentTone);
-    const controls = activeLang.id === "en" ? delivery : { expressivity: delivery.expressivity };
-    const signature = JSON.stringify([activeLang.model, controls]);
-    if (ttsWS && signature === ttsSignature && (ttsWS.readyState === WebSocket.OPEN || ttsWS.readyState === WebSocket.CONNECTING)) {
-      return ttsWS;
-    }
-    if (ttsWS) { try { ttsWS.close(); } catch {} ttsWS = null; }
-    try {
-      const streamUrl = api.ttsStreamUrl(token, { model: activeLang.model, sampleRate: 24000, ...controls });
-      const ws = new WebSocket(streamUrl);
-      ws.binaryType = "arraybuffer";
-      ttsWS = ws;
-      ttsSignature = signature;
-      ws.onclose = () => {
-        if (ttsWS === ws) ttsWS = null;
-      };
-      return ws;
-    } catch (e) {
-      console.warn("[bimo-voice] Pre-warm WebSocket failed:", e);
-      return null;
-    }
-  }
-
-  // Pre-warm the WebSocket immediately so first turn has 0ms connection latency
-  ensureTTSWS();
 
   // Voice-activity detection state (tuning constants at the top of the file).
   let vadAnalyser = null;
@@ -245,12 +211,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     langLabel.textContent = autoLanguage ? "Auto" : conf.label;
     langBtn.setAttribute("aria-label", autoLanguage ? "Language: Automatic" : `Language: ${conf.label}`);
 
-    // Reconnect TTS WebSocket for new language model
-    if (ttsWS) {
-      try { ttsWS.close(); } catch {}
-      ttsWS = null;
-    }
-    ensureTTSWS();
     if (state === "listening" && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined") {
       discardTake = true;
       const pendingRecorder = Boolean(mediaRecorder);
@@ -868,12 +828,15 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     let resolveDone;
     const donePromise = new Promise((r) => { resolveDone = r; });
 
-    const ws = ensureTTSWS();
+    // Each open TTS socket occupies a gateway request thread. Keep it scoped
+    // to one utterance so listening or waiting for a reply uses no TTS slot.
+    let ws = null;
 
     function complete() {
       if (completed) return;
       completed = true;
       if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
+      try { ws?.close(); } catch {}
       stopMeter();
       ttsSource = null;
       resolveDone();
@@ -887,7 +850,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     }
 
     function checkDone() {
-      if (cancelled) return;
+      if (cancelled || completed) return;
       if (isAudioPlaying()) {
         if (queuedSources.length === 0 && audioCtx && nextPlayTime > audioCtx.currentTime) {
           const waitMs = Math.max(20, Math.ceil((nextPlayTime - audioCtx.currentTime) * 1000) + 40);
@@ -898,7 +861,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
 
       if (!finished) return;
 
-      if (serverAudioDone || wsClosed) {
+      if (!ws || serverAudioDone || wsClosed) {
         complete();
         return;
       }
@@ -907,14 +870,24 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
         const stallMs = hasReceivedAudio ? 2500 : 8000;
         finishTimer = setTimeout(() => {
           if (!cancelled && !isAudioPlaying()) {
-            try { ws?.close(); } catch {}
             complete();
           }
         }, stallMs);
       }
     }
 
-    if (ws) {
+    function openSocket() {
+      const delivery = voiceDelivery(currentTone);
+      const controls = activeLang.id === "en" ? delivery : { expressivity: delivery.expressivity };
+      try {
+        const url = api.ttsStreamUrl(token, { model: activeLang.model, sampleRate: 24000, ...controls });
+        ws = new WebSocket(url);
+        ws.binaryType = "arraybuffer";
+      } catch (err) {
+        console.warn("[bimo-voice] Could not open speech WebSocket:", err);
+        return;
+      }
+
       ws.onopen = () => {
         if (cancelled) return;
         while (pendingTextQueue.length) {
@@ -974,7 +947,7 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       };
 
       ws.onclose = () => {
-        if (ttsWS === ws) ttsWS = null;
+        pendingTextQueue.length = 0;
         wsClosed = true;
         checkDone();
       };
@@ -1031,7 +1004,10 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
       const clean = stripForSpeech(rawText, isStart, activeLang.id).trim();
       // Skip chunks with no actual spoken words (prevents sending orphan dots or bare punctuation)
       if (!clean || !clean.replace(/[\s.,;:!?…-]/g, "")) return;
-      hasSentFirstChunk = true;
+      if (isStart) {
+        hasSentFirstChunk = true;
+        openSocket();
+      }
       // Ensure words do not get glued together across WebSocket Speak chunks
       const textToSend = clean.endsWith(" ") ? clean : `${clean} `;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1212,11 +1188,6 @@ export function openVoiceOverlay({ token, sendTurn, onClose, onInterrupt } = {})
     stopRecorder();
     stopSpeaking();
     stopVAD();
-    if (ttsWS) {
-      try { ttsWS.send(JSON.stringify({ type: "Close" })); } catch {}
-      try { ttsWS.close(); } catch {}
-      ttsWS = null;
-    }
     if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
     if (playbackAnalyser) { try { playbackAnalyser.disconnect(); } catch {} playbackAnalyser = null; }
     orb.destroy();

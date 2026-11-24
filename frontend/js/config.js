@@ -9,6 +9,7 @@
 // `supabaseAnonKey` — Supabase anon (public) key — safe to ship to the browser.
 
 const STORAGE_KEY = "bimo-config";
+const PRODUCTION_ORIGIN = "https://bimo.qzz.io";
 
 function isLocalhost() {
   try {
@@ -50,6 +51,11 @@ function trimUrl(value) {
 export const config = {
   get apiUrl() {
     return loadOverrides().apiUrl || DEFAULTS.apiUrl;
+  },
+  get sameOriginApiUrl() {
+    return globalThis.location?.origin === PRODUCTION_ORIGIN && !loadOverrides().apiUrl
+      ? `${PRODUCTION_ORIGIN}/bmo-api`
+      : null;
   },
   get supabaseUrl() {
     return loadOverrides().supabaseUrl || DEFAULTS.supabaseUrl;

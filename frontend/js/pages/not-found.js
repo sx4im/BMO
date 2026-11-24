@@ -1,6 +1,6 @@
 import { $, el, clear } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
-import { tearDownShell } from "../app-shell.js?v=5";
+import { tearDownShell } from "../app-shell.js?v=6";
 
 export async function renderNotFound() {
   tearDownShell();

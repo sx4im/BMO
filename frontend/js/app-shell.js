@@ -1,10 +1,10 @@
 import { $, el, clear } from "./utils.js?v=52";
 import { icon } from "./icons.js?v=77";
-import { renderSidebar } from "./components/sidebar.js?v=70";
+import { renderSidebar } from "./components/sidebar.js?v=71";
 import { openChatSearch } from "./components/chat-search.js?v=32";
 import { toast } from "./components/toast.js?v=59";
-import * as api from "./api.js?v=73";
-import { getAuth, signOut } from "./auth.js?v=1";
+import * as api from "./api.js?v=74";
+import { getAuth, signOut } from "./auth.js?v=2";
 import { navigate } from "./router.js?v=1";
 import { applyTheme } from "./prefs.js?v=1";
 

@@ -1,8 +1,8 @@
 // One features card per account and release, with a local offline backstop.
 import { el } from "../utils.js?v=52";
 import { icon } from "../icons.js?v=77";
-import { getAuth } from "../auth.js?v=1";
-import { saveOnboarding } from "../api.js?v=73";
+import { getAuth } from "../auth.js?v=2";
+import { saveOnboarding } from "../api.js?v=74";
 
 const RELEASE = "6.0";
 const seenKey = auth => `bmo-release-${RELEASE}:${auth?.user?.id || ""}`;

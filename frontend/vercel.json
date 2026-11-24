@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": ".",
+  "rewrites": [
+    {
+      "source": "/bmo-api/:path*",
+      "destination": "https://bimo-backend-4a4g.onrender.com/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/bmo-api/:path*",
+      "headers": [
+        { "key": "Cache-Control", "value": "private, no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
+      ]
+    }
+  ]
+}

@@ -13,7 +13,7 @@ async function voicePage(sendTurn, language='en', options = {}) {
   class Socket {
     static CONNECTING=0; static OPEN=1;
     readyState=0;
-    constructor(url) { this.url=url; sockets.push(this);queueMicrotask(()=>{this.readyState=1;this.onopen?.();}); }
+    constructor(url) { this.url=url; sockets.push(this);queueMicrotask(()=>{if(this.readyState===0){this.readyState=1;this.onopen?.();}}); }
     send(raw) {
       const command=JSON.parse(raw);commands.push({...command,url:this.url});
       if(command.type==='Speak' && !(options.silentFirstSpeech && commands.filter(c=>c.type==='Speak').length===1)) queueMicrotask(()=>this.onmessage?.({data:new Int16Array(240).buffer}));
@@ -107,6 +107,27 @@ test('voice uses restrained documented delivery settings',async t=>{
   assert.deepEqual({...page.voiceDelivery('unknown')},{speed:1.05,expressivity:0});
 });
 
+test('voice opens a speech socket only for audio and releases it after playback', async t => {
+  let resolveReply;
+  const page = await voicePage(() => new Promise(resolve => { resolveReply = resolve; }));
+  t.after(() => page.overlay.close());
+  assert.equal(page.sockets.length, 0);
+
+  const language = page.dom.window.document.querySelector('.voice-lang-btn');
+  language.value = 'fr';
+  language.dispatchEvent(new page.dom.window.Event('change'));
+  page.submit('Bonjour');
+  await until(() => resolveReply);
+  assert.equal(page.sockets.length, 0);
+
+  resolveReply('Bonjour, voici une réponse.');
+  await until(() => page.commands.some(command => command.type === 'Flush'));
+  assert.equal(page.sockets.length, 1);
+  assert.match(page.sockets[0].url, /model=flux-arnaud-fr/);
+  assert.equal(page.sockets[0].readyState, 1);
+  await until(() => page.sockets[0].readyState === 3);
+});
+
 test('voice displays Bmo and sends its letter names to speech synthesis', async t => {
   const reply = "I'm Bmo. BMO is here to help.";
   const page = await voicePage(async (_text, handlers) => {
@@ -129,7 +150,7 @@ test('voice displays Bmo and sends its letter names to speech synthesis', async 
 test('voice announces retrieval once, then speaks only the answer with its chosen register',async t=>{
   const reply='That sounds difficult. Take one small step today. We can work through this together.';
   const page=await voicePage(async(_text,handlers)=>{
-    handlers.onSearching();handlers.onSearching();
+    handlers.onSearching();handlers.onSearching();await tick();
     handlers.onVoiceStyle('gentle');handlers.onDelta(reply);
     return reply;
   });t.after(()=>page.overlay.close());
@@ -508,7 +529,7 @@ test('explicit Urdu streams through Deepgram and shows only the completed transc
     finish(){return Promise.resolve('آپ کیسے ہیں؟');}
     cancel(){this.cancelled=true;}
   }
-  const page=await voicePage(async text=>{sent.push(text);return '';},'ur',{
+  const page=await voicePage(async text=>{sent.push(text);return 'میں ٹھیک ہوں۔';},'ur',{
     liveTranscriber:Live,recordingData:true,
     getUserMedia:async()=>({getTracks:()=>[{stop(){}}]}),
     transcribeAudio:()=>assert.fail('A healthy live stream must not upload a second recording'),
@@ -519,7 +540,7 @@ test('explicit Urdu streams through Deepgram and shows only the completed transc
   sessions[0].options.onTranscript('آپ کیسے');
   assert.equal(page.dom.window.document.querySelector('.voice-transcript').textContent,'');
   sessions[0].options.onUtteranceEnd();
-  await until(()=>sent.length);
+  await until(()=>page.commands.some(command=>command.type==='Speak'));
   assert.deepEqual(sent,['آپ کیسے ہیں؟']);
   assert.ok(page.sockets.some(socket=>socket.url.includes('model=flux-ambreen-ur')));
 });
@@ -544,7 +565,7 @@ test('automatic language changes the Flux voice without restarting the microphon
     finish(){return Promise.resolve('Bonjour comment allez vous?');}
     cancel(){}
   }
-  const page=await voicePage(async(_text,opts)=>{submitted=opts;return '';},'auto',{
+  const page=await voicePage(async(_text,opts)=>{submitted=opts;return 'Très bien, merci.';},'auto',{
     liveTranscriber:Live,recordingData:true,
     transcribeAudio:async()=>({text:"Bonjour comment allez vous?",language:"french"}),
     getUserMedia:async()=>{captures++;return {getTracks:()=>[{stop(){}}]};},
@@ -553,7 +574,7 @@ test('automatic language changes the Flux voice without restarting the microphon
   assert.equal(sessions[0].options.language,'multi');
   sessions[0].options.onLanguage('fr');
   sessions[0].options.onUtteranceEnd();
-  await until(()=>submitted);
+  await until(()=>page.commands.some(command=>command.type==='Speak'));
   assert.equal(submitted.language,'fr');
   assert.equal(submitted.delivery,'gentle');
   assert.equal(captures,1);
@@ -1151,10 +1172,11 @@ test('Urdu sentence punctuation starts speaking before model completion', async 
 
 test('an acknowledgment with no audio never blocks the actual answer', async t => {
   const reply='The answer is ready.';
-  const page=await voicePage(async (_text,ctx)=>{ctx.onSearching();ctx.onDelta(reply);return reply;},'en',{silentFirstSpeech:true});
+  const page=await voicePage(async (_text,ctx)=>{ctx.onSearching();await tick();ctx.onDelta(reply);return reply;},'en',{silentFirstSpeech:true});
   t.after(()=>page.overlay.close());page.submit('Find the latest update.');
   await until(()=>page.commands.some(command=>command.type==='Speak'&&command.text.includes(reply)),500);
   assert.ok(page.commands.some(command=>command.type==='Interrupt'));
+  assert.equal(page.sockets[0].readyState,3);
 });
 
 test('a failed searched turn cannot replay buffered answer text after its cue is cancelled', async t => {
@@ -1179,7 +1201,7 @@ test('Auto uses a healthy finalized Deepgram transcript without uploading the re
     async finish() { return 'Bonjour, comment allez-vous ?'; }
     cancel() {}
   }
-  const page = await voicePage(async (text, opts) => { submitted = { text, ...opts }; return ''; }, 'auto', {
+  const page = await voicePage(async (text, opts) => { submitted = { text, ...opts }; return 'Très bien, merci.'; }, 'auto', {
     liveTranscriber: Live, recordingData: true,
     getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
     transcribeAudio: async () => assert.fail('A healthy stream should not upload a second copy'),
@@ -1188,7 +1210,7 @@ test('Auto uses a healthy finalized Deepgram transcript without uploading the re
   await until(() => live);
   assert.equal(live.options.language, 'multi');
   live.options.onUtteranceEnd();
-  await until(() => submitted);
+  await until(() => page.commands.some(command => command.type === 'Speak'));
   assert.equal(submitted.text, 'Bonjour, comment allez-vous ?');
   assert.equal(submitted.language, 'fr');
   assert.ok(page.sockets.some(socket => socket.url.includes('model=flux-arnaud-fr')));

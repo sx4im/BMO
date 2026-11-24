@@ -28,6 +28,7 @@ class MemoryQuery:
 
     def select(self, columns): self.columns = columns; return self
     def eq(self, key, value): self.filters.append((key, "eq", value)); return self
+    def gte(self, key, value): self.filters.append((key, "gte", value)); return self
     def contains(self, key, value): self.filters.append((key, "contains", value)); return self
     def order(self, key, desc=False): self.orders.append((key, desc)); return self
     def range(self, start, end): self.start, self.stop = start, end + 1; return self
@@ -45,6 +46,8 @@ class MemoryQuery:
             else:
                 actual = row.get(key)
             if operation == "eq" and actual != value:
+                return False
+            if operation == "gte" and (actual is None or actual < value):
                 return False
             if operation == "contains" and not all(any(all(item.get(k) == v for k, v in expected.items())
                                                        for item in actual or []) for expected in value):

@@ -11,24 +11,75 @@ async function apiFixture(fetch, globals = {}) {
   return app.load('js/api.js');
 }
 
+test('production reads use same-origin and writes and voice keep their direct routes', async t => {
+  const requested = [];
+  const app = moduleLoader({
+    'auth.js': { getAuth: () => ({ auth: null }), refreshSession: async () => null },
+    'supabaseClient.js': { isSupabaseConfigured: () => false, supabaseClient() {} },
+  }, { globals: { fetch: async url => {
+    requested.push(url);
+    if (url.includes('/bmo-api/conversations/') && requested.length === 3) throw new TypeError('Network unavailable');
+    return new Response('[]');
+  } } });
+  t.after(() => app.dom.window.close());
+  app.dom.reconfigure({ url: 'https://bimo.qzz.io/#/app/chat' });
+
+  const api = await app.load('js/api.js');
+  const { config } = await app.load('js/config.js');
+  await api.listConversations('test');
+  await api.createTranscriptionToken('test');
+  await api.getMessages('test', 'chat');
+  await api.listModels('test');
+  assert.deepEqual(requested, [
+    'https://bimo.qzz.io/bmo-api/conversations',
+    'https://bimo-backend-4a4g.onrender.com/transcribe/token',
+    'https://bimo.qzz.io/bmo-api/conversations/chat/messages',
+    'https://bimo-backend-4a4g.onrender.com/conversations/chat/messages',
+    'https://bimo.qzz.io/bmo-api/models',
+  ]);
+  assert.equal(new URL(api.ttsStreamUrl('test')).host, 'bimo-backend-4a4g.onrender.com');
+
+  config.setApiUrl('https://override.invalid');
+  await api.listConversations('test');
+  assert.equal(requested.at(-1), 'https://override.invalid/conversations');
+  assert.equal(new URL(api.ttsStreamUrl('test')).host, 'override.invalid');
+});
+
 test('conversation reads have a deadline and skip the network while offline', async () => {
   const navigator = { onLine: true };
   const requests = [];
-  const deadline = new AbortController().signal;
+  const deadlines = [];
   const api = await apiFixture(async (url, { signal }) => {
     requests.push({ url, signal });
     return new Response("[]");
   }, { navigator, AbortSignal: { timeout: ms => {
-    assert.equal(ms, 15_000);
-    return deadline;
+    deadlines.push(ms);
+    return new AbortController().signal;
   } } });
   await api.listConversations("test");
   await api.getMessages("test", "chat");
   assert.equal(requests.length, 2);
-  assert.ok(requests.every(request => request.signal === deadline));
+  assert.deepEqual(deadlines, [21_000, 6_000, 21_000, 6_000]);
+  assert.ok(requests.every(request => request.signal instanceof AbortSignal));
   navigator.onLine = false;
   await assert.rejects(api.listConversations("test"), /internet connection/);
   assert.equal(requests.length, 2);
+});
+
+test('history retries one failed network read within a bounded deadline', async () => {
+  const requests = [];
+  const overall = new AbortController().signal;
+  const first = new AbortController().signal;
+  const api = await apiFixture(async (url, { signal }) => {
+    requests.push({ url, signal });
+    if (requests.length === 1) throw new DOMException('First attempt timed out', 'TimeoutError');
+    return new Response('{"messages":[]}');
+  }, { AbortSignal: { timeout: ms => ms === 21_000 ? overall : first } });
+  assert.deepEqual(await api.getMessages('test', 'chat'), { messages: [] });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].url, requests[1].url);
+  assert.equal(requests[0].signal, first);
+  assert.equal(requests[1].signal, overall);
 });
 
 test('message recovery and image polling forward their cancellation signal', async () => {

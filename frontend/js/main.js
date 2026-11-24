@@ -1,14 +1,14 @@
 import { defineRoute, startRouter, navigate, dispatch } from "./router.js?v=1";
-import { bootstrap, getAuth, onAuthChange } from "./auth.js?v=1";
+import { bootstrap, getAuth, onAuthChange } from "./auth.js?v=2";
 import { initThemeSync } from "./prefs.js?v=1";
-import * as api from "./api.js?v=73";
-import { renderLanding } from "./pages/landing.js?v=57";
-import { renderChat } from "./pages/chat.js?v=229";
-import { renderSettings } from "./pages/settings.js?v=83";
-import { renderNotFound } from "./pages/not-found.js?v=58";
-import { renderSharedChat } from "./pages/shared-chat.js?v=10";
-import { renderProjects } from "./pages/projects.js?v=5";
-import { renderCustomize } from "./pages/customize.js?v=18";
+import * as api from "./api.js?v=74";
+import { renderLanding } from "./pages/landing.js?v=58";
+import { renderChat } from "./pages/chat.js?v=230";
+import { renderSettings } from "./pages/settings.js?v=84";
+import { renderNotFound } from "./pages/not-found.js?v=59";
+import { renderSharedChat } from "./pages/shared-chat.js?v=11";
+import { renderProjects } from "./pages/projects.js?v=6";
+import { renderCustomize } from "./pages/customize.js?v=19";
 import { bootVersionGuard } from "./version-guard.js?v=3";
 
 
@@ -77,7 +77,7 @@ onAuthChange(async (s) => {
 // Check the release acknowledgment in the background, including after signup.
 async function maybeShowOnboarding(auth) {
   try {
-    const { hasSeenOnboarding, showOnboarding, syncOnboarding } = await import("./components/onboarding.js?v=33");
+    const { hasSeenOnboarding, showOnboarding, syncOnboarding } = await import("./components/onboarding.js?v=34");
     if (hasSeenOnboarding(auth)) { void syncOnboarding(auth); return; }
     const profile = await api.me(auth.token).catch(() => null);
     if (getAuth().auth?.user?.id !== auth.user.id || hasSeenOnboarding(auth, profile)) return;

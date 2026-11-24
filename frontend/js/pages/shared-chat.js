@@ -9,7 +9,7 @@ import { brandMark, logo } from "../components/logo.js?v=33";
 import { messageBubble } from "../components/message.js?v=83";
 import { whenMarkdownReady } from "../components/markdown.js?v=37";
 import { navigate } from "../router.js?v=1";
-import * as api from "../api.js?v=73";
+import * as api from "../api.js?v=74";
 
 export async function renderSharedChat({ shareId } = {}) {
   const root = document.getElementById("app");
